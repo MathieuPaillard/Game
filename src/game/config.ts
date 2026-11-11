@@ -271,6 +271,8 @@ export const UNITS: UnitDef[] = [
 
 /** Une troupe inflige 1,5 fois plus de dégâts à la famille qu'elle domine. */
 export const COUNTER_BONUS = 1.5
+/** Quand les réserves de nourriture sont vides, les troupes ont faim : 0.3 = 30 % d'attaque en moins. */
+export const STARVATION_ATTACK_MALUS = 0.3
 /** Une bataille s'arrête au plus tard après ce nombre de manches. */
 export const MAX_BATTLE_ROUNDS = 10
 /** Troupes maximum par entraînement, pour chaque niveau de Caserne. */

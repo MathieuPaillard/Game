@@ -6,7 +6,6 @@ import {
   RACES,
   RESOURCE_IDS,
   START_LEVELS,
-  UNIT_IDS,
   type Army,
   type BuildingId,
   type CampId,
@@ -17,9 +16,11 @@ import {
 import {
   advance,
   armySize,
+  checkDismiss,
   checkExpedition,
   checkTraining,
   checkUpgrade,
+  dismissTroops,
   emptyArmy,
   emptyResources,
   getBuilding,
@@ -32,7 +33,6 @@ import {
   type Check,
   type GameState,
 } from '../game/rules'
-import { formatArmy } from './format'
 
 const SAVE_KEY = 'royaume-sauvegarde'
 // À augmenter si le format de la sauvegarde change de façon incompatible :
@@ -109,6 +109,12 @@ export function useGame() {
         (s, t) => startExpedition(s, camp, troops, t),
       )
     },
+    dismiss(troops: Army) {
+      act(
+        (s) => checkDismiss(s, troops),
+        (s, t) => dismissTroops(s, troops, t),
+      )
+    },
     restart() {
       awayReport.value = null
       update(null)
@@ -127,16 +133,18 @@ function loadSave(): GameState | null {
     const state = save.state
     if (save.version !== SAVE_VERSION || !state) return null
     if (!RACES.some((race) => race.id === state.race)) return null
-    // Complète les sauvegardes d'une version plus ancienne du jeu (nouveaux bâtiments, troupes…).
+    // On reconstruit la partie champ par champ : ce qui manque dans une sauvegarde plus ancienne
+    // prend sa valeur par défaut, et ce qui n'existe plus dans le jeu est oublié.
     return {
-      ...state,
-      levels: { ...START_LEVELS, ...state.levels },
+      race: state.race,
       resources: { ...emptyResources(), ...state.resources },
+      levels: { ...START_LEVELS, ...state.levels },
+      construction: state.construction ?? null,
       troops: { ...emptyArmy(), ...state.troops },
       training: state.training ?? null,
       expedition: state.expedition ?? null,
       reports: state.reports ?? [],
-      desertions: state.desertions ?? [],
+      updatedAt: state.updatedAt,
     }
   } catch {
     return null
@@ -177,10 +185,5 @@ function makeAwayReport(before: GameState, after: GameState): AwayReport | null 
     const survived = report !== undefined && armySize(report.sent) > armySize(report.lost)
     if (expedition.result || survived) events.push('Ton armée est rentrée à la cité.')
   }
-  const deserted = emptyArmy()
-  for (const desertion of after.desertions.filter((d) => d.at > before.updatedAt)) {
-    for (const id of UNIT_IDS) deserted[id] += desertion.troops[id]
-  }
-  if (armySize(deserted) > 0) events.push(`Famine : ${formatArmy(deserted)} ont déserté.`)
   return { duration, gains, events }
 }

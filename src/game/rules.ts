@@ -17,6 +17,7 @@ import {
   RESOURCE_IDS,
   START_LEVELS,
   START_RESOURCES,
+  STARVATION_ATTACK_MALUS,
   TRAINING_BATCH_PER_LEVEL,
   UNITS,
   UNIT_IDS,
@@ -71,12 +72,8 @@ export interface BattleReport {
   lost: Army
   enemyLost: Partial<Record<MonsterId, number>>
   loot: Partial<Resources>
-}
-
-/** Des troupes parties faute de nourriture. */
-export interface Desertion {
-  at: number
-  troops: Army
+  /** L'armée avait faim : son attaque était réduite. */
+  starving: boolean
 }
 
 /** Tout ce qu'il faut savoir sur une partie. Les heures sont en millisecondes (comme Date.now()). */
@@ -91,8 +88,6 @@ export interface GameState {
   expedition: Expedition | null
   /** Derniers rapports de bataille, du plus récent au plus ancien. */
   reports: BattleReport[]
-  /** Dernières désertions dues à la famine, de la plus récente à la plus ancienne. */
-  desertions: Desertion[]
   /** Instant jusqu'auquel les ressources ont été calculées. */
   updatedAt: number
 }
@@ -113,7 +108,6 @@ export function newGame(race: RaceId, now: number): GameState {
     training: null,
     expedition: null,
     reports: [],
-    desertions: [],
     updatedAt: now,
   }
 }
@@ -221,20 +215,12 @@ export function timeUntilFamine(state: GameState): number | null {
   return (state.resources.food / -net) * HOUR
 }
 
-/** Famine : juste assez de troupes de la cité désertent pour que les fermes couvrent l'entretien. */
-function desert(state: GameState): GameState {
-  const deficit = -netPerHour(state).food
-  const homeUpkeep = armyUpkeep(state.troops)
-  // Chaque famille de troupes perd la même proportion de ses soldats.
-  const keep = homeUpkeep > deficit ? 1 - deficit / homeUpkeep : 0
-  const troops = emptyArmy()
-  const gone = emptyArmy()
-  for (const id of UNIT_IDS) {
-    troops[id] = Math.floor(state.troops[id] * keep)
-    gone[id] = state.troops[id] - troops[id]
-  }
-  const desertions = [{ at: state.updatedAt, troops: gone }, ...state.desertions].slice(0, MAX_REPORTS)
-  return { ...state, troops, desertions }
+/**
+ * Famine : les réserves de nourriture sont vides et les fermes ne suffisent plus.
+ * Les troupes ont faim et se battent moins bien (voir STARVATION_ATTACK_MALUS).
+ */
+export function isStarving(state: GameState): boolean {
+  return state.resources.food < 1 && netPerHour(state).food < 0
 }
 
 // --- Constructions ---
@@ -351,9 +337,8 @@ export function startTraining(state: GameState, unitId: UnitId, count: number, n
 
 // --- Expéditions contre les monstres ---
 
-export function checkExpedition(state: GameState, campId: CampId, troops: Army): Check {
-  getCamp(campId)
-  if (state.expedition) return { ok: false, reason: 'Une armée est déjà en campagne' }
+/** Vérifie une sélection de troupes prises dans la cité. */
+function checkSelection(state: GameState, troops: Army): Check {
   if (UNIT_IDS.some((id) => !Number.isInteger(troops[id]) || troops[id] < 0)) {
     return { ok: false, reason: 'Nombre de troupes invalide' }
   }
@@ -362,6 +347,12 @@ export function checkExpedition(state: GameState, campId: CampId, troops: Army):
     return { ok: false, reason: 'Tu n’as pas autant de troupes' }
   }
   return { ok: true }
+}
+
+export function checkExpedition(state: GameState, campId: CampId, troops: Army): Check {
+  getCamp(campId)
+  if (state.expedition) return { ok: false, reason: 'Une armée est déjà en campagne' }
+  return checkSelection(state, troops)
 }
 
 /** Envoie une armée vers un camp : elle quitte la cité tout de suite. */
@@ -391,9 +382,12 @@ export function startExpedition(state: GameState, campId: CampId, troops: Army, 
 function resolveArrival(state: GameState, expedition: Expedition): GameState {
   const camp = getCamp(expedition.camp)
   const defenders = Object.entries(camp.defenders) as [MonsterId, number][]
+  // Une armée affamée se bat moins bien.
+  const starving = isStarving(state)
+  const attackFactor = starving ? 1 - STARVATION_ATTACK_MALUS : 1
   const attackerStacks: Stack[] = UNIT_IDS.map((id) => {
     const unit = getUnit(id)
-    return { family: id, attack: unit.attack, health: unit.health, count: expedition.troops[id] }
+    return { family: id, attack: unit.attack * attackFactor, health: unit.health, count: expedition.troops[id] }
   })
   const defenderStacks: Stack[] = defenders.map(([id, count]) => {
     const monster = getMonster(id)
@@ -421,12 +415,30 @@ function resolveArrival(state: GameState, expedition: Expedition): GameState {
     lost,
     enemyLost,
     loot,
+    starving,
   }
   const reports = [report, ...state.reports].slice(0, MAX_REPORTS)
 
   // Une armée entièrement détruite ne rentre pas : l'expédition s'arrête là.
   if (armySize(survivors) === 0) return { ...state, reports, expedition: null }
   return { ...state, reports, expedition: { ...expedition, result: { survivors, loot } } }
+}
+
+// --- Renvoi de troupes ---
+
+export function checkDismiss(state: GameState, troops: Army): Check {
+  return checkSelection(state, troops)
+}
+
+/** Renvoie des troupes chez elles : elles quittent l'armée et ne coûtent plus d'entretien. */
+export function dismissTroops(state: GameState, troops: Army, now: number): GameState {
+  const current = advance(state, now)
+  const check = checkDismiss(current, troops)
+  if (!check.ok) throw new Error(check.reason)
+
+  const home = { ...current.troops }
+  for (const id of UNIT_IDS) home[id] -= troops[id]
+  return { ...current, troops: home }
 }
 
 /** L'armée rentre : les survivants retrouvent la cité, avec le butin. */
@@ -443,7 +455,7 @@ interface PendingEvent {
   apply: (state: GameState) => GameState
 }
 
-/** Le prochain événement prévu : fin de chantier, fin d'entraînement, arrivée ou retour d'une armée, famine. */
+/** Le prochain événement prévu : fin de chantier, fin d'entraînement, arrivée ou retour d'une armée. */
 function nextEvent(state: GameState): PendingEvent | null {
   const { construction, training, expedition } = state
   const events: PendingEvent[] = []
@@ -472,18 +484,13 @@ function nextEvent(state: GameState): PendingEvent | null {
     if (result) events.push({ at: expedition.returnsAt, apply: (s) => resolveReturn(s, result) })
     else events.push({ at: expedition.arrivesAt, apply: (s) => resolveArrival(s, expedition) })
   }
-  // Seules les troupes de la cité peuvent déserter : une armée en campagne attend son retour.
-  const famineIn = timeUntilFamine(state)
-  if (famineIn !== null && armySize(state.troops) > 0) {
-    events.push({ at: state.updatedAt + famineIn, apply: desert })
-  }
   return events.reduce<PendingEvent | null>((first, e) => (!first || e.at < first.at ? e : first), null)
 }
 
 /**
  * Fait avancer la partie jusqu'à l'instant `now` : les ressources s'accumulent, et chaque
- * événement prévu (chantier, entraînement, bataille, retour d'armée, famine) arrive à son
- * heure, même si personne ne regardait. C'est ce qui permet au royaume de vivre hors connexion.
+ * événement prévu (chantier, entraînement, bataille, retour d'armée) arrive à son heure,
+ * même si personne ne regardait. C'est ce qui permet au royaume de vivre hors connexion.
  */
 export function advance(state: GameState, now: number): GameState {
   if (now <= state.updatedAt) return state
@@ -500,7 +507,7 @@ function accrue(state: GameState, until: number): GameState {
   const hours = Math.max(0, until - state.updatedAt) / HOUR
   const rates = netPerHour(state)
   const resources = { ...state.resources }
-  // Les réserves ne descendent jamais sous zéro : la famine est un événement à part.
+  // Les réserves ne descendent jamais sous zéro. Quand la nourriture manque, les troupes ont faim (isStarving).
   for (const id of RESOURCE_IDS) resources[id] = Math.max(0, resources[id] + rates[id] * hours)
   return { ...state, resources, updatedAt: Math.max(state.updatedAt, until) }
 }

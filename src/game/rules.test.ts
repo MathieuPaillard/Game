@@ -3,22 +3,24 @@ import { MAX_LEVEL, RESOURCE_IDS, START_LEVELS, START_RESOURCES, type Army, type
 import {
   advance,
   armySize,
+  checkDismiss,
   checkExpedition,
   checkTraining,
   checkUpgrade,
+  dismissTroops,
   emptyArmy,
   emptyResources,
   getBuilding,
   getCamp,
   getRace,
   getUnit,
+  isStarving,
   maxTrainingBatch,
   newGame,
   productionPerHour,
   startExpedition,
   startTraining,
   startUpgrade,
-  timeUntilFamine,
   trainingCost,
   trainingDuration,
   upgradeCost,
@@ -40,6 +42,12 @@ function richGame(levels: Partial<Record<BuildingId, number>> = {}, troops: Part
 
 function army(troops: Partial<Army>): Army {
   return { ...emptyArmy(), ...troops }
+}
+
+/** Une partie qui démarre avec une quantité de nourriture et une armée données. */
+function withFood(food: number, troops: Partial<Army>): GameState {
+  const game = newGame('humans', T0)
+  return { ...game, resources: { ...game.resources, food }, troops: army(troops) }
 }
 
 describe('production', () => {
@@ -197,37 +205,52 @@ describe('entretien des troupes', () => {
     expect(upkeepPerHour(away)).toBe(upkeepPerHour(home))
   })
 
-  it('la nourriture ne descend jamais sous zéro', () => {
-    // Toute l'armée est en campagne : personne ne peut déserter, les réserves s'arrêtent à zéro.
-    const start = newGame('humans', T0)
-    const game = { ...start, resources: { ...start.resources, food: 100 }, troops: army({ warrior: 5000 }) }
-    const away = startExpedition(game, 'trollLair', army({ warrior: 5000 }), T0)
-    const later = advance(away, away.expedition!.arrivesAt - 1)
+  it('la famine ne fait perdre aucune troupe, et la nourriture ne descend jamais sous zéro', () => {
+    const game = withFood(100, { warrior: 2000 })
+    const later = advance(game, T0 + 3 * HOUR)
     expect(later.resources.food).toBe(0)
-    expect(later.desertions).toEqual([])
+    expect(later.troops.warrior).toBe(2000)
   })
 
-  it('famine : juste assez de troupes désertent pour que les fermes couvrent l’entretien', () => {
-    const game = { ...newGame('humans', T0), troops: army({ warrior: 1000, archer: 500 }) }
-    const famineAt = T0 + timeUntilFamine(game)!
-    expect(advance(game, famineAt - 1).desertions).toEqual([])
-
-    const after = advance(game, famineAt + HOUR)
-    expect(after.desertions[0].at).toBeCloseTo(famineAt)
-    expect(after.desertions[0].troops.warrior).toBeGreaterThan(0)
-    expect(after.troops.warrior + after.desertions[0].troops.warrior).toBe(1000)
-    expect(upkeepPerHour(after)).toBeLessThanOrEqual(productionPerHour(after).food)
-    expect(after.resources.food).toBeGreaterThanOrEqual(0)
+  it('les troupes ont faim quand les réserves sont vides et que les fermes ne suffisent plus', () => {
+    expect(isStarving(withFood(0, { warrior: 2000 }))).toBe(true)
+    // Des réserves restent : personne n'a encore faim.
+    expect(isStarving(withFood(100, { warrior: 2000 }))).toBe(false)
+    // Les fermes suffisent : pas de famine, même avec des réserves vides.
+    expect(isStarving(withFood(0, { warrior: 10 }))).toBe(false)
   })
 
-  it('la famine arrive au même moment d’un coup ou seconde par seconde', () => {
-    const game = { ...newGame('orcs', T0), troops: army({ warrior: 800, rider: 200 }) }
-    const end = T0 + 2 * HOUR
-    const oneShot = advance(game, end)
-    let stepped = game
+  it('une armée affamée se bat moins bien', () => {
+    const attack = (game: GameState) => {
+      const start = startExpedition(game, 'goblinCamp', army({ warrior: 60 }), T0)
+      return advance(start, start.expedition!.arrivesAt).reports[0]
+    }
+    const hungry = attack(withFood(0, { warrior: 2060 }))
+    const fed = attack(withFood(1e9, { warrior: 2060 }))
+    expect(hungry.starving).toBe(true)
+    expect(fed.starving).toBe(false)
+    expect(hungry.lost.warrior).toBeGreaterThan(fed.lost.warrior)
+  })
+
+  it('une bataille affamée donne le même résultat d’un coup ou seconde par seconde', () => {
+    // Les réserves s'épuisent pendant la marche : l'armée arrive affamée.
+    const start = startExpedition(withFood(50, { warrior: 2060 }), 'goblinCamp', army({ warrior: 60 }), T0)
+    const end = T0 + 10 * 60 * 1000
+    const oneShot = advance(start, end)
+    let stepped = start
     for (let t = T0; t <= end; t += 1000) stepped = advance(stepped, t)
+    expect(oneShot.reports[0].starving).toBe(true)
+    expect(stepped.reports).toEqual(oneShot.reports)
     expect(stepped.troops).toEqual(oneShot.troops)
-    expect(stepped.resources.food).toBeCloseTo(oneShot.resources.food, 6)
+  })
+
+  it('on peut renvoyer des troupes pour réduire l’entretien', () => {
+    const game = richGame({}, { warrior: 100, archer: 20 })
+    const after = dismissTroops(game, army({ warrior: 40 }), T0)
+    expect(after.troops).toEqual(army({ warrior: 60, archer: 20 }))
+    expect(upkeepPerHour(after)).toBeLessThan(upkeepPerHour(game))
+    expect(checkDismiss(game, army({ archer: 21 })).ok).toBe(false)
+    expect(checkDismiss(game, army({})).ok).toBe(false)
   })
 })
 

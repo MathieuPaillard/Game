@@ -3,7 +3,8 @@ import CityView from './ui/CityView.vue'
 import RaceChoice from './ui/RaceChoice.vue'
 import { useGame } from './ui/useGame'
 
-const { state, now, awayReport, chooseRace, upgrade, train, attack, restart, dismissAwayReport } = useGame()
+const { state, now, awayReport, chooseRace, upgrade, train, attack, dismiss, restart, dismissAwayReport } =
+  useGame()
 </script>
 
 <template>
@@ -16,6 +17,7 @@ const { state, now, awayReport, chooseRace, upgrade, train, attack, restart, dis
     @upgrade="upgrade"
     @train="train"
     @attack="attack"
+    @dismiss="dismiss"
     @restart="restart"
     @dismiss-away="dismissAwayReport"
   />

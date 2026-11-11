@@ -1,6 +1,15 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { CAMPS, RESOURCES, RESOURCE_IDS, type Army, type CampId, type MonsterId, type Resources } from '../game/config'
+import {
+  CAMPS,
+  RESOURCES,
+  RESOURCE_IDS,
+  STARVATION_ATTACK_MALUS,
+  type Army,
+  type CampId,
+  type MonsterId,
+  type Resources,
+} from '../game/config'
 import { getCamp, getMonster, type GameState } from '../game/rules'
 import CampCard from './CampCard.vue'
 import { formatAgo, formatAmount, formatArmy, formatDuration } from './format'
@@ -16,6 +25,7 @@ const march = computed(() => {
     ? { label: `Retour de : ${camp}`, start: e.arrivesAt, end: e.returnsAt }
     : { label: `En route vers : ${camp}`, start: e.departedAt, end: e.arrivesAt }
 })
+const malusPercent = Math.round(STARVATION_ATTACK_MALUS * 100)
 const progress = computed(() => {
   const m = march.value
   if (!m) return 0
@@ -75,6 +85,7 @@ function lootText(loot: Partial<Resources>): string {
           <p>Pertes : {{ formatArmy(report.lost) || 'aucune' }}</p>
           <p>Monstres vaincus : {{ monstersText(report.enemyLost) || 'aucun' }}</p>
           <p v-if="report.victory">Butin : {{ lootText(report.loot) }}</p>
+          <p v-if="report.starving" class="lost">Tes troupes avaient faim : {{ malusPercent }} % d’attaque en moins.</p>
         </li>
       </ol>
     </section>

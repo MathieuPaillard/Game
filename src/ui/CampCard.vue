@@ -1,7 +1,15 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
-import { RESOURCES, RESOURCE_IDS, UNIT_IDS, type Army, type CampDef, type MonsterId } from '../game/config'
-import { checkExpedition, emptyArmy, getMonster, getUnit, type GameState } from '../game/rules'
+import {
+  RESOURCES,
+  RESOURCE_IDS,
+  STARVATION_ATTACK_MALUS,
+  UNIT_IDS,
+  type Army,
+  type CampDef,
+  type MonsterId,
+} from '../game/config'
+import { checkExpedition, emptyArmy, getMonster, getUnit, timeUntilFamine, type GameState } from '../game/rules'
 import { formatAmount, formatDuration } from './format'
 
 const props = defineProps<{ camp: CampDef; state: GameState }>()
@@ -24,6 +32,12 @@ const blocked = computed(() => {
   if (available.value.length === 0) return 'Aucune troupe dans la cité'
   return null
 })
+// Les réserves de nourriture seront-elles vides quand l'armée arrivera au camp ?
+const hungryOnArrival = computed(() => {
+  const famineIn = timeUntilFamine(props.state)
+  return famineIn !== null && famineIn < props.camp.marchSeconds * 1000
+})
+const malusPercent = Math.round(STARVATION_ATTACK_MALUS * 100)
 const check = computed(() => checkExpedition(props.state, props.camp.id, { ...selection }))
 const reason = computed(() => (check.value.ok ? null : check.value.reason))
 
@@ -80,6 +94,10 @@ function send() {
             inputmode="numeric"
           />
         </label>
+        <p v-if="hungryOnArrival" class="hungry">
+          Tes réserves de nourriture seront vides à l’arrivée : tes troupes affamées perdront {{ malusPercent }} %
+          de leur attaque.
+        </p>
         <p v-if="reason" class="reason">{{ reason }}</p>
         <div class="send-actions">
           <button class="btn" type="submit" :disabled="!check.ok">Envoyer l’armée</button>
@@ -110,6 +128,11 @@ function send() {
   flex-wrap: wrap;
   gap: 0.3rem 0.9rem;
   font-variant-numeric: tabular-nums;
+}
+
+.hungry {
+  font-size: 0.9rem;
+  color: var(--ember);
 }
 
 .send {

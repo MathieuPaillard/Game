@@ -65,7 +65,8 @@ Plus tard, chaque race aura aussi une unité qui lui est propre.
 - **[Proposition]** La Caserne entraîne les troupes, un entraînement à la fois. Son niveau débloque les Cavaliers (niveau 2) et les Mages (niveau 3), augmente le nombre de troupes par entraînement et accélère l'entraînement.
 - **[Proposition]** Les batailles se jouent en manches, sans hasard : les mêmes armées donnent toujours le même résultat.
 - **[Décidé]** Les troupes mangent : chaque troupe consomme de la nourriture chaque heure, dans la cité comme en campagne. Une grosse armée coûte donc cher à garder.
-- **[Proposition]** Si les réserves de nourriture tombent à zéro, c'est la famine : des troupes de la cité désertent, juste assez pour que les fermes couvrent de nouveau l'entretien. Chaque famille de troupes perd la même proportion de soldats. Une armée en campagne ne déserte pas.
+- **[Décidé]** Si les réserves de nourriture sont vides et que les fermes ne suffisent plus, c'est la famine. Personne ne déserte, mais les troupes ont faim et se battent moins bien.
+- **[Proposition]** Des troupes affamées perdent 30 % de leur attaque au combat. Pour sortir de la famine, on améliore sa Ferme ou on renvoie des troupes : les troupes renvoyées ne mangent plus, mais elles quittent l'armée.
 - **[Décidé]** Des **héros** mènent les armées ; ils gagnent de l'expérience et débloquent des compétences.
 - **[Décidé]** Des **créatures légendaires** (dragons…) : rares, très puissantes, obtenues par des quêtes.
 

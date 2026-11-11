@@ -1,6 +1,15 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { BUILDINGS, RESOURCES, RESOURCE_IDS, type Army, type BuildingId, type CampId, type UnitId } from '../game/config'
+import {
+  BUILDINGS,
+  RESOURCES,
+  RESOURCE_IDS,
+  STARVATION_ATTACK_MALUS,
+  type Army,
+  type BuildingId,
+  type CampId,
+  type UnitId,
+} from '../game/config'
 import { getRace, netPerHour, timeUntilFamine, type GameState } from '../game/rules'
 import ArmyPanel from './ArmyPanel.vue'
 import BuildingCard from './BuildingCard.vue'
@@ -14,6 +23,7 @@ const emit = defineEmits<{
   upgrade: [building: BuildingId]
   train: [unit: UnitId, count: number]
   attack: [camp: CampId, troops: Army]
+  dismiss: [troops: Army]
   restart: []
   dismissAway: []
 }>()
@@ -30,6 +40,7 @@ const tabs = computed(() => [
 const race = computed(() => getRace(props.state.race))
 const rates = computed(() => netPerHour(props.state))
 const famineIn = computed(() => timeUntilFamine(props.state))
+const malusPercent = Math.round(STARVATION_ATTACK_MALUS * 100)
 const awayGains = computed(() =>
   RESOURCE_IDS.filter((id) => (props.awayReport?.gains[id] ?? 0) >= 1).map((id) => ({
     id,
@@ -65,13 +76,18 @@ const confirmingRestart = ref(false)
     </header>
 
     <p v-if="famineIn !== null" class="famine" role="status">
-      <strong>Famine en vue.</strong>
-      Ton armée mange plus de nourriture que tes fermes n’en produisent ({{ formatRate(rates.food) }}).
       <template v-if="state.resources.food >= 1">
-        Dans {{ formatDuration(famineIn) }}, tes réserves seront vides et des troupes de la cité déserteront.
+        <strong>Famine en vue.</strong>
+        Ton armée mange plus de nourriture que tes fermes n’en produisent ({{ formatRate(rates.food) }}). Dans
+        {{ formatDuration(famineIn) }}, tes réserves seront vides et tes troupes auront faim : elles perdront
+        {{ malusPercent }} % de leur attaque au combat.
       </template>
-      <template v-else>Tes réserves sont vides : une partie de ton armée désertera à son retour.</template>
-      Améliore ta Ferme ou garde une armée plus petite.
+      <template v-else>
+        <strong>Famine.</strong>
+        Tes réserves de nourriture sont vides ({{ formatRate(rates.food) }}) : tes troupes ont faim et perdent
+        {{ malusPercent }} % de leur attaque au combat.
+      </template>
+      Améliore ta Ferme, ou renvoie des troupes depuis l’onglet Armée.
     </p>
 
     <section v-if="awayReport" class="away" aria-labelledby="away-title">
@@ -104,6 +120,7 @@ const confirmingRestart = ref(false)
       :state="state"
       :now="now"
       @train="(unit, count) => emit('train', unit, count)"
+      @dismiss="(troops) => emit('dismiss', troops)"
     />
     <WorldPanel v-else :state="state" :now="now" @attack="(camp, troops) => emit('attack', camp, troops)" />
 
