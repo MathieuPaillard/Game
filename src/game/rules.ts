@@ -73,6 +73,12 @@ export interface BattleReport {
   loot: Partial<Resources>
 }
 
+/** Des troupes parties faute de nourriture. */
+export interface Desertion {
+  at: number
+  troops: Army
+}
+
 /** Tout ce qu'il faut savoir sur une partie. Les heures sont en millisecondes (comme Date.now()). */
 export interface GameState {
   race: RaceId
@@ -85,6 +91,8 @@ export interface GameState {
   expedition: Expedition | null
   /** Derniers rapports de bataille, du plus récent au plus ancien. */
   reports: BattleReport[]
+  /** Dernières désertions dues à la famine, de la plus récente à la plus ancienne. */
+  desertions: Desertion[]
   /** Instant jusqu'auquel les ressources ont été calculées. */
   updatedAt: number
 }
@@ -105,6 +113,7 @@ export function newGame(race: RaceId, now: number): GameState {
     training: null,
     expedition: null,
     reports: [],
+    desertions: [],
     updatedAt: now,
   }
 }
@@ -176,6 +185,56 @@ export function productionPerHour(state: GameState): Resources {
     }
   }
   return total
+}
+
+// --- Entretien des troupes ---
+
+/** Toutes les troupes du joueur : celles de la cité et celles qui sont en campagne. */
+export function allTroops(state: GameState): Army {
+  const all = { ...state.troops }
+  const expedition = state.expedition
+  const away = expedition ? (expedition.result?.survivors ?? expedition.troops) : null
+  if (away) for (const id of UNIT_IDS) all[id] += away[id]
+  return all
+}
+
+function armyUpkeep(army: Army): number {
+  return UNIT_IDS.reduce((sum, id) => sum + army[id] * getUnit(id).upkeepPerHour, 0)
+}
+
+/** Nourriture mangée chaque heure par les troupes, dans la cité comme en campagne. */
+export function upkeepPerHour(state: GameState): number {
+  return armyUpkeep(allTroops(state))
+}
+
+/** Ce que la cité gagne vraiment chaque heure : la production, moins l'entretien des troupes. */
+export function netPerHour(state: GameState): Resources {
+  const rates = productionPerHour(state)
+  rates.food -= upkeepPerHour(state)
+  return rates
+}
+
+/** Dans combien de temps (en millisecondes) la nourriture sera épuisée, ou null si elle ne baisse pas. */
+export function timeUntilFamine(state: GameState): number | null {
+  const net = netPerHour(state).food
+  if (net >= 0) return null
+  return (state.resources.food / -net) * HOUR
+}
+
+/** Famine : juste assez de troupes de la cité désertent pour que les fermes couvrent l'entretien. */
+function desert(state: GameState): GameState {
+  const deficit = -netPerHour(state).food
+  const homeUpkeep = armyUpkeep(state.troops)
+  // Chaque famille de troupes perd la même proportion de ses soldats.
+  const keep = homeUpkeep > deficit ? 1 - deficit / homeUpkeep : 0
+  const troops = emptyArmy()
+  const gone = emptyArmy()
+  for (const id of UNIT_IDS) {
+    troops[id] = Math.floor(state.troops[id] * keep)
+    gone[id] = state.troops[id] - troops[id]
+  }
+  const desertions = [{ at: state.updatedAt, troops: gone }, ...state.desertions].slice(0, MAX_REPORTS)
+  return { ...state, troops, desertions }
 }
 
 // --- Constructions ---
@@ -384,7 +443,7 @@ interface PendingEvent {
   apply: (state: GameState) => GameState
 }
 
-/** Le prochain événement prévu : fin de chantier, fin d'entraînement, arrivée ou retour d'une armée. */
+/** Le prochain événement prévu : fin de chantier, fin d'entraînement, arrivée ou retour d'une armée, famine. */
 function nextEvent(state: GameState): PendingEvent | null {
   const { construction, training, expedition } = state
   const events: PendingEvent[] = []
@@ -413,13 +472,18 @@ function nextEvent(state: GameState): PendingEvent | null {
     if (result) events.push({ at: expedition.returnsAt, apply: (s) => resolveReturn(s, result) })
     else events.push({ at: expedition.arrivesAt, apply: (s) => resolveArrival(s, expedition) })
   }
+  // Seules les troupes de la cité peuvent déserter : une armée en campagne attend son retour.
+  const famineIn = timeUntilFamine(state)
+  if (famineIn !== null && armySize(state.troops) > 0) {
+    events.push({ at: state.updatedAt + famineIn, apply: desert })
+  }
   return events.reduce<PendingEvent | null>((first, e) => (!first || e.at < first.at ? e : first), null)
 }
 
 /**
  * Fait avancer la partie jusqu'à l'instant `now` : les ressources s'accumulent, et chaque
- * événement prévu (chantier, entraînement, bataille, retour d'armée) arrive à son heure,
- * même si personne ne regardait. C'est ce qui permet au royaume de vivre hors connexion.
+ * événement prévu (chantier, entraînement, bataille, retour d'armée, famine) arrive à son
+ * heure, même si personne ne regardait. C'est ce qui permet au royaume de vivre hors connexion.
  */
 export function advance(state: GameState, now: number): GameState {
   if (now <= state.updatedAt) return state
@@ -431,11 +495,12 @@ export function advance(state: GameState, now: number): GameState {
   return accrue(current, now)
 }
 
-/** Ajoute la production gagnée entre `state.updatedAt` et `until`. */
+/** Ajoute la production gagnée (moins l'entretien) entre `state.updatedAt` et `until`. */
 function accrue(state: GameState, until: number): GameState {
   const hours = Math.max(0, until - state.updatedAt) / HOUR
-  const rates = productionPerHour(state)
+  const rates = netPerHour(state)
   const resources = { ...state.resources }
-  for (const id of RESOURCE_IDS) resources[id] += rates[id] * hours
+  // Les réserves ne descendent jamais sous zéro : la famine est un événement à part.
+  for (const id of RESOURCE_IDS) resources[id] = Math.max(0, resources[id] + rates[id] * hours)
   return { ...state, resources, updatedAt: Math.max(state.updatedAt, until) }
 }

@@ -18,10 +18,12 @@ import {
   startExpedition,
   startTraining,
   startUpgrade,
+  timeUntilFamine,
   trainingCost,
   trainingDuration,
   upgradeCost,
   upgradeDuration,
+  upkeepPerHour,
   type GameState,
 } from './rules'
 
@@ -179,6 +181,56 @@ describe('entraînement', () => {
   })
 })
 
+describe('entretien des troupes', () => {
+  it('les troupes mangent de la nourriture chaque heure', () => {
+    const game = { ...newGame('humans', T0), troops: army({ warrior: 100 }) }
+    expect(upkeepPerHour(game)).toBe(100 * getUnit('warrior').upkeepPerHour)
+    const later = advance(game, T0 + HOUR)
+    expect(later.resources.food).toBeCloseTo(
+      START_RESOURCES.food + productionPerHour(game).food - upkeepPerHour(game),
+    )
+  })
+
+  it('les troupes en campagne mangent aussi', () => {
+    const home = richGame({}, { warrior: 50 })
+    const away = startExpedition(home, 'wolfDen', army({ warrior: 50 }), T0)
+    expect(upkeepPerHour(away)).toBe(upkeepPerHour(home))
+  })
+
+  it('la nourriture ne descend jamais sous zéro', () => {
+    // Toute l'armée est en campagne : personne ne peut déserter, les réserves s'arrêtent à zéro.
+    const start = newGame('humans', T0)
+    const game = { ...start, resources: { ...start.resources, food: 100 }, troops: army({ warrior: 5000 }) }
+    const away = startExpedition(game, 'trollLair', army({ warrior: 5000 }), T0)
+    const later = advance(away, away.expedition!.arrivesAt - 1)
+    expect(later.resources.food).toBe(0)
+    expect(later.desertions).toEqual([])
+  })
+
+  it('famine : juste assez de troupes désertent pour que les fermes couvrent l’entretien', () => {
+    const game = { ...newGame('humans', T0), troops: army({ warrior: 1000, archer: 500 }) }
+    const famineAt = T0 + timeUntilFamine(game)!
+    expect(advance(game, famineAt - 1).desertions).toEqual([])
+
+    const after = advance(game, famineAt + HOUR)
+    expect(after.desertions[0].at).toBeCloseTo(famineAt)
+    expect(after.desertions[0].troops.warrior).toBeGreaterThan(0)
+    expect(after.troops.warrior + after.desertions[0].troops.warrior).toBe(1000)
+    expect(upkeepPerHour(after)).toBeLessThanOrEqual(productionPerHour(after).food)
+    expect(after.resources.food).toBeGreaterThanOrEqual(0)
+  })
+
+  it('la famine arrive au même moment d’un coup ou seconde par seconde', () => {
+    const game = { ...newGame('orcs', T0), troops: army({ warrior: 800, rider: 200 }) }
+    const end = T0 + 2 * HOUR
+    const oneShot = advance(game, end)
+    let stepped = game
+    for (let t = T0; t <= end; t += 1000) stepped = advance(stepped, t)
+    expect(stepped.troops).toEqual(oneShot.troops)
+    expect(stepped.resources.food).toBeCloseTo(oneShot.resources.food, 6)
+  })
+})
+
 describe('expéditions', () => {
   it('une grande armée bat le camp, puis rentre avec le butin', () => {
     const camp = getCamp('wolfDen')
@@ -193,8 +245,9 @@ describe('expéditions', () => {
     const survivors = 1000 - arrived.reports[0].lost.warrior
     expect(back.expedition).toBeNull()
     expect(back.troops.warrior).toBe(survivors)
+    // La nourriture dépend aussi de l'entretien de l'armée : on vérifie le butin sur les autres ressources.
     const hours = (back.updatedAt - start.updatedAt) / HOUR
-    for (const id of RESOURCE_IDS) {
+    for (const id of RESOURCE_IDS.filter((r) => r !== 'food')) {
       const produced = productionPerHour(start)[id] * hours
       expect(back.resources[id] - start.resources[id] - produced).toBeCloseTo(camp.loot[id] ?? 0)
     }

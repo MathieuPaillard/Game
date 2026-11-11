@@ -1,3 +1,6 @@
+import { UNIT_IDS, type Army } from '../game/config'
+import { getUnit } from '../game/rules'
+
 const exact = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 })
 const compact = new Intl.NumberFormat('fr-FR', { notation: 'compact', maximumFractionDigits: 1 })
 
@@ -9,6 +12,19 @@ export function formatAmount(value: number): string {
 /** Comme formatAmount, mais abrégé au-delà de 100 000 (« 123,4 k ») pour tenir dans la barre. */
 export function formatShort(value: number): string {
   return value < 100_000 ? formatAmount(value) : compact.format(Math.floor(value))
+}
+
+/** Un débit par heure, avec son signe : « +1 800/h » ou « −120/h ». */
+export function formatRate(perHour: number): string {
+  const rounded = Math.round(perHour)
+  return `${rounded < 0 ? '−' : '+'}${formatShort(Math.abs(rounded))}/h`
+}
+
+/** Une armée en texte : « 🛡️ Guerriers 12 · 🏹 Archers 3 ». */
+export function formatArmy(army: Army): string {
+  return UNIT_IDS.filter((id) => army[id] > 0)
+    .map((id) => `${getUnit(id).icon} ${getUnit(id).name} ${army[id]}`)
+    .join(' · ')
 }
 
 /** Temps écoulé depuis un événement : « à l’instant », « il y a 5 min », « il y a 2 h »… */

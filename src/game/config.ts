@@ -208,6 +208,8 @@ export interface UnitDef {
   trainingSeconds: number
   /** Niveau de Caserne nécessaire pour l'entraîner. */
   barracksLevel: number
+  /** Entretien : nourriture mangée par heure par une troupe, dans la cité comme en campagne. */
+  upkeepPerHour: number
 }
 
 // Les forces et faiblesses forment un cycle :
@@ -224,6 +226,7 @@ export const UNITS: UnitDef[] = [
     cost: { food: 30, wood: 10 },
     trainingSeconds: 3,
     barracksLevel: 1,
+    upkeepPerHour: 4,
   },
   {
     id: 'archer',
@@ -236,6 +239,7 @@ export const UNITS: UnitDef[] = [
     cost: { food: 25, wood: 25 },
     trainingSeconds: 3,
     barracksLevel: 1,
+    upkeepPerHour: 4,
   },
   {
     id: 'rider',
@@ -248,6 +252,7 @@ export const UNITS: UnitDef[] = [
     cost: { food: 50, wood: 10, gold: 15 },
     trainingSeconds: 5,
     barracksLevel: 2,
+    upkeepPerHour: 8,
   },
   {
     id: 'mage',
@@ -260,6 +265,7 @@ export const UNITS: UnitDef[] = [
     cost: { food: 30, gold: 10, mana: 20 },
     trainingSeconds: 6,
     barracksLevel: 3,
+    upkeepPerHour: 6,
   },
 ]
 

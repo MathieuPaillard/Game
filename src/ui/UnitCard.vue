@@ -36,6 +36,7 @@ const duration = computed(() => trainingDuration(props.state, props.unit, amount
     <ul class="stats">
       <li>Attaque <strong>{{ unit.attack }}</strong></li>
       <li>Vie <strong>{{ unit.health }}</strong></li>
+      <li>Mange <strong>{{ unit.upkeepPerHour }}</strong> <span aria-hidden="true">🌾</span>/h</li>
       <li>Fort contre les <strong>{{ getUnit(unit.strongAgainst).name }}</strong></li>
     </ul>
 

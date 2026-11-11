@@ -64,7 +64,8 @@ Plus tard, chaque race aura aussi une unité qui lui est propre.
 - **[Proposition]** Les forces et faiblesses forment un cycle : Guerriers > Cavaliers > Archers > Mages > Guerriers. Une troupe inflige 50 % de dégâts en plus à la famille qu'elle domine.
 - **[Proposition]** La Caserne entraîne les troupes, un entraînement à la fois. Son niveau débloque les Cavaliers (niveau 2) et les Mages (niveau 3), augmente le nombre de troupes par entraînement et accélère l'entraînement.
 - **[Proposition]** Les batailles se jouent en manches, sans hasard : les mêmes armées donnent toujours le même résultat.
-- **[À trancher]** L'entretien des troupes (de la nourriture consommée chaque heure) n'existe pas encore.
+- **[Décidé]** Les troupes mangent : chaque troupe consomme de la nourriture chaque heure, dans la cité comme en campagne. Une grosse armée coûte donc cher à garder.
+- **[Proposition]** Si les réserves de nourriture tombent à zéro, c'est la famine : des troupes de la cité désertent, juste assez pour que les fermes couvrent de nouveau l'entretien. Chaque famille de troupes perd la même proportion de soldats. Une armée en campagne ne déserte pas.
 - **[Décidé]** Des **héros** mènent les armées ; ils gagnent de l'expérience et débloquent des compétences.
 - **[Décidé]** Des **créatures légendaires** (dragons…) : rares, très puissantes, obtenues par des quêtes.
 

@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { BUILDINGS, RESOURCES, RESOURCE_IDS, type Army, type BuildingId, type CampId, type UnitId } from '../game/config'
-import { getRace, productionPerHour, type GameState } from '../game/rules'
+import { getRace, netPerHour, timeUntilFamine, type GameState } from '../game/rules'
 import ArmyPanel from './ArmyPanel.vue'
 import BuildingCard from './BuildingCard.vue'
 import ResourceBar from './ResourceBar.vue'
 import WorldPanel from './WorldPanel.vue'
-import { formatAmount, formatDuration } from './format'
+import { formatAmount, formatDuration, formatRate } from './format'
 import type { AwayReport } from './useGame'
 
 const props = defineProps<{ state: GameState; now: number; awayReport: AwayReport | null }>()
@@ -28,7 +28,8 @@ const tabs = computed(() => [
 ])
 
 const race = computed(() => getRace(props.state.race))
-const production = computed(() => productionPerHour(props.state))
+const rates = computed(() => netPerHour(props.state))
+const famineIn = computed(() => timeUntilFamine(props.state))
 const awayGains = computed(() =>
   RESOURCE_IDS.filter((id) => (props.awayReport?.gains[id] ?? 0) >= 1).map((id) => ({
     id,
@@ -40,7 +41,7 @@ const confirmingRestart = ref(false)
 
 <template>
   <div class="top">
-    <ResourceBar :resources="state.resources" :production="production" />
+    <ResourceBar :resources="state.resources" :rates="rates" />
     <nav class="wrap tabs" aria-label="Sections du jeu">
       <button
         v-for="t in tabs"
@@ -62,6 +63,16 @@ const confirmingRestart = ref(false)
       <h1>Cité des {{ race.name }}</h1>
       <p class="muted">{{ race.bonuses.join(' · ') }}</p>
     </header>
+
+    <p v-if="famineIn !== null" class="famine" role="status">
+      <strong>Famine en vue.</strong>
+      Ton armée mange plus de nourriture que tes fermes n’en produisent ({{ formatRate(rates.food) }}).
+      <template v-if="state.resources.food >= 1">
+        Dans {{ formatDuration(famineIn) }}, tes réserves seront vides et des troupes de la cité déserteront.
+      </template>
+      <template v-else>Tes réserves sont vides : une partie de ton armée désertera à son retour.</template>
+      Améliore ta Ferme ou garde une armée plus petite.
+    </p>
 
     <section v-if="awayReport" class="away" aria-labelledby="away-title">
       <h2 id="away-title">Bon retour !</h2>
@@ -167,6 +178,17 @@ const confirmingRestart = ref(false)
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
+}
+
+.famine {
+  padding: 0.8rem 1rem;
+  background: var(--stone);
+  border: 1px solid var(--ember);
+  border-radius: var(--radius);
+}
+
+.famine strong {
+  color: var(--ember);
 }
 
 .away {

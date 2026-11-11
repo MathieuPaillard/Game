@@ -6,6 +6,7 @@ import {
   RACES,
   RESOURCE_IDS,
   START_LEVELS,
+  UNIT_IDS,
   type Army,
   type BuildingId,
   type CampId,
@@ -31,6 +32,7 @@ import {
   type Check,
   type GameState,
 } from '../game/rules'
+import { formatArmy } from './format'
 
 const SAVE_KEY = 'royaume-sauvegarde'
 // À augmenter si le format de la sauvegarde change de façon incompatible :
@@ -134,6 +136,7 @@ function loadSave(): GameState | null {
       training: state.training ?? null,
       expedition: state.expedition ?? null,
       reports: state.reports ?? [],
+      desertions: state.desertions ?? [],
     }
   } catch {
     return null
@@ -174,5 +177,10 @@ function makeAwayReport(before: GameState, after: GameState): AwayReport | null 
     const survived = report !== undefined && armySize(report.sent) > armySize(report.lost)
     if (expedition.result || survived) events.push('Ton armée est rentrée à la cité.')
   }
+  const deserted = emptyArmy()
+  for (const desertion of after.desertions.filter((d) => d.at > before.updatedAt)) {
+    for (const id of UNIT_IDS) deserted[id] += desertion.troops[id]
+  }
+  if (armySize(deserted) > 0) events.push(`Famine : ${formatArmy(deserted)} ont déserté.`)
   return { duration, gains, events }
 }

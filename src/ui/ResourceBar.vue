@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { RESOURCES, RESOURCE_IDS, type Resources } from '../game/config'
-import { formatShort } from './format'
+import { formatRate, formatShort } from './format'
 
-defineProps<{ resources: Resources; production: Resources }>()
+// `rates` : ce que la cité gagne vraiment par heure (production moins entretien des troupes).
+defineProps<{ resources: Resources; rates: Resources }>()
 </script>
 
 <template>
@@ -14,7 +15,7 @@ defineProps<{ resources: Resources; production: Resources }>()
           <span class="res-name">{{ RESOURCES[id].name }}</span>
         </span>
         <span class="res-amount">{{ formatShort(resources[id]) }}</span>
-        <span class="res-rate">+{{ formatShort(production[id]) }}/h</span>
+        <span class="res-rate" :class="{ negative: rates[id] < -0.5 }">{{ formatRate(rates[id]) }}</span>
       </li>
     </ul>
   </div>
@@ -73,6 +74,12 @@ defineProps<{ resources: Resources; production: Resources }>()
   color: var(--faded);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+/* La nourriture baisse : l'entretien des troupes dépasse la production. */
+.res-rate.negative {
+  color: var(--ember);
+  font-weight: 700;
 }
 
 /* Sur téléphone, on ne garde que l'icône : le nom reste lisible par les lecteurs d'écran. */

@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { CAMPS, RESOURCES, RESOURCE_IDS, UNIT_IDS, type Army, type CampId, type MonsterId, type Resources } from '../game/config'
-import { getCamp, getMonster, getUnit, type GameState } from '../game/rules'
+import { CAMPS, RESOURCES, RESOURCE_IDS, type Army, type CampId, type MonsterId, type Resources } from '../game/config'
+import { getCamp, getMonster, type GameState } from '../game/rules'
 import CampCard from './CampCard.vue'
-import { formatAgo, formatAmount, formatDuration } from './format'
+import { formatAgo, formatAmount, formatArmy, formatDuration } from './format'
 
 const props = defineProps<{ state: GameState; now: number }>()
 const emit = defineEmits<{ attack: [camp: CampId, troops: Army] }>()
@@ -21,12 +21,6 @@ const progress = computed(() => {
   if (!m) return 0
   return Math.min(1, Math.max(0, (props.now - m.start) / (m.end - m.start)))
 })
-
-function armyText(army: Army): string {
-  return UNIT_IDS.filter((id) => army[id] > 0)
-    .map((id) => `${getUnit(id).icon} ${getUnit(id).name} ${army[id]}`)
-    .join(' · ')
-}
 
 function monstersText(monsters: Partial<Record<MonsterId, number>>): string {
   return (Object.entries(monsters) as [MonsterId, number][])
@@ -77,8 +71,8 @@ function lootText(loot: Partial<Resources>): string {
             <strong :class="report.victory ? 'won' : 'lost'">{{ report.victory ? 'Victoire' : 'Défaite' }}</strong>
             · {{ getCamp(report.camp).name }} <span class="muted">· {{ formatAgo(now - report.at) }}</span>
           </p>
-          <p>Envoyés : {{ armyText(report.sent) }}</p>
-          <p>Pertes : {{ armyText(report.lost) || 'aucune' }}</p>
+          <p>Envoyés : {{ formatArmy(report.sent) }}</p>
+          <p>Pertes : {{ formatArmy(report.lost) || 'aucune' }}</p>
           <p>Monstres vaincus : {{ monstersText(report.enemyLost) || 'aucun' }}</p>
           <p v-if="report.victory">Butin : {{ lootText(report.loot) }}</p>
         </li>
