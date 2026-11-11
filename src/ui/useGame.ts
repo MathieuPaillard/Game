@@ -2,8 +2,35 @@
 // fait avancer le temps chaque seconde et sauvegarde dans le navigateur.
 
 import { onMounted, onUnmounted, shallowRef } from 'vue'
-import { RACES, RESOURCE_IDS, START_LEVELS, type BuildingId, type RaceId, type Resources } from '../game/config'
-import { advance, checkUpgrade, emptyResources, newGame, startUpgrade, type GameState } from '../game/rules'
+import {
+  RACES,
+  RESOURCE_IDS,
+  START_LEVELS,
+  type Army,
+  type BuildingId,
+  type CampId,
+  type RaceId,
+  type Resources,
+  type UnitId,
+} from '../game/config'
+import {
+  advance,
+  armySize,
+  checkExpedition,
+  checkTraining,
+  checkUpgrade,
+  emptyArmy,
+  emptyResources,
+  getBuilding,
+  getCamp,
+  getUnit,
+  newGame,
+  startExpedition,
+  startTraining,
+  startUpgrade,
+  type Check,
+  type GameState,
+} from '../game/rules'
 
 const SAVE_KEY = 'royaume-sauvegarde'
 // À augmenter si le format de la sauvegarde change de façon incompatible :
@@ -12,11 +39,11 @@ const SAVE_VERSION = 1
 // En dessous d'une minute d'absence, pas de résumé « pendant ton absence ».
 const AWAY_REPORT_MIN_MS = 60 * 1000
 
-/** Ce que le royaume a produit pendant que le joueur n'était pas là. */
+/** Ce qui s'est passé pendant que le joueur n'était pas là. */
 export interface AwayReport {
   duration: number
   gains: Resources
-  finished: { building: BuildingId; level: number } | null
+  events: string[]
 }
 
 export function useGame() {
@@ -37,6 +64,14 @@ export function useGame() {
     if (state.value) update(advance(state.value, now.value))
   }
 
+  /** Lance une action du joueur, si elle est possible à cet instant. */
+  function act(check: (s: GameState) => Check, run: (s: GameState, t: number) => GameState) {
+    if (!state.value) return
+    const t = Date.now()
+    const current = advance(state.value, t)
+    if (check(current).ok) update(run(current, t))
+  }
+
   let timer: number | undefined
   onMounted(() => {
     timer = window.setInterval(tick, 1000)
@@ -55,10 +90,22 @@ export function useGame() {
       update(newGame(race, Date.now()))
     },
     upgrade(building: BuildingId) {
-      if (!state.value) return
-      const t = Date.now()
-      const current = advance(state.value, t)
-      if (checkUpgrade(current, building).ok) update(startUpgrade(current, building, t))
+      act(
+        (s) => checkUpgrade(s, building),
+        (s, t) => startUpgrade(s, building, t),
+      )
+    },
+    train(unit: UnitId, count: number) {
+      act(
+        (s) => checkTraining(s, unit, count),
+        (s, t) => startTraining(s, unit, count, t),
+      )
+    },
+    attack(camp: CampId, troops: Army) {
+      act(
+        (s) => checkExpedition(s, camp, troops),
+        (s, t) => startExpedition(s, camp, troops, t),
+      )
     },
     restart() {
       awayReport.value = null
@@ -78,11 +125,15 @@ function loadSave(): GameState | null {
     const state = save.state
     if (save.version !== SAVE_VERSION || !state) return null
     if (!RACES.some((race) => race.id === state.race)) return null
-    // Complète la sauvegarde avec ce qui a pu être ajouté au jeu depuis (nouveaux bâtiments…).
+    // Complète les sauvegardes d'une version plus ancienne du jeu (nouveaux bâtiments, troupes…).
     return {
       ...state,
       levels: { ...START_LEVELS, ...state.levels },
       resources: { ...emptyResources(), ...state.resources },
+      troops: { ...emptyArmy(), ...state.troops },
+      training: state.training ?? null,
+      expedition: state.expedition ?? null,
+      reports: state.reports ?? [],
     }
   } catch {
     return null
@@ -101,9 +152,27 @@ function writeSave(state: GameState | null) {
 function makeAwayReport(before: GameState, after: GameState): AwayReport | null {
   const duration = after.updatedAt - before.updatedAt
   if (duration < AWAY_REPORT_MIN_MS) return null
+
   const gains = emptyResources()
   for (const id of RESOURCE_IDS) gains[id] = after.resources[id] - before.resources[id]
+
+  const events: string[] = []
   const works = before.construction
-  const finished = works && !after.construction ? { building: works.building, level: works.targetLevel } : null
-  return { duration, gains, finished }
+  if (works && !after.construction) {
+    events.push(`${getBuilding(works.building).name} : le niveau ${works.targetLevel} est terminé.`)
+  }
+  const training = before.training
+  if (training && !after.training) {
+    events.push(`Entraînement terminé : ${getUnit(training.unit).name} +${training.count}.`)
+  }
+  for (const report of after.reports.filter((r) => r.at > before.updatedAt).reverse()) {
+    events.push(`${report.victory ? 'Victoire' : 'Défaite'} contre : ${getCamp(report.camp).name}.`)
+  }
+  const expedition = before.expedition
+  if (expedition && !after.expedition) {
+    const report = after.reports.find((r) => r.at === expedition.arrivesAt)
+    const survived = report !== undefined && armySize(report.sent) > armySize(report.lost)
+    if (expedition.result || survived) events.push('Ton armée est rentrée à la cité.')
+  }
+  return { duration, gains, events }
 }

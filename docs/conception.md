@@ -61,6 +61,10 @@ Plus tard, chaque race aura aussi une unité qui lui est propre.
 ## 6. Armées et héros
 
 - **[Décidé]** Quatre familles de troupes : Guerriers, Archers, Cavaliers et Mages, avec des forces et des faiblesses entre elles.
+- **[Proposition]** Les forces et faiblesses forment un cycle : Guerriers > Cavaliers > Archers > Mages > Guerriers. Une troupe inflige 50 % de dégâts en plus à la famille qu'elle domine.
+- **[Proposition]** La Caserne entraîne les troupes, un entraînement à la fois. Son niveau débloque les Cavaliers (niveau 2) et les Mages (niveau 3), augmente le nombre de troupes par entraînement et accélère l'entraînement.
+- **[Proposition]** Les batailles se jouent en manches, sans hasard : les mêmes armées donnent toujours le même résultat.
+- **[À trancher]** L'entretien des troupes (de la nourriture consommée chaque heure) n'existe pas encore.
 - **[Décidé]** Des **héros** mènent les armées ; ils gagnent de l'expérience et débloquent des compétences.
 - **[Décidé]** Des **créatures légendaires** (dragons…) : rares, très puissantes, obtenues par des quêtes.
 
@@ -68,13 +72,14 @@ Plus tard, chaque race aura aussi une unité qui lui est propre.
 
 - **[Décidé]** Une carte commune à tous les joueurs d'un serveur : cités, gisements de ressources, monstres, lieux légendaires.
 - **[Décidé]** Des **alliances** : entraide, attaques groupées, territoire commun.
+- **[Proposition]** En attendant la carte (étape 4), des camps de monstres « aux alentours » de la cité : Tanière de loups, Campement gobelin, Ruines hantées et Antre du troll. L'armée met du temps à y aller et à en revenir, la bataille a lieu à l'arrivée, et une victoire rapporte un butin. Une seule armée en campagne à la fois pour l'instant.
 
 ## 8. Feuille de route
 
 Chaque étape donne un jeu jouable.
 
 1. **Prototype solo dans le navigateur** : la cité, les ressources, les bâtiments et leurs durées de construction. *En place* : choix de la race, cinq ressources, six bâtiments, un chantier à la fois, production hors connexion.
-2. **Armées** : troupes, recherches, combats contre des monstres.
+2. **Armées** : troupes, recherches, combats contre des monstres. *En place* : Caserne, quatre troupes, camps de monstres, rapports de bataille. *Reste* : les recherches (Académie).
 3. **Serveur et comptes joueurs** : sauvegarde en ligne ; le serveur décide de tout.
 4. **Monde partagé** : la carte, les attaques entre joueurs, les alliances.
 5. **Contenu et mobile** : quêtes, livre de sorts, créatures légendaires, puis l'appli Android.

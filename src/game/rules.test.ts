@@ -1,14 +1,25 @@
 import { describe, expect, it } from 'vitest'
-import { MAX_LEVEL, RESOURCE_IDS, START_LEVELS, START_RESOURCES, type BuildingId } from './config'
+import { MAX_LEVEL, RESOURCE_IDS, START_LEVELS, START_RESOURCES, type Army, type BuildingId } from './config'
 import {
   advance,
+  armySize,
+  checkExpedition,
+  checkTraining,
   checkUpgrade,
+  emptyArmy,
   emptyResources,
   getBuilding,
+  getCamp,
   getRace,
+  getUnit,
+  maxTrainingBatch,
   newGame,
   productionPerHour,
+  startExpedition,
+  startTraining,
   startUpgrade,
+  trainingCost,
+  trainingDuration,
   upgradeCost,
   upgradeDuration,
   type GameState,
@@ -18,11 +29,15 @@ const HOUR = 60 * 60 * 1000
 const T0 = Date.UTC(2026, 0, 1)
 
 /** Une partie aux ressources illimitées, pour tester les règles sans dépendre de l'équilibrage. */
-function richGame(levels: Partial<Record<BuildingId, number>> = {}): GameState {
+function richGame(levels: Partial<Record<BuildingId, number>> = {}, troops: Partial<Army> = {}): GameState {
   const game = newGame('humans', T0)
   const resources = emptyResources()
   for (const id of RESOURCE_IDS) resources[id] = 1e9
-  return { ...game, resources, levels: { ...game.levels, ...levels } }
+  return { ...game, resources, levels: { ...game.levels, ...levels }, troops: { ...game.troops, ...troops } }
+}
+
+function army(troops: Partial<Army>): Army {
+  return { ...emptyArmy(), ...troops }
 }
 
 describe('production', () => {
@@ -39,14 +54,24 @@ describe('production', () => {
     expect(orcs.food).toBeCloseTo(humans.food * (1 + bonus))
   })
 
-  it('donne le même résultat d’un coup ou seconde par seconde (production hors ligne)', () => {
-    const game = { ...newGame('humans', T0), levels: { ...START_LEVELS, castle: 5 } }
-    const start = startUpgrade(game, 'farm', T0)
+  it('donne le même résultat d’un coup ou seconde par seconde (la partie continue hors ligne)', () => {
+    const game: GameState = {
+      ...newGame('humans', T0),
+      levels: { ...START_LEVELS, castle: 5, barracks: 1 },
+      troops: army({ warrior: 30 }),
+    }
+    let start = startUpgrade(game, 'farm', T0)
+    start = startTraining(start, 'warrior', 5, T0)
+    start = startExpedition(start, 'wolfDen', army({ warrior: 30 }), T0)
     const end = T0 + 3 * HOUR
+
     const oneShot = advance(start, end)
     let stepped = start
     for (let t = T0; t <= end; t += 1000) stepped = advance(stepped, t)
+
     expect(stepped.levels).toEqual(oneShot.levels)
+    expect(stepped.troops).toEqual(oneShot.troops)
+    expect(stepped.reports).toEqual(oneShot.reports)
     for (const id of RESOURCE_IDS) expect(stepped.resources[id]).toBeCloseTo(oneShot.resources[id], 6)
   })
 })
@@ -87,7 +112,7 @@ describe('constructions', () => {
   })
 })
 
-describe('conditions', () => {
+describe('conditions de construction', () => {
   it('un seul chantier à la fois', () => {
     const busy = startUpgrade(richGame({ castle: 5 }), 'farm', T0)
     expect(checkUpgrade(busy, 'sawmill')).toEqual({ ok: false, reason: 'Un chantier est déjà en cours' })
@@ -116,5 +141,84 @@ describe('conditions', () => {
       ok: false,
       reason: 'Niveau maximum atteint',
     })
+  })
+})
+
+describe('entraînement', () => {
+  it('retire le coût, puis ajoute les troupes à la fin', () => {
+    const game = richGame({ castle: 5, barracks: 1 })
+    const started = startTraining(game, 'warrior', 10, T0)
+    const cost = trainingCost(getUnit('warrior'), 10)
+    for (const id of RESOURCE_IDS) expect(started.resources[id]).toBe(game.resources[id] - (cost[id] ?? 0))
+
+    const endsAt = started.training!.endsAt
+    expect(advance(started, endsAt - 1).troops.warrior).toBe(0)
+    const done = advance(started, endsAt)
+    expect(done.troops.warrior).toBe(10)
+    expect(done.training).toBeNull()
+  })
+
+  it('les Orcs entraînent plus vite', () => {
+    const warrior = getUnit('warrior')
+    const humans = richGame({ barracks: 1 })
+    const orcs = { ...humans, race: 'orcs' as const }
+    expect(trainingDuration(orcs, warrior, 10)).toBeLessThan(trainingDuration(humans, warrior, 10))
+  })
+
+  it('la Caserne débloque les troupes', () => {
+    const mage = getUnit('mage')
+    expect(checkTraining(richGame({ barracks: 0 }), 'warrior', 1).ok).toBe(false)
+    expect(checkTraining(richGame({ barracks: mage.barracksLevel - 1 }), 'mage', 1).ok).toBe(false)
+    expect(checkTraining(richGame({ barracks: mage.barracksLevel }), 'mage', 1).ok).toBe(true)
+  })
+
+  it('limite le nombre de troupes par entraînement', () => {
+    const game = richGame({ barracks: 1 })
+    expect(checkTraining(game, 'warrior', maxTrainingBatch(game)).ok).toBe(true)
+    expect(checkTraining(game, 'warrior', maxTrainingBatch(game) + 1).ok).toBe(false)
+  })
+})
+
+describe('expéditions', () => {
+  it('une grande armée bat le camp, puis rentre avec le butin', () => {
+    const camp = getCamp('wolfDen')
+    const start = startExpedition(richGame({}, { warrior: 1000 }), 'wolfDen', army({ warrior: 1000 }), T0)
+    expect(start.troops.warrior).toBe(0)
+
+    const arrived = advance(start, start.expedition!.arrivesAt)
+    expect(arrived.reports[0]).toMatchObject({ camp: 'wolfDen', victory: true, loot: camp.loot })
+    expect(arrived.troops.warrior).toBe(0)
+
+    const back = advance(start, start.expedition!.returnsAt)
+    const survivors = 1000 - arrived.reports[0].lost.warrior
+    expect(back.expedition).toBeNull()
+    expect(back.troops.warrior).toBe(survivors)
+    const hours = (back.updatedAt - start.updatedAt) / HOUR
+    for (const id of RESOURCE_IDS) {
+      const produced = productionPerHour(start)[id] * hours
+      expect(back.resources[id] - start.resources[id] - produced).toBeCloseTo(camp.loot[id] ?? 0)
+    }
+  })
+
+  it('une armée anéantie ne rentre pas et ne rapporte rien', () => {
+    const start = startExpedition(richGame({}, { archer: 1 }), 'trollLair', army({ archer: 1 }), T0)
+    const after = advance(start, start.expedition!.arrivesAt)
+    expect(after.expedition).toBeNull()
+    expect(after.reports[0]).toMatchObject({ victory: false, loot: {} })
+    expect(armySize(after.troops)).toBe(0)
+  })
+
+  it('une seule armée en campagne à la fois', () => {
+    const start = startExpedition(richGame({}, { warrior: 20 }), 'wolfDen', army({ warrior: 10 }), T0)
+    expect(checkExpedition(start, 'wolfDen', army({ warrior: 10 }))).toEqual({
+      ok: false,
+      reason: 'Une armée est déjà en campagne',
+    })
+  })
+
+  it('on ne peut pas envoyer plus de troupes qu’on en a', () => {
+    const game = richGame({}, { warrior: 5 })
+    expect(checkExpedition(game, 'wolfDen', army({ warrior: 6 })).ok).toBe(false)
+    expect(checkExpedition(game, 'wolfDen', army({})).ok).toBe(false)
   })
 })

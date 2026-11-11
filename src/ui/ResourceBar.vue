@@ -22,10 +22,6 @@ defineProps<{ resources: Resources; production: Resources }>()
 
 <style scoped>
 .ledger {
-  position: sticky;
-  top: env(safe-area-inset-top, 0px);
-  z-index: 5;
-  background: var(--stone-raised);
   border-bottom: 1px solid var(--seam);
 }
 

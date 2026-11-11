@@ -1,14 +1,31 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { BUILDINGS, RESOURCES, RESOURCE_IDS, type BuildingId } from '../game/config'
-import { getBuilding, getRace, productionPerHour, type GameState } from '../game/rules'
+import { BUILDINGS, RESOURCES, RESOURCE_IDS, type Army, type BuildingId, type CampId, type UnitId } from '../game/config'
+import { getRace, productionPerHour, type GameState } from '../game/rules'
+import ArmyPanel from './ArmyPanel.vue'
 import BuildingCard from './BuildingCard.vue'
 import ResourceBar from './ResourceBar.vue'
+import WorldPanel from './WorldPanel.vue'
 import { formatAmount, formatDuration } from './format'
 import type { AwayReport } from './useGame'
 
 const props = defineProps<{ state: GameState; now: number; awayReport: AwayReport | null }>()
-const emit = defineEmits<{ upgrade: [building: BuildingId]; restart: []; dismissAway: [] }>()
+const emit = defineEmits<{
+  upgrade: [building: BuildingId]
+  train: [unit: UnitId, count: number]
+  attack: [camp: CampId, troops: Army]
+  restart: []
+  dismissAway: []
+}>()
+
+type Tab = 'city' | 'army' | 'world'
+const tab = ref<Tab>('city')
+// Un point doré signale l'onglet où quelque chose est en cours.
+const tabs = computed(() => [
+  { id: 'city' as const, label: 'Cité', busy: props.state.construction !== null },
+  { id: 'army' as const, label: 'Armée', busy: props.state.training !== null },
+  { id: 'world' as const, label: 'Alentours', busy: props.state.expedition !== null },
+])
 
 const race = computed(() => getRace(props.state.race))
 const production = computed(() => productionPerHour(props.state))
@@ -22,7 +39,23 @@ const confirmingRestart = ref(false)
 </script>
 
 <template>
-  <ResourceBar :resources="state.resources" :production="production" />
+  <div class="top">
+    <ResourceBar :resources="state.resources" :production="production" />
+    <nav class="wrap tabs" aria-label="Sections du jeu">
+      <button
+        v-for="t in tabs"
+        :key="t.id"
+        type="button"
+        class="tab"
+        :class="{ active: tab === t.id }"
+        :aria-pressed="tab === t.id"
+        @click="tab = t.id"
+      >
+        {{ t.label }}
+        <span v-if="t.busy" class="tab-dot"><span class="sr-only">(en cours)</span></span>
+      </button>
+    </nav>
+  </div>
 
   <main class="wrap city">
     <header class="city-head">
@@ -39,13 +72,13 @@ const confirmingRestart = ref(false)
           <span class="sr-only">{{ RESOURCES[gain.id].name }}</span>
         </li>
       </ul>
-      <p v-if="awayReport.finished">
-        {{ getBuilding(awayReport.finished.building).name }} : le niveau {{ awayReport.finished.level }} est terminé.
-      </p>
+      <ul v-if="awayReport.events.length" class="away-events">
+        <li v-for="(event, i) in awayReport.events" :key="i">{{ event }}</li>
+      </ul>
       <button class="btn" type="button" @click="emit('dismissAway')">Continuer</button>
     </section>
 
-    <section class="buildings" aria-label="Bâtiments">
+    <section v-if="tab === 'city'" class="grid thirds" aria-label="Bâtiments">
       <BuildingCard
         v-for="building in BUILDINGS"
         :key="building.id"
@@ -55,6 +88,13 @@ const confirmingRestart = ref(false)
         @upgrade="emit('upgrade', building.id)"
       />
     </section>
+    <ArmyPanel
+      v-else-if="tab === 'army'"
+      :state="state"
+      :now="now"
+      @train="(unit, count) => emit('train', unit, count)"
+    />
+    <WorldPanel v-else :state="state" :now="now" @attack="(camp, troops) => emit('attack', camp, troops)" />
 
     <footer class="city-foot">
       <button v-if="!confirmingRestart" class="btn-quiet" type="button" @click="confirmingRestart = true">
@@ -70,6 +110,52 @@ const confirmingRestart = ref(false)
 </template>
 
 <style scoped>
+/* Le registre des ressources et les onglets restent accrochés en haut de l'écran. */
+.top {
+  position: sticky;
+  top: env(safe-area-inset-top, 0px);
+  z-index: 5;
+  background: var(--stone-raised);
+  border-bottom: 1px solid var(--seam);
+}
+
+.tabs {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.tab {
+  flex: 1 1 0;
+  max-width: 12rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding-block: 0.65rem;
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--faded);
+  font: 700 0.95rem/1.2 var(--font-body);
+  cursor: pointer;
+}
+
+.tab:hover {
+  color: var(--parchment);
+}
+
+.tab.active {
+  color: var(--parchment);
+  border-bottom-color: var(--gilt);
+}
+
+.tab-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: var(--gilt);
+}
+
 .city {
   padding-block: 1.5rem 3rem;
   display: flex;
@@ -110,22 +196,9 @@ const confirmingRestart = ref(false)
   font-variant-numeric: tabular-nums;
 }
 
-.buildings {
-  display: grid;
-  gap: 1rem;
-  grid-template-columns: 1fr;
-}
-
-@media (min-width: 38rem) {
-  .buildings {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (min-width: 58rem) {
-  .buildings {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
+.away-events {
+  margin: 0;
+  padding-left: 1.1rem;
 }
 
 .city-foot {

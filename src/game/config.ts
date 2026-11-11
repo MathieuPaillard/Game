@@ -1,5 +1,7 @@
 // Tous les chiffres du jeu sont réunis ici.
-// Pour équilibrer le jeu (coûts, durées, production), c'est ce fichier qu'on modifie.
+// Pour équilibrer le jeu (coûts, durées, production, combats), c'est ce fichier qu'on modifie.
+
+// --- Ressources ---
 
 export type ResourceId = 'food' | 'wood' | 'stone' | 'gold' | 'mana'
 export type Resources = Record<ResourceId, number>
@@ -15,6 +17,8 @@ export const RESOURCES: Record<ResourceId, { name: string; icon: string }> = {
   mana: { name: 'Mana', icon: '🔮' },
 }
 
+// --- Races ---
+
 export type RaceId = 'humans' | 'elves' | 'dwarves' | 'orcs'
 
 export interface RaceDef {
@@ -28,6 +32,8 @@ export interface RaceDef {
   productionBonus: Partial<Resources>
   /** 0.1 = constructions 10 % plus rapides. */
   constructionSpeedBonus: number
+  /** 0.1 = entraînement des troupes 10 % plus rapide. */
+  trainingSpeedBonus: number
 }
 
 export const RACES: RaceDef[] = [
@@ -39,6 +45,7 @@ export const RACES: RaceDef[] = [
     bonuses: ['Constructions 10 % plus rapides'],
     productionBonus: {},
     constructionSpeedBonus: 0.1,
+    trainingSpeedBonus: 0,
   },
   {
     id: 'elves',
@@ -48,6 +55,7 @@ export const RACES: RaceDef[] = [
     bonuses: ['+10 % de bois', '+10 % de mana'],
     productionBonus: { wood: 0.1, mana: 0.1 },
     constructionSpeedBonus: 0,
+    trainingSpeedBonus: 0,
   },
   {
     id: 'dwarves',
@@ -57,19 +65,23 @@ export const RACES: RaceDef[] = [
     bonuses: ['+10 % de pierre', '+10 % d’or'],
     productionBonus: { stone: 0.1, gold: 0.1 },
     constructionSpeedBonus: 0,
+    trainingSpeedBonus: 0,
   },
   {
     id: 'orcs',
     name: 'Orcs',
     style: 'Force brute et nombre',
     description: 'Une horde affamée que rien n’arrête.',
-    bonuses: ['+10 % de nourriture', 'Entraînement plus rapide (avec les armées)'],
+    bonuses: ['+10 % de nourriture', 'Entraînement 10 % plus rapide'],
     productionBonus: { food: 0.1 },
     constructionSpeedBonus: 0,
+    trainingSpeedBonus: 0.1,
   },
 ]
 
-export type BuildingId = 'castle' | 'farm' | 'sawmill' | 'quarry' | 'goldMine' | 'manaWell'
+// --- Bâtiments ---
+
+export type BuildingId = 'castle' | 'farm' | 'sawmill' | 'quarry' | 'goldMine' | 'manaWell' | 'barracks'
 
 export interface BuildingDef {
   id: BuildingId
@@ -102,7 +114,7 @@ export const BUILDINGS: BuildingDef[] = [
     id: 'farm',
     name: 'Ferme',
     icon: '🌾',
-    description: 'Nourrit ta population, et bientôt tes troupes.',
+    description: 'Nourrit ta population et tes troupes.',
     produces: 'food',
     baseProductionPerHour: 1800,
     unlockedAtCastleLevel: 1,
@@ -135,7 +147,7 @@ export const BUILDINGS: BuildingDef[] = [
     id: 'goldMine',
     name: 'Mine d’or',
     icon: '🪙',
-    description: 'L’or sert au Château et, bientôt, aux recherches et aux héros.',
+    description: 'L’or paie le Château, les cavaliers et les mages.',
     produces: 'gold',
     baseProductionPerHour: 900,
     unlockedAtCastleLevel: 1,
@@ -146,12 +158,21 @@ export const BUILDINGS: BuildingDef[] = [
     id: 'manaWell',
     name: 'Puits de mana',
     icon: '🔮',
-    description: 'Une source de magie pure. La mana renforce le Château et servira aux sorts.',
+    description: 'Une source de magie pure, pour le Château et les mages.',
     produces: 'mana',
     baseProductionPerHour: 600,
     unlockedAtCastleLevel: 2,
     baseCost: { wood: 100, stone: 100, gold: 40 },
     baseDurationSeconds: 10,
+  },
+  {
+    id: 'barracks',
+    name: 'Caserne',
+    icon: '⚔️',
+    description: 'Entraîne tes troupes. Chaque niveau débloque des troupes et accélère l’entraînement.',
+    unlockedAtCastleLevel: 2,
+    baseCost: { food: 120, wood: 160, stone: 100 },
+    baseDurationSeconds: 12,
   },
 ]
 
@@ -164,6 +185,168 @@ export const DURATION_GROWTH = 1.6
 /** Chaque niveau produit 1,35 fois plus que le précédent. */
 export const PRODUCTION_GROWTH = 1.35
 
+// --- Troupes ---
+
+export type UnitId = 'warrior' | 'archer' | 'rider' | 'mage'
+/** Un nombre de troupes pour chaque famille. */
+export type Army = Record<UnitId, number>
+
+export const UNIT_IDS: UnitId[] = ['warrior', 'archer', 'rider', 'mage']
+
+export interface UnitDef {
+  id: UnitId
+  name: string
+  icon: string
+  description: string
+  attack: number
+  health: number
+  /** Famille à laquelle cette troupe inflige COUNTER_BONUS fois plus de dégâts. */
+  strongAgainst: UnitId
+  /** Coût d'une seule troupe. */
+  cost: Partial<Resources>
+  /** Durée d'entraînement d'une seule troupe, en secondes. */
+  trainingSeconds: number
+  /** Niveau de Caserne nécessaire pour l'entraîner. */
+  barracksLevel: number
+}
+
+// Les forces et faiblesses forment un cycle :
+// Guerriers > Cavaliers > Archers > Mages > Guerriers.
+export const UNITS: UnitDef[] = [
+  {
+    id: 'warrior',
+    name: 'Guerriers',
+    icon: '🛡️',
+    description: 'Solides et bon marché. Leurs lances brisent les charges.',
+    attack: 10,
+    health: 50,
+    strongAgainst: 'rider',
+    cost: { food: 30, wood: 10 },
+    trainingSeconds: 3,
+    barracksLevel: 1,
+  },
+  {
+    id: 'archer',
+    name: 'Archers',
+    icon: '🏹',
+    description: 'Ils tirent de loin et abattent les mages avant qu’ils n’incantent.',
+    attack: 14,
+    health: 30,
+    strongAgainst: 'mage',
+    cost: { food: 25, wood: 25 },
+    trainingSeconds: 3,
+    barracksLevel: 1,
+  },
+  {
+    id: 'rider',
+    name: 'Cavaliers',
+    icon: '🐎',
+    description: 'Rapides et puissants, ils balaient les lignes d’archers.',
+    attack: 16,
+    health: 60,
+    strongAgainst: 'archer',
+    cost: { food: 50, wood: 10, gold: 15 },
+    trainingSeconds: 5,
+    barracksLevel: 2,
+  },
+  {
+    id: 'mage',
+    name: 'Mages',
+    icon: '🧙',
+    description: 'Fragiles, mais leurs sorts traversent les armures.',
+    attack: 24,
+    health: 25,
+    strongAgainst: 'warrior',
+    cost: { food: 30, gold: 10, mana: 20 },
+    trainingSeconds: 6,
+    barracksLevel: 3,
+  },
+]
+
+/** Une troupe inflige 1,5 fois plus de dégâts à la famille qu'elle domine. */
+export const COUNTER_BONUS = 1.5
+/** Une bataille s'arrête au plus tard après ce nombre de manches. */
+export const MAX_BATTLE_ROUNDS = 10
+/** Troupes maximum par entraînement, pour chaque niveau de Caserne. */
+export const TRAINING_BATCH_PER_LEVEL = 20
+/** Chaque niveau de Caserne au-delà du premier réduit de 10 % la durée d'entraînement. */
+export const BARRACKS_SPEED_PER_LEVEL = 0.1
+
+// --- Monstres et camps ---
+
+export type MonsterId = 'wolf' | 'goblin' | 'skeleton' | 'shaman' | 'troll'
+
+export interface MonsterDef {
+  id: MonsterId
+  name: string
+  icon: string
+  /** Famille de troupe dont le monstre a les forces et les faiblesses. */
+  family: UnitId
+  attack: number
+  health: number
+}
+
+export const MONSTERS: MonsterDef[] = [
+  { id: 'wolf', name: 'Loups', icon: '🐺', family: 'rider', attack: 12, health: 40 },
+  { id: 'goblin', name: 'Gobelins', icon: '👺', family: 'warrior', attack: 8, health: 35 },
+  { id: 'skeleton', name: 'Squelettes archers', icon: '💀', family: 'archer', attack: 11, health: 25 },
+  { id: 'shaman', name: 'Chamans', icon: '🔥', family: 'mage', attack: 18, health: 20 },
+  { id: 'troll', name: 'Troll', icon: '👹', family: 'warrior', attack: 40, health: 400 },
+]
+
+export type CampId = 'wolfDen' | 'goblinCamp' | 'hauntedRuins' | 'trollLair'
+
+export interface CampDef {
+  id: CampId
+  name: string
+  level: number
+  /** Durée de la marche pour y aller (le retour prend autant de temps), en secondes. */
+  marchSeconds: number
+  defenders: Partial<Record<MonsterId, number>>
+  /** Ce que l'armée rapporte en cas de victoire. */
+  loot: Partial<Resources>
+}
+
+export const CAMPS: CampDef[] = [
+  {
+    id: 'wolfDen',
+    name: 'Tanière de loups',
+    level: 1,
+    marchSeconds: 20,
+    defenders: { wolf: 8 },
+    loot: { food: 250, wood: 150 },
+  },
+  {
+    id: 'goblinCamp',
+    name: 'Campement gobelin',
+    level: 2,
+    marchSeconds: 40,
+    defenders: { goblin: 14, shaman: 4 },
+    loot: { food: 400, wood: 400, stone: 250, gold: 80 },
+  },
+  {
+    id: 'hauntedRuins',
+    name: 'Ruines hantées',
+    level: 3,
+    marchSeconds: 60,
+    defenders: { skeleton: 26, shaman: 6 },
+    loot: { stone: 700, gold: 250, mana: 100 },
+  },
+  {
+    id: 'trollLair',
+    name: 'Antre du troll',
+    level: 4,
+    marchSeconds: 90,
+    defenders: { troll: 2, goblin: 30, wolf: 15 },
+    loot: { food: 1200, wood: 1200, stone: 900, gold: 450, mana: 200 },
+  },
+]
+
+/** Nombre de rapports de bataille conservés. */
+export const MAX_REPORTS = 5
+
+// --- Départ ---
+
 export const START_RESOURCES: Resources = { food: 500, wood: 500, stone: 400, gold: 150, mana: 60 }
 
 export const START_LEVELS: Record<BuildingId, number> = {
@@ -173,4 +356,5 @@ export const START_LEVELS: Record<BuildingId, number> = {
   quarry: 1,
   goldMine: 0,
   manaWell: 0,
+  barracks: 0,
 }

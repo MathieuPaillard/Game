@@ -34,7 +34,7 @@ const outputNext = computed(() => buildingOutput(props.state, props.building, ta
 </script>
 
 <template>
-  <article class="plaque" :class="{ empty: level === 0, working: works }">
+  <article class="plaque" :class="{ empty: level === 0, working: works, wide: building.id === 'castle' }">
     <header class="plaque-head">
       <span class="plaque-icon" aria-hidden="true">{{ building.icon }}</span>
       <div>
@@ -52,7 +52,7 @@ const outputNext = computed(() => buildingOutput(props.state, props.building, ta
 
     <div class="plaque-foot">
       <div v-if="works" class="works" role="status">
-        <div class="works-track"><span class="works-fill" :style="{ width: `${progress * 100}%` }"></span></div>
+        <div class="progress"><span class="progress-fill" :style="{ width: `${progress * 100}%` }"></span></div>
         <p class="works-label">Niveau {{ works.targetLevel }} en construction · {{ formatDuration(remaining) }}</p>
       </div>
 
@@ -77,54 +77,13 @@ const outputNext = computed(() => buildingOutput(props.state, props.building, ta
 </template>
 
 <style scoped>
-.plaque {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  min-width: 0;
-  padding: 1rem;
-  background: var(--stone);
-  border: 1px solid var(--seam);
-  border-radius: var(--radius);
+/* Le Château, cœur de la cité, occupe toute une rangée. */
+.plaque.wide {
+  grid-column: 1 / -1;
 }
 
-/* Pas encore construit : un emplacement vide, tracé en pointillés. */
-.plaque.empty {
-  background: transparent;
-  border-style: dashed;
-}
-
-.plaque.working {
-  border-color: var(--gilt);
-}
-
-.plaque-head {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.plaque-icon {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 2.75rem;
-  height: 2.75rem;
-  font-size: 1.75rem;
-  line-height: 1;
-  background: var(--stone-raised);
-  border-radius: 6px;
-}
-
-.plaque-name {
-  font: 700 1.5rem/1.1 var(--font-display);
-}
-
-.plaque-level {
-  font-size: 0.78rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--faded);
+.plaque.wide .plaque-foot {
+  max-width: 26rem;
 }
 
 .plaque-output {
@@ -135,50 +94,10 @@ const outputNext = computed(() => buildingOutput(props.state, props.building, ta
   font-size: 0.875rem;
 }
 
-.plaque-foot {
-  margin-top: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-}
-
-.cost {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.3rem 0.9rem;
-  font-variant-numeric: tabular-nums;
-}
-
-.cost .short {
-  color: var(--ember);
-}
-
-.reason {
-  font-size: 0.85rem;
-  color: var(--faded);
-}
-
 .works {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-}
-
-.works-track {
-  height: 0.5rem;
-  overflow: hidden;
-  border-radius: 999px;
-  background: var(--stone-raised);
-}
-
-.works-fill {
-  display: block;
-  height: 100%;
-  background: var(--gilt);
-  transition: width 1s linear;
 }
 
 .works-label {
