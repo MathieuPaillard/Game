@@ -64,16 +64,30 @@ export interface Expedition {
   result: { survivors: Army; loot: Partial<Resources> } | null
 }
 
+/** Une manche du combat, telle que la raconte le journal. */
+export interface BattleRound {
+  /** Dégâts infligés par ton armée, puis par les monstres. */
+  dealt: number
+  taken: number
+  /** Pertes de la manche, de chaque côté. */
+  lost: Army
+  enemyLost: Partial<Record<MonsterId, number>>
+}
+
 export interface BattleReport {
   at: number
   camp: CampId
   victory: boolean
   sent: Army
   lost: Army
+  /** Les monstres présents au début de la bataille. */
+  enemies: Partial<Record<MonsterId, number>>
   enemyLost: Partial<Record<MonsterId, number>>
   loot: Partial<Resources>
   /** L'armée avait faim : son attaque était réduite. */
   starving: boolean
+  /** Le journal du combat, manche par manche. */
+  rounds: BattleRound[]
 }
 
 /** Tout ce qu'il faut savoir sur une partie. Les heures sont en millisecondes (comme Date.now()). */
@@ -412,6 +426,27 @@ function resolveArrival(state: GameState, expedition: Expedition): GameState {
   defenders.forEach(([id, count], i) => {
     enemyLost[id] = count - outcome.defenders[i]
   })
+
+  // Le journal : les pertes de chaque manche, par différence avec la manche précédente.
+  let before = { attackers: UNIT_IDS.map((id) => expedition.troops[id]), defenders: defenders.map(([, n]) => n) }
+  const rounds: BattleRound[] = outcome.log.map((entry) => {
+    const roundLost = emptyArmy()
+    UNIT_IDS.forEach((id, i) => {
+      roundLost[id] = before.attackers[i] - entry.attackers[i]
+    })
+    const roundEnemyLost: Partial<Record<MonsterId, number>> = {}
+    defenders.forEach(([id], i) => {
+      roundEnemyLost[id] = before.defenders[i] - entry.defenders[i]
+    })
+    before = entry
+    return {
+      dealt: Math.round(entry.damageByAttackers),
+      taken: Math.round(entry.damageByDefenders),
+      lost: roundLost,
+      enemyLost: roundEnemyLost,
+    }
+  })
+
   const victory = outcome.winner === 'attacker'
   const loot = victory ? { ...camp.loot } : {}
   const report: BattleReport = {
@@ -420,9 +455,11 @@ function resolveArrival(state: GameState, expedition: Expedition): GameState {
     victory,
     sent: { ...expedition.troops },
     lost,
+    enemies: { ...camp.defenders },
     enemyLost,
     loot,
     starving,
+    rounds,
   }
   const reports = [report, ...state.reports].slice(0, MAX_REPORTS)
 

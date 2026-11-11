@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MAX_LEVEL, RESOURCE_IDS, START_LEVELS, START_RESOURCES, type Army, type BuildingId } from './config'
+import { MAX_LEVEL, RESOURCE_IDS, START_LEVELS, START_RESOURCES, UNIT_IDS, type Army, type BuildingId } from './config'
 import {
   advance,
   armySize,
@@ -291,6 +291,20 @@ describe('expéditions', () => {
     for (const id of RESOURCE_IDS.filter((r) => r !== 'food')) {
       const produced = productionPerHour(start)[id] * hours
       expect(back.resources[id] - start.resources[id] - produced).toBeCloseTo(camp.loot[id] ?? 0)
+    }
+  })
+
+  it('le rapport contient le journal du combat, manche par manche', () => {
+    const start = startExpedition(richGame({}, { warrior: 20, archer: 10 }), 'goblinCamp', army({ warrior: 20, archer: 10 }), T0)
+    const report = advance(start, start.expedition!.arrivesAt).reports[0]
+    expect(report.enemies).toEqual(getCamp('goblinCamp').defenders)
+    expect(report.rounds.length).toBeGreaterThan(0)
+    // Les pertes de chaque manche s'additionnent pour donner les pertes totales.
+    for (const id of UNIT_IDS) {
+      expect(report.rounds.reduce((sum, r) => sum + r.lost[id], 0)).toBe(report.lost[id])
+    }
+    for (const [id, lost] of Object.entries(report.enemyLost)) {
+      expect(report.rounds.reduce((sum, r) => sum + (r.enemyLost[id as keyof typeof r.enemyLost] ?? 0), 0)).toBe(lost)
     }
   })
 

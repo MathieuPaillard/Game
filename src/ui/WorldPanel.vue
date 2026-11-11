@@ -12,6 +12,7 @@ import {
 } from '../game/config'
 import { getCamp, getMonster, type GameState } from '../game/rules'
 import CampCard from './CampCard.vue'
+import { describeBattle } from './battleLog'
 import { formatAgo, formatAmount, formatArmy, formatDuration } from './format'
 
 const props = defineProps<{ state: GameState; now: number }>()
@@ -26,6 +27,8 @@ const march = computed(() => {
     : { label: `En route vers : ${camp}`, start: e.departedAt, end: e.arrivesAt }
 })
 const malusPercent = Math.round(STARVATION_ATTACK_MALUS * 100)
+// Le journal de chaque rapport, dans le même ordre que les rapports.
+const stories = computed(() => props.state.reports.map(describeBattle))
 const progress = computed(() => {
   const m = march.value
   if (!m) return 0
@@ -76,7 +79,7 @@ function lootText(loot: Partial<Resources>): string {
       <h2 id="reports-title" class="section-title">Rapports de bataille</h2>
       <p v-if="state.reports.length === 0" class="muted">Aucune bataille pour l’instant.</p>
       <ol v-else class="reports">
-        <li v-for="report in state.reports" :key="report.at" class="report">
+        <li v-for="(report, index) in state.reports" :key="report.at" class="report">
           <p>
             <strong :class="report.victory ? 'won' : 'lost'">{{ report.victory ? 'Victoire' : 'Défaite' }}</strong>
             · {{ getCamp(report.camp).name }} <span class="muted">· {{ formatAgo(now - report.at) }}</span>
@@ -86,6 +89,20 @@ function lootText(loot: Partial<Resources>): string {
           <p>Monstres vaincus : {{ monstersText(report.enemyLost) || 'aucun' }}</p>
           <p v-if="report.victory">Butin : {{ lootText(report.loot) }}</p>
           <p v-if="report.starving" class="lost">Tes troupes avaient faim : {{ malusPercent }} % d’attaque en moins.</p>
+          <details v-if="report.rounds.length" class="journal">
+            <summary>Journal du combat</summary>
+            <div class="journal-body">
+              <p class="muted">{{ stories[index].advantages }}</p>
+              <ol class="rounds">
+                <li v-for="round in stories[index].rounds" :key="round.title">
+                  <strong>{{ round.title }}.</strong> {{ round.text }}
+                </li>
+              </ol>
+              <p>
+                <strong>{{ stories[index].ending }}</strong>
+              </p>
+            </div>
+          </details>
         </li>
       </ol>
     </section>
@@ -134,6 +151,39 @@ function lootText(loot: Partial<Resources>): string {
   border: 1px solid var(--seam);
   border-radius: var(--radius);
   font-variant-numeric: tabular-nums;
+}
+
+.journal {
+  margin-top: 0.4rem;
+}
+
+.journal summary {
+  width: fit-content;
+  padding-block: 0.25rem;
+  color: var(--gilt);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.journal summary:focus-visible {
+  outline: 2px solid var(--parchment);
+  outline-offset: 2px;
+}
+
+.journal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding-top: 0.5rem;
+}
+
+.rounds {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
 }
 
 .won {

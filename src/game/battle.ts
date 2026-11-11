@@ -12,12 +12,24 @@ export interface Stack {
   count: number
 }
 
+/** Ce qui s'est passé pendant une manche. */
+export interface RoundLog {
+  /** Dégâts infligés pendant la manche par chaque camp. */
+  damageByAttackers: number
+  damageByDefenders: number
+  /** Combattants encore debout dans chaque groupe à la fin de la manche. */
+  attackers: number[]
+  defenders: number[]
+}
+
 export interface BattleOutcome {
   winner: 'attacker' | 'defender' | 'none'
   rounds: number
   /** Combattants encore debout dans chaque groupe, dans l'ordre des groupes reçus. */
   attackers: number[]
   defenders: number[]
+  /** Le déroulé de la bataille, manche par manche. */
+  log: RoundLog[]
 }
 
 export function isStrongAgainst(family: UnitId, target: UnitId): boolean {
@@ -29,6 +41,7 @@ export function fight(attackers: Stack[], defenders: Stack[], maxRounds = MAX_BA
   let attackerHealth = attackers.map((s) => s.count * s.health)
   let defenderHealth = defenders.map((s) => s.count * s.health)
   let rounds = 0
+  const log: RoundLog[] = []
 
   while (rounds < maxRounds && total(counts(attackers, attackerHealth)) > 0 && total(counts(defenders, defenderHealth)) > 0) {
     rounds++
@@ -37,12 +50,18 @@ export function fight(attackers: Stack[], defenders: Stack[], maxRounds = MAX_BA
     const toAttackers = damage(defenders, defenderHealth, attackers, attackerHealth)
     defenderHealth = defenderHealth.map((hp, i) => Math.max(0, hp - toDefenders[i]))
     attackerHealth = attackerHealth.map((hp, i) => Math.max(0, hp - toAttackers[i]))
+    log.push({
+      damageByAttackers: total(toDefenders),
+      damageByDefenders: total(toAttackers),
+      attackers: counts(attackers, attackerHealth),
+      defenders: counts(defenders, defenderHealth),
+    })
   }
 
   const attackersLeft = counts(attackers, attackerHealth)
   const defendersLeft = counts(defenders, defenderHealth)
   const winner = total(attackersLeft) === 0 ? 'defender' : total(defendersLeft) === 0 ? 'attacker' : 'none'
-  return { winner, rounds, attackers: attackersLeft, defenders: defendersLeft }
+  return { winner, rounds, attackers: attackersLeft, defenders: defendersLeft, log }
 }
 
 /** Combattants encore debout dans chaque groupe. */

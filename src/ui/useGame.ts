@@ -148,7 +148,13 @@ function loadSave(): GameState | null {
       // Avant, il n'y avait qu'un seul entraînement à la fois (`training`).
       trainings: state.trainings ?? (state.training ? [state.training] : []),
       expedition: state.expedition ?? null,
-      reports: state.reports ?? [],
+      // Les rapports d'avant le journal du combat n'ont ni manches ni liste des monstres.
+      reports: (state.reports ?? []).map((report) => ({
+        ...report,
+        enemies: report.enemies ?? {},
+        starving: report.starving ?? false,
+        rounds: report.rounds ?? [],
+      })),
       updatedAt: state.updatedAt,
     }
   } catch {

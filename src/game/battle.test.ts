@@ -23,6 +23,16 @@ describe('bataille', () => {
     }
   })
 
+  it('tient un journal de chaque manche', () => {
+    const outcome = fight([stack('warrior', 30)], [stack('rider', 20)])
+    expect(outcome.log).toHaveLength(outcome.rounds)
+    expect(outcome.log[0].damageByAttackers).toBeGreaterThan(0)
+    expect(outcome.log[0].damageByDefenders).toBeGreaterThan(0)
+    const last = outcome.log[outcome.log.length - 1]
+    expect(last.attackers).toEqual(outcome.attackers)
+    expect(last.defenders).toEqual(outcome.defenders)
+  })
+
   it('donne toujours le même résultat', () => {
     const army = [stack('warrior', 12), stack('archer', 7, 14, 30)]
     const foes = [stack('rider', 9, 12, 40), stack('mage', 4, 18, 20)]

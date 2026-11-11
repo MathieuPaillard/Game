@@ -299,7 +299,7 @@ export const MONSTERS: MonsterDef[] = [
   { id: 'goblin', name: 'Gobelins', icon: '👺', family: 'warrior', attack: 8, health: 35 },
   { id: 'skeleton', name: 'Squelettes archers', icon: '💀', family: 'archer', attack: 11, health: 25 },
   { id: 'shaman', name: 'Chamans', icon: '🔥', family: 'mage', attack: 18, health: 20 },
-  { id: 'troll', name: 'Troll', icon: '👹', family: 'warrior', attack: 40, health: 400 },
+  { id: 'troll', name: 'Trolls', icon: '👹', family: 'warrior', attack: 40, health: 400 },
 ]
 
 export type CampId = 'wolfDen' | 'goblinCamp' | 'hauntedRuins' | 'trollLair'
