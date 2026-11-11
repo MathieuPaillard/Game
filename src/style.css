@@ -1,0 +1,150 @@
+/* Mise en page : une table de commandement, de nuit. Le registre des ressources reste
+   accroché en haut de l'écran ; dessous, chaque bâtiment est une plaque de pierre. */
+:root {
+  color-scheme: dark;
+
+  --night: #12151f;
+  --stone: #1b2030;
+  --stone-raised: #232a3d;
+  --seam: #363e56;
+  --parchment: #ede3cb;
+  --faded: #a59d88;
+  --gilt: #e0ac45;
+  --gilt-deep: #23190a;
+  --ember: #f08b70;
+
+  --font-display: 'Grenze Gotisch', 'Palatino Linotype', Palatino, Georgia, serif;
+  --font-body: 'Alegreya Sans', 'Segoe UI', system-ui, sans-serif;
+
+  --radius: 8px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--night);
+  color: var(--parchment);
+  font: 400 1rem/1.5 var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Sur téléphone, la bande sous la barre d'état prend la couleur du registre des ressources. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0 0 auto;
+  height: env(safe-area-inset-top, 0px);
+  z-index: 10;
+  background: var(--stone-raised);
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  text-wrap: balance;
+}
+
+h1 {
+  font: 700 clamp(2.1rem, 7vw, 3rem) / 1.05 var(--font-display);
+}
+
+p {
+  margin: 0;
+}
+
+.wrap {
+  width: 100%;
+  max-width: 64rem;
+  margin-inline: auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+
+.muted {
+  color: var(--faded);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.75rem;
+  padding: 0.55rem 1rem;
+  border: 1px solid var(--gilt);
+  border-radius: 6px;
+  background: var(--gilt);
+  color: var(--gilt-deep);
+  font: 700 0.95rem/1.2 var(--font-body);
+  cursor: pointer;
+  transition:
+    filter 120ms ease,
+    transform 120ms ease;
+}
+
+.btn:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.btn:disabled {
+  background: transparent;
+  border-color: var(--seam);
+  color: var(--faded);
+  cursor: not-allowed;
+}
+
+.btn-danger {
+  background: transparent;
+  border-color: var(--ember);
+  color: var(--ember);
+}
+
+.btn-quiet {
+  padding: 0.5rem 0.25rem;
+  background: none;
+  border: 0;
+  color: var(--faded);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.btn-quiet:hover {
+  color: var(--parchment);
+}
+
+button:focus-visible {
+  outline: 2px solid var(--parchment);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0ms !important;
+    animation-duration: 0ms !important;
+  }
+}

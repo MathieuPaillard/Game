@@ -3,7 +3,7 @@
 Ce document rassemble les choix de game design du jeu. C'est la référence : on le met à jour à chaque nouvelle décision.
 
 Chaque point porte un statut :
-- **[Décidé]** : validé.
+- **[Décidé]** : validé (ça peut encore évoluer).
 - **[Proposition]** : idée à valider ou à modifier.
 - **[À trancher]** : question encore ouverte.
 
@@ -22,12 +22,12 @@ Boucle de jeu : récolter des ressources → construire et améliorer → entra�
 
 - **[Décidé]** Tout se passe en temps réel, avec des durées, comme dans Rise of Kingdoms : construire, améliorer, rechercher, entraîner des troupes ou envoyer une armée prend du temps. Les premières actions durent quelques secondes, puis les durées s'allongent avec les niveaux.
 - **[Décidé]** Le royaume continue de produire, et les chantiers d'avancer, même quand le joueur est déconnecté.
-- **[À trancher]** Le combat aussi en temps réel ? Le README prévoyait un combat au tour par tour, mais le choix « tout en temps réel » l'inclurait aussi. Piste pour commencer simple : l'armée met un certain temps à atteindre sa cible, puis la bataille se calcule automatiquement et produit un rapport de bataille. Plus tard, les batailles pourront durer sur la carte.
+- **[Décidé]** Pas de tour par tour : les combats aussi se déroulent en temps réel. Pour commencer simple, l'armée met un certain temps à atteindre sa cible, puis la bataille se calcule automatiquement et produit un rapport de bataille. Plus tard, les batailles pourront durer sur la carte.
 
 ## 3. Les ressources
 
 - **[Décidé]** Cinq ressources : nourriture, bois, pierre, or et mana.
-- **[Proposition]** Leurs usages et les bâtiments qui les produisent :
+- **[Décidé]** Leurs usages et les bâtiments qui les produisent :
 
 | Ressource  | Sert surtout à                          | Produite par  |
 |------------|-----------------------------------------|---------------|
@@ -40,7 +40,7 @@ Boucle de jeu : récolter des ressources → construire et améliorer → entra�
 ## 4. Les races
 
 - **[Décidé]** Plusieurs races jouables, chacune avec ses avantages.
-- **[Proposition]** Quatre races pour commencer. D'autres pourront s'ajouter, et on pourra leur donner des noms propres à notre univers.
+- **[Décidé]** Quatre races pour commencer. D'autres pourront s'ajouter, et on pourra leur donner des noms propres à notre univers.
 
 | Race    | Style                 | Bonus (chiffres à équilibrer)                   |
 |---------|-----------------------|-------------------------------------------------|
@@ -53,30 +53,30 @@ Plus tard, chaque race aura aussi une unité qui lui est propre.
 
 ## 5. La cité
 
-- **[Proposition]** Le **Château** est le bâtiment central : son niveau limite celui des autres bâtiments, et l'améliorer débloque de nouveaux bâtiments.
-- **[Proposition]** Bâtiments de production : Ferme, Scierie, Carrière, Mine d'or, Puits de mana.
-- **[Proposition]** Un seul chantier à la fois au début, un second plus tard.
-- **[Proposition]** Bâtiments suivants : Caserne (troupes), Académie (recherches), Tour des mages (sorts), Remparts (défense).
+- **[Décidé]** Le **Château** est le bâtiment central : son niveau limite celui des autres bâtiments, et l'améliorer débloque de nouveaux bâtiments.
+- **[Décidé]** Bâtiments de production : Ferme, Scierie, Carrière, Mine d'or, Puits de mana.
+- **[Décidé]** Un seul chantier à la fois au début, un second plus tard.
+- **[Décidé]** Bâtiments suivants : Caserne (troupes), Académie (recherches), Tour des mages (sorts), Remparts (défense).
 
 ## 6. Armées et héros
 
-- **[Proposition]** Quatre familles de troupes : Guerriers, Archers, Cavaliers et Mages, avec des forces et des faiblesses entre elles.
-- **[Proposition]** Des **héros** mènent les armées ; ils gagnent de l'expérience et débloquent des compétences.
-- **[Proposition]** Des **créatures légendaires** (dragons…) : rares, très puissantes, obtenues par des quêtes.
+- **[Décidé]** Quatre familles de troupes : Guerriers, Archers, Cavaliers et Mages, avec des forces et des faiblesses entre elles.
+- **[Décidé]** Des **héros** mènent les armées ; ils gagnent de l'expérience et débloquent des compétences.
+- **[Décidé]** Des **créatures légendaires** (dragons…) : rares, très puissantes, obtenues par des quêtes.
 
 ## 7. Le monde
 
-- **[Proposition]** Une carte commune à tous les joueurs d'un serveur : cités, gisements de ressources, monstres, lieux légendaires.
-- **[Proposition]** Des **alliances** : entraide, attaques groupées, territoire commun.
+- **[Décidé]** Une carte commune à tous les joueurs d'un serveur : cités, gisements de ressources, monstres, lieux légendaires.
+- **[Décidé]** Des **alliances** : entraide, attaques groupées, territoire commun.
 
 ## 8. Feuille de route
 
 Chaque étape donne un jeu jouable.
 
-1. **Prototype solo dans le navigateur** : la cité, les ressources, les bâtiments et leurs durées de construction.
+1. **Prototype solo dans le navigateur** : la cité, les ressources, les bâtiments et leurs durées de construction. *En place* : choix de la race, cinq ressources, six bâtiments, un chantier à la fois, production hors connexion.
 2. **Armées** : troupes, recherches, combats contre des monstres.
 3. **Serveur et comptes joueurs** : sauvegarde en ligne ; le serveur décide de tout.
 4. **Monde partagé** : la carte, les attaques entre joueurs, les alliances.
 5. **Contenu et mobile** : quêtes, livre de sorts, créatures légendaires, puis l'appli Android.
 
-Les chiffres du jeu (coûts, durées, production) seront regroupés dans des fichiers de configuration, pour pouvoir équilibrer le jeu sans toucher au reste du code.
+Les chiffres du jeu (coûts, durées, production, bonus des races) sont regroupés dans `src/game/config.ts`, pour pouvoir équilibrer le jeu sans toucher au reste du code.
