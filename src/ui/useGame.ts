@@ -32,6 +32,7 @@ import {
   startUpgrade,
   type Check,
   type GameState,
+  type Training,
 } from '../game/rules'
 
 const SAVE_KEY = 'royaume-sauvegarde'
@@ -125,13 +126,16 @@ export function useGame() {
   }
 }
 
+/** Une partie sauvegardée, peut-être par une version plus ancienne du jeu. */
+type SavedState = Partial<GameState> & { race: RaceId; updatedAt: number; training?: Training | null }
+
 function loadSave(): GameState | null {
   try {
     const raw = localStorage.getItem(SAVE_KEY)
     if (!raw) return null
-    const save = JSON.parse(raw) as { version?: number; state?: GameState }
+    const save = JSON.parse(raw) as { version?: number; state?: SavedState }
     const state = save.state
-    if (save.version !== SAVE_VERSION || !state) return null
+    if (save.version !== SAVE_VERSION || !state || typeof state.updatedAt !== 'number') return null
     if (!RACES.some((race) => race.id === state.race)) return null
     // On reconstruit la partie champ par champ : ce qui manque dans une sauvegarde plus ancienne
     // prend sa valeur par défaut, et ce qui n'existe plus dans le jeu est oublié.
@@ -141,7 +145,8 @@ function loadSave(): GameState | null {
       levels: { ...START_LEVELS, ...state.levels },
       construction: state.construction ?? null,
       troops: { ...emptyArmy(), ...state.troops },
-      training: state.training ?? null,
+      // Avant, il n'y avait qu'un seul entraînement à la fois (`training`).
+      trainings: state.trainings ?? (state.training ? [state.training] : []),
       expedition: state.expedition ?? null,
       reports: state.reports ?? [],
       updatedAt: state.updatedAt,
@@ -172,9 +177,9 @@ function makeAwayReport(before: GameState, after: GameState): AwayReport | null 
   if (works && !after.construction) {
     events.push(`${getBuilding(works.building).name} : le niveau ${works.targetLevel} est terminé.`)
   }
-  const training = before.training
-  if (training && !after.training) {
-    events.push(`Entraînement terminé : ${getUnit(training.unit).name} +${training.count}.`)
+  for (const training of before.trainings) {
+    const finished = !after.trainings.some((t) => t.unit === training.unit && t.startedAt === training.startedAt)
+    if (finished) events.push(`Entraînement terminé : ${getUnit(training.unit).name} +${training.count}.`)
   }
   for (const report of after.reports.filter((r) => r.at > before.updatedAt).reverse()) {
     events.push(`${report.victory ? 'Victoire' : 'Défaite'} contre : ${getCamp(report.camp).name}.`)

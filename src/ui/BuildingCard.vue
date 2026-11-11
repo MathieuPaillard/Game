@@ -93,14 +93,4 @@ const outputNext = computed(() => buildingOutput(props.state, props.building, ta
 .plaque-output .muted {
   font-size: 0.875rem;
 }
-
-.works {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.works-label {
-  font-variant-numeric: tabular-nums;
-}
 </style>

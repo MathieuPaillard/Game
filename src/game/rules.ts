@@ -84,7 +84,8 @@ export interface GameState {
   construction: Construction | null
   /** Troupes présentes dans la cité. Celles qui sont en campagne sont dans `expedition`. */
   troops: Army
-  training: Training | null
+  /** Entraînements en cours à la Caserne : au plus un par type de troupe. */
+  trainings: Training[]
   expedition: Expedition | null
   /** Derniers rapports de bataille, du plus récent au plus ancien. */
   reports: BattleReport[]
@@ -105,7 +106,7 @@ export function newGame(race: RaceId, now: number): GameState {
     levels: { ...START_LEVELS },
     construction: null,
     troops: emptyArmy(),
-    training: null,
+    trainings: [],
     expedition: null,
     reports: [],
     updatedAt: now,
@@ -314,7 +315,10 @@ export function checkTraining(state: GameState, unitId: UnitId, count: number): 
   if (count > maxTrainingBatch(state)) {
     return { ok: false, reason: `${maxTrainingBatch(state)} troupes au maximum à la fois` }
   }
-  if (state.training) return { ok: false, reason: 'Un entraînement est déjà en cours' }
+  // Chaque type de troupe s'entraîne de son côté : un seul entraînement à la fois par type.
+  if (state.trainings.some((t) => t.unit === unitId)) {
+    return { ok: false, reason: `Des ${unit.name} sont déjà à l’entraînement` }
+  }
   if (!canAfford(state.resources, trainingCost(unit, count))) {
     return { ok: false, reason: 'Ressources insuffisantes' }
   }
@@ -331,7 +335,10 @@ export function startTraining(state: GameState, unitId: UnitId, count: number, n
   return {
     ...current,
     resources: addResources(current.resources, trainingCost(unit, count), -1),
-    training: { unit: unitId, count, startedAt: now, endsAt: now + trainingDuration(current, unit, count) },
+    trainings: [
+      ...current.trainings,
+      { unit: unitId, count, startedAt: now, endsAt: now + trainingDuration(current, unit, count) },
+    ],
   }
 }
 
@@ -457,7 +464,7 @@ interface PendingEvent {
 
 /** Le prochain événement prévu : fin de chantier, fin d'entraînement, arrivée ou retour d'une armée. */
 function nextEvent(state: GameState): PendingEvent | null {
-  const { construction, training, expedition } = state
+  const { construction, trainings, expedition } = state
   const events: PendingEvent[] = []
   if (construction) {
     events.push({
@@ -469,13 +476,13 @@ function nextEvent(state: GameState): PendingEvent | null {
       }),
     })
   }
-  if (training) {
+  for (const training of trainings) {
     events.push({
       at: training.endsAt,
       apply: (s) => ({
         ...s,
         troops: { ...s.troops, [training.unit]: s.troops[training.unit] + training.count },
-        training: null,
+        trainings: s.trainings.filter((t) => t.unit !== training.unit),
       }),
     })
   }

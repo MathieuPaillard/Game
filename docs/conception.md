@@ -62,7 +62,8 @@ Plus tard, chaque race aura aussi une unité qui lui est propre.
 
 - **[Décidé]** Quatre familles de troupes : Guerriers, Archers, Cavaliers et Mages, avec des forces et des faiblesses entre elles.
 - **[Proposition]** Les forces et faiblesses forment un cycle : Guerriers > Cavaliers > Archers > Mages > Guerriers. Une troupe inflige 50 % de dégâts en plus à la famille qu'elle domine.
-- **[Proposition]** La Caserne entraîne les troupes, un entraînement à la fois. Son niveau débloque les Cavaliers (niveau 2) et les Mages (niveau 3), augmente le nombre de troupes par entraînement et accélère l'entraînement.
+- **[Décidé]** On peut entraîner plusieurs troupes en même temps.
+- **[Proposition]** À la Caserne, chaque type de troupe s'entraîne de son côté : un entraînement à la fois par type, donc jusqu'à quatre en parallèle. Le niveau de la Caserne débloque les Cavaliers (niveau 2) et les Mages (niveau 3), augmente le nombre de troupes par entraînement et accélère l'entraînement.
 - **[Proposition]** Les batailles se jouent en manches, sans hasard : les mêmes armées donnent toujours le même résultat.
 - **[Décidé]** Les troupes mangent : chaque troupe consomme de la nourriture chaque heure, dans la cité comme en campagne. Une grosse armée coûte donc cher à garder.
 - **[Décidé]** Si les réserves de nourriture sont vides et que les fermes ne suffisent plus, c'est la famine. Personne ne déserte, mais les troupes ont faim et se battent moins bien.

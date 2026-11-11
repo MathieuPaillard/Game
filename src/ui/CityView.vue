@@ -33,7 +33,7 @@ const tab = ref<Tab>('city')
 // Un point doré signale l'onglet où quelque chose est en cours.
 const tabs = computed(() => [
   { id: 'city' as const, label: 'Cité', busy: props.state.construction !== null },
-  { id: 'army' as const, label: 'Armée', busy: props.state.training !== null },
+  { id: 'army' as const, label: 'Armée', busy: props.state.trainings.length > 0 },
   { id: 'world' as const, label: 'Alentours', busy: props.state.expedition !== null },
 ])
 

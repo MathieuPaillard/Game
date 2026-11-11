@@ -4,13 +4,21 @@ import { RESOURCES, RESOURCE_IDS, type UnitDef } from '../game/config'
 import { checkTraining, getUnit, maxTrainingBatch, trainingCost, trainingDuration, type GameState } from '../game/rules'
 import { formatAmount, formatDuration } from './format'
 
-const props = defineProps<{ unit: UnitDef; state: GameState }>()
+const props = defineProps<{ unit: UnitDef; state: GameState; now: number }>()
 const emit = defineEmits<{ train: [count: number] }>()
 
 const count = ref(10)
 // Tant que le champ est vide ou faux, on affiche le coût de zéro troupe.
 const amount = computed(() => (Number.isInteger(count.value) && count.value > 0 ? count.value : 0))
 const locked = computed(() => props.state.levels.barracks < props.unit.barracksLevel)
+
+// L'entraînement en cours pour ce type de troupe, s'il y en a un.
+const training = computed(() => props.state.trainings.find((t) => t.unit === props.unit.id) ?? null)
+const progress = computed(() => {
+  const t = training.value
+  if (!t) return 0
+  return Math.min(1, Math.max(0, (props.now - t.startedAt) / (t.endsAt - t.startedAt)))
+})
 
 const check = computed(() => checkTraining(props.state, props.unit.id, count.value))
 const reason = computed(() => (check.value.ok ? null : check.value.reason))
@@ -22,7 +30,7 @@ const duration = computed(() => trainingDuration(props.state, props.unit, amount
 </script>
 
 <template>
-  <article class="plaque" :class="{ empty: locked }">
+  <article class="plaque" :class="{ empty: locked, working: training }">
     <header class="plaque-head">
       <span class="plaque-icon" aria-hidden="true">{{ unit.icon }}</span>
       <div>
@@ -41,27 +49,34 @@ const duration = computed(() => trainingDuration(props.state, props.unit, amount
     </ul>
 
     <div class="plaque-foot">
-      <label class="field" :for="`train-${unit.id}`">
-        <span>Nombre à entraîner</span>
-        <input
-          :id="`train-${unit.id}`"
-          v-model.number="count"
-          type="number"
-          min="1"
-          :max="maxTrainingBatch(state)"
-          inputmode="numeric"
-        />
-      </label>
-      <ul class="cost" aria-label="Coût">
-        <li v-for="item in cost" :key="item.id" :class="{ short: state.resources[item.id] < item.amount }">
-          <span aria-hidden="true">{{ RESOURCES[item.id].icon }}</span>
-          {{ formatAmount(item.amount) }}
-          <span class="sr-only">{{ RESOURCES[item.id].name }}</span>
-        </li>
-        <li class="muted"><span aria-hidden="true">⏱</span> {{ formatDuration(duration) }}</li>
-      </ul>
-      <p v-if="reason" class="reason">{{ reason }}</p>
-      <button class="btn" type="button" :disabled="!check.ok" @click="emit('train', count)">Entraîner</button>
+      <div v-if="training" class="works" role="status">
+        <div class="progress"><span class="progress-fill" :style="{ width: `${progress * 100}%` }"></span></div>
+        <p class="works-label">{{ training.count }} en entraînement · {{ formatDuration(training.endsAt - now) }}</p>
+      </div>
+
+      <template v-else>
+        <label class="field" :for="`train-${unit.id}`">
+          <span>Nombre à entraîner</span>
+          <input
+            :id="`train-${unit.id}`"
+            v-model.number="count"
+            type="number"
+            min="1"
+            :max="maxTrainingBatch(state)"
+            inputmode="numeric"
+          />
+        </label>
+        <ul class="cost" aria-label="Coût">
+          <li v-for="item in cost" :key="item.id" :class="{ short: state.resources[item.id] < item.amount }">
+            <span aria-hidden="true">{{ RESOURCES[item.id].icon }}</span>
+            {{ formatAmount(item.amount) }}
+            <span class="sr-only">{{ RESOURCES[item.id].name }}</span>
+          </li>
+          <li class="muted"><span aria-hidden="true">⏱</span> {{ formatDuration(duration) }}</li>
+        </ul>
+        <p v-if="reason" class="reason">{{ reason }}</p>
+        <button class="btn" type="button" :disabled="!check.ok" @click="emit('train', count)">Entraîner</button>
+      </template>
     </div>
   </article>
 </template>

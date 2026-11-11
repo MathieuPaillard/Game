@@ -161,11 +161,29 @@ describe('entraînement', () => {
     const cost = trainingCost(getUnit('warrior'), 10)
     for (const id of RESOURCE_IDS) expect(started.resources[id]).toBe(game.resources[id] - (cost[id] ?? 0))
 
-    const endsAt = started.training!.endsAt
+    const endsAt = started.trainings[0].endsAt
     expect(advance(started, endsAt - 1).troops.warrior).toBe(0)
     const done = advance(started, endsAt)
     expect(done.troops.warrior).toBe(10)
-    expect(done.training).toBeNull()
+    expect(done.trainings).toEqual([])
+  })
+
+  it('plusieurs types de troupes s’entraînent en même temps, un entraînement par type', () => {
+    let game = richGame({ castle: 5, barracks: 3 })
+    game = startTraining(game, 'warrior', 10, T0)
+    game = startTraining(game, 'archer', 5, T0)
+    game = startTraining(game, 'mage', 2, T0)
+    expect(game.trainings.map((t) => t.unit)).toEqual(['warrior', 'archer', 'mage'])
+    expect(checkTraining(game, 'warrior', 1)).toEqual({
+      ok: false,
+      reason: 'Des Guerriers sont déjà à l’entraînement',
+    })
+    expect(checkTraining(game, 'rider', 1).ok).toBe(true)
+
+    const last = Math.max(...game.trainings.map((t) => t.endsAt))
+    const done = advance(game, last)
+    expect(done.troops).toEqual(army({ warrior: 10, archer: 5, mage: 2 }))
+    expect(done.trainings).toEqual([])
   })
 
   it('les Orcs entraînent plus vite', () => {

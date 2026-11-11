@@ -219,6 +219,17 @@ button:focus-visible {
   color: var(--faded);
 }
 
+/* Un chantier ou un entraînement en cours, affiché au bas d'une plaque. */
+.works {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.works-label {
+  font-variant-numeric: tabular-nums;
+}
+
 .progress {
   height: 0.5rem;
   overflow: hidden;
