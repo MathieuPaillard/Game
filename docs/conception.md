@@ -87,13 +87,20 @@ Plus tard, chaque race aura aussi une unité qui lui est propre.
 - **[Décidé]** Le jeu se voit sur des cartes : la cité (chaque bâtiment sur son emplacement, dans l'enceinte) et ses alentours (les camps de monstres, les armées en marche). On s'y promène en faisant glisser la carte, et on zoome avec deux doigts, la molette ou les boutons.
 - **[Proposition]** Toucher un bâtiment ou un camp affiche sa fiche sous la carte ; une liste de pastilles permet aussi de les choisir sans chercher sur la carte. Les emojis seront remplacés par les images du guide graphique.
 
-## 9. Feuille de route
+## 9. Les comptes et le serveur
+
+- **[Décidé]** Le serveur garde les parties et applique lui-même les règles du jeu. Le navigateur n'envoie que des ordres (« améliorer la Ferme », « entraîner 20 archers »…) : impossible de tricher en modifiant le jeu dans son navigateur.
+- **[Proposition]** Un compte, c'est un nom de joueur (unique, et visible des autres joueurs) et un mot de passe. Pas d'adresse e-mail pour l'instant : le serveur ne garde rien de personnel, mais un mot de passe oublié ne peut pas être récupéré.
+- **[Proposition]** On peut toujours jouer sans compte : la partie reste sur l'appareil. Elle ne peut pas passer en ligne ensuite, sinon on pourrait la modifier avant de l'envoyer.
+- **[À trancher]** Où héberger le serveur.
+
+## 10. Feuille de route
 
 Chaque étape donne un jeu jouable.
 
 1. **Prototype solo dans le navigateur** : la cité, les ressources, les bâtiments et leurs durées de construction. *En place* : choix de la race, cinq ressources, six bâtiments, un chantier à la fois, production hors connexion.
 2. **Armées** : troupes, recherches, combats contre des monstres. *En place* : Caserne, quatre troupes, camps de monstres, rapports de bataille, Académie et recherches, plusieurs armées en campagne, cartes de la cité et des alentours.
-3. **Serveur et comptes joueurs** : sauvegarde en ligne ; le serveur décide de tout.
+3. **Serveur et comptes joueurs** : sauvegarde en ligne ; le serveur décide de tout. *En cours* : comptes (nom et mot de passe), parties gardées sur le serveur, qui applique les règles, et partie sans compte toujours possible. Reste à mettre le jeu en ligne chez un hébergeur.
 4. **Monde partagé** : la carte, les attaques entre joueurs, les alliances.
 5. **Contenu et mobile** : quêtes, livre de sorts, créatures légendaires, puis l'appli Android.
 

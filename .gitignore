@@ -2,3 +2,5 @@ node_modules
 dist
 *.local
 .DS_Store
+# La base de données du serveur, quand il tourne sur ta machine
+data/

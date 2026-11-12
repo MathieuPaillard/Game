@@ -12,16 +12,26 @@ import {
   type UnitId,
 } from '../game/config'
 import { getBuilding, getRace, netPerHour, timeUntilFamine, type GameState } from '../game/rules'
+import AccountLine from './AccountLine.vue'
 import ArmyPanel from './ArmyPanel.vue'
+import type { AwayReport } from './away'
 import BuildingCard from './BuildingCard.vue'
 import CityMap from './CityMap.vue'
+import NoticeBar from './NoticeBar.vue'
 import ResearchPanel from './ResearchPanel.vue'
 import ResourceBar from './ResourceBar.vue'
 import WorldPanel from './WorldPanel.vue'
 import { formatAmount, formatDuration, formatRate } from './format'
-import type { AwayReport } from './useGame'
 
-const props = defineProps<{ state: GameState; now: number; awayReport: AwayReport | null }>()
+const props = defineProps<{
+  state: GameState
+  now: number
+  awayReport: AwayReport | null
+  notice: string | null
+  offline: boolean
+  /** Le joueur connecté, ou null pour une partie sans compte. */
+  player: string | null
+}>()
 const emit = defineEmits<{
   upgrade: [building: BuildingId]
   research: [tech: TechId]
@@ -30,6 +40,9 @@ const emit = defineEmits<{
   dismiss: [troops: Army]
   restart: []
   dismissAway: []
+  dismissNotice: []
+  logout: []
+  goOnline: []
 }>()
 
 type Tab = 'city' | 'army' | 'research' | 'world'
@@ -90,6 +103,8 @@ const confirmingRestart = ref(false)
       <h1>Cité des {{ race.name }}</h1>
       <p class="muted">{{ race.bonuses.join(' · ') }}</p>
     </header>
+
+    <NoticeBar :notice="notice" :offline="offline" @dismiss="emit('dismissNotice')" />
 
     <p v-if="famineIn !== null" class="famine" role="status">
       <template v-if="state.resources.food >= 1">
@@ -167,14 +182,17 @@ const confirmingRestart = ref(false)
     />
 
     <footer class="city-foot">
-      <button v-if="!confirmingRestart" class="btn-quiet" type="button" @click="confirmingRestart = true">
-        Recommencer une partie
-      </button>
-      <template v-else>
-        <p>Ta cité sera effacée pour de bon.</p>
-        <button class="btn btn-danger" type="button" @click="emit('restart')">Effacer et recommencer</button>
-        <button class="btn-quiet" type="button" @click="confirmingRestart = false">Annuler</button>
-      </template>
+      <AccountLine :player="player" @logout="emit('logout')" @go-online="emit('goOnline')" />
+      <div class="restart">
+        <button v-if="!confirmingRestart" class="btn-quiet" type="button" @click="confirmingRestart = true">
+          Recommencer une partie
+        </button>
+        <template v-else>
+          <p>Ta cité sera effacée pour de bon.</p>
+          <button class="btn btn-danger" type="button" @click="emit('restart')">Effacer et recommencer</button>
+          <button class="btn-quiet" type="button" @click="confirmingRestart = false">Annuler</button>
+        </template>
+      </div>
     </footer>
   </main>
 </template>
@@ -303,10 +321,16 @@ const confirmingRestart = ref(false)
 
 .city-foot {
   display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--seam);
+}
+
+.restart {
+  display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.75rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--seam);
 }
 </style>

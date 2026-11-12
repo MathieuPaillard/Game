@@ -2,7 +2,7 @@
 // Chaque fonction reçoit l'état de la partie (et l'heure) et renvoie un résultat sans rien modifier.
 // Plus tard, le serveur utilisera exactement ces mêmes règles.
 
-import { fight, type Stack } from './battle'
+import { fight, type Stack } from './battle.ts'
 import {
   BARRACKS_SPEED_PER_LEVEL,
   BUILDINGS,
@@ -38,7 +38,7 @@ import {
   type TechId,
   type UnitDef,
   type UnitId,
-} from './config'
+} from './config.ts'
 
 // --- L'état de la partie ---
 

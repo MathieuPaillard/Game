@@ -1,0 +1,19 @@
+{
+  // Vérification des types du serveur et des règles du jeu, que Node.js exécute directement.
+  // Node.js efface les types sans rien traduire : les imports gardent leur extension .ts,
+  // et seules les écritures TypeScript « effaçables » sont permises (pas d'enum, par exemple).
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "types": ["node"],
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "strict": true,
+    "skipLibCheck": true
+  },
+  "include": ["server/**/*.ts", "src/game/**/*.ts"]
+}

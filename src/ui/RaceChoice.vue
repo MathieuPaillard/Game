@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { RACES, type RaceId } from '../game/config'
+import AccountLine from './AccountLine.vue'
+import NoticeBar from './NoticeBar.vue'
 
-const emit = defineEmits<{ choose: [race: RaceId] }>()
+defineProps<{ busy: boolean; notice: string | null; offline: boolean; player: string | null }>()
+const emit = defineEmits<{ choose: [race: RaceId]; logout: []; goOnline: []; dismissNotice: [] }>()
 </script>
 
 <template>
@@ -12,6 +15,8 @@ const emit = defineEmits<{ choose: [race: RaceId] }>()
       <p class="muted">Chaque peuple a ses forces. Ton choix vaut pour toute la partie.</p>
     </header>
 
+    <NoticeBar :notice="notice" :offline="offline" @dismiss="emit('dismissNotice')" />
+
     <ul class="races">
       <li v-for="race in RACES" :key="race.id" class="race">
         <h2>{{ race.name }}</h2>
@@ -20,9 +25,13 @@ const emit = defineEmits<{ choose: [race: RaceId] }>()
         <ul class="race-bonuses">
           <li v-for="bonus in race.bonuses" :key="bonus">{{ bonus }}</li>
         </ul>
-        <button class="btn" type="button" @click="emit('choose', race.id)">Jouer les {{ race.name }}</button>
+        <button class="btn" type="button" :disabled="busy" @click="emit('choose', race.id)">
+          Jouer les {{ race.name }}
+        </button>
       </li>
     </ul>
+
+    <AccountLine :player="player" @logout="emit('logout')" @go-online="emit('goOnline')" />
   </main>
 </template>
 
@@ -39,14 +48,6 @@ const emit = defineEmits<{ choose: [race: RaceId] }>()
   flex-direction: column;
   gap: 0.5rem;
   max-width: 40rem;
-}
-
-.eyebrow {
-  font-size: 0.8rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--gilt);
 }
 
 .races {

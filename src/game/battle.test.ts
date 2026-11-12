@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { fight, type Stack } from './battle'
-import { MAX_BATTLE_ROUNDS, UNITS, type UnitId } from './config'
+import { fight, type Stack } from './battle.ts'
+import { MAX_BATTLE_ROUNDS, UNITS, type UnitId } from './config.ts'
 
 /** Un groupe aux caractéristiques fixes, pour tester le combat sans dépendre de l'équilibrage. */
 function stack(family: UnitId, count: number, attack = 10, health = 50): Stack {

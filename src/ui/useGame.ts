@@ -1,226 +1,260 @@
-// Fait le lien entre les règles du jeu et l'écran : garde la partie en mémoire,
-// fait avancer le temps chaque seconde et sauvegarde dans le navigateur.
+// Fait le lien entre les règles du jeu et l'écran. La partie vit à l'un de ces deux endroits :
+// - en ligne, sur le serveur : le joueur a un compte, et c'est le serveur qui décide ;
+// - sur l'appareil, sans compte : la partie est gardée dans ce navigateur.
+// Dans les deux cas, l'écran fait avancer le temps chaque seconde, avec les règles du jeu.
 
 import { onMounted, onUnmounted, shallowRef } from 'vue'
-import {
-  RACES,
-  RESOURCE_IDS,
-  START_LEVELS,
-  type Army,
-  type BuildingId,
-  type CampId,
-  type RaceId,
-  type Resources,
-  type TechId,
-  type UnitId,
-} from '../game/config'
-import {
-  advance,
-  armySize,
-  checkDismiss,
-  checkExpedition,
-  checkResearch,
-  checkTraining,
-  checkUpgrade,
-  dismissTroops,
-  emptyArmy,
-  emptyResources,
-  emptyTechs,
-  getBuilding,
-  getCamp,
-  getTech,
-  getUnit,
-  newGame,
-  startExpedition,
-  startResearch,
-  startTraining,
-  startUpgrade,
-  type Check,
-  type Expedition,
-  type GameState,
-  type Training,
-} from '../game/rules'
+import { performAction, type Action } from '../game/actions'
+import type { Army, BuildingId, CampId, RaceId, TechId, UnitId } from '../game/config'
+import { advance, newGame, type GameState } from '../game/rules'
+import { ONLINE_AVAILABLE, server, ServerError, serverNow, type Session } from './api'
+import { makeAwayReport, type AwayReport } from './away'
+import { loadLocalGame, loadSession, saveLocalGame, saveSession } from './storage'
 
-const SAVE_KEY = 'royaume-sauvegarde'
-// À augmenter si le format de la sauvegarde change de façon incompatible :
-// les anciennes sauvegardes sont alors ignorées.
-const SAVE_VERSION = 1
-// En dessous d'une minute d'absence, pas de résumé « pendant ton absence ».
-const AWAY_REPORT_MIN_MS = 60 * 1000
+/** Ce que montre l'écran : la connexion au compte, l'attente du serveur, ou le jeu. */
+export type Screen = 'account' | 'connecting' | 'game'
 
-/** Ce qui s'est passé pendant que le joueur n'était pas là. */
-export interface AwayReport {
-  duration: number
-  gains: Resources
-  events: string[]
-}
+/** En ligne, l'écran se recale sur le serveur toutes les minutes… */
+const SYNC_INTERVAL_MS = 60 * 1000
+/** … et réessaie plus souvent quand le serveur ne répond plus. */
+const RETRY_INTERVAL_MS = 10 * 1000
 
 export function useGame() {
-  const now = shallowRef(Date.now())
-  const saved = loadSave()
-  const state = shallowRef<GameState | null>(saved ? advance(saved, now.value) : null)
-  const awayReport = shallowRef<AwayReport | null>(
-    saved && state.value ? makeAwayReport(saved, state.value) : null,
-  )
+  let session: Session | null = loadSession()
+  const local = session ? null : loadLocalGame()
 
-  function update(next: GameState | null) {
+  const screen = shallowRef<Screen>(session ? 'connecting' : local || !ONLINE_AVAILABLE ? 'game' : 'account')
+  /** Le nom du joueur connecté, ou null pour une partie sans compte. */
+  const player = shallowRef(session?.player.name ?? null)
+  const now = shallowRef(Date.now())
+  const state = shallowRef<GameState | null>(local && advance(local, now.value))
+  const awayReport = shallowRef<AwayReport | null>(local && state.value ? makeAwayReport(local, state.value) : null)
+  /** Un message pour le joueur : un ordre refusé par le serveur, un mot de passe faux… */
+  const notice = shallowRef<string | null>(null)
+  /** La dernière demande n'a pas atteint le serveur. */
+  const offline = shallowRef(false)
+  /** Une demande attend sa réponse : connexion, création de compte, choix de la race. */
+  const busy = shallowRef(false)
+
+  /** L'heure qui fait foi : celle du serveur en ligne, celle de l'appareil sinon. */
+  const clock = () => (session ? serverNow() : Date.now())
+
+  /** Montre la partie ; sans compte, elle est aussi gardée dans le navigateur. */
+  function show(next: GameState | null) {
     state.value = next
-    writeSave(next)
+    if (!session) saveLocalGame(next)
   }
 
   function tick() {
-    now.value = Date.now()
-    if (state.value) update(advance(state.value, now.value))
+    now.value = clock()
+    if (state.value) show(advance(state.value, now.value))
   }
 
-  /** Lance une action du joueur, si elle est possible à cet instant. */
-  function act(check: (s: GameState) => Check, run: (s: GameState, t: number) => GameState) {
+  // --- Les demandes au serveur ---
+
+  // Elles partent l'une après l'autre, dans l'ordre où le joueur les a faites : la réponse à la
+  // dernière montre donc toujours la partie la plus à jour.
+  let queue: Promise<void> = Promise.resolve()
+  let waiting = 0
+  let lastSync = 0
+
+  function enqueue(request: () => Promise<void>): Promise<void> {
+    waiting++
+    queue = queue
+      .then(request)
+      .then(() => {
+        offline.value = false
+      }, handleError)
+      .finally(() => {
+        waiting--
+      })
+    return queue
+  }
+
+  /** Personne d'autre dans la file : la réponse reçue est la plus récente. */
+  const lastInLine = () => waiting === 1
+
+  function handleError(error: unknown) {
+    if (!(error instanceof ServerError)) {
+      notice.value = 'Quelque chose s’est mal passé. Réessaie.'
+      console.error(error)
+    } else if (error.status === 401 && session) {
+      // La session a expiré, ou a été fermée sur un autre appareil.
+      leave('Ta session a expiré : reconnecte-toi.')
+    } else if (error.status === 0 || error.status >= 500) {
+      offline.value = true
+    } else {
+      notice.value = error.message
+    }
+  }
+
+  /** Reçoit la partie du serveur, et la fait avancer jusqu'à maintenant. */
+  function receive(game: GameState | null) {
+    now.value = serverNow()
+    state.value = game && advance(game, now.value)
+  }
+
+  /** Recharge la partie depuis le serveur. Au retour du joueur, résume ce qui s'est passé depuis sa dernière visite. */
+  function sync(welcome = false) {
+    return enqueue(async () => {
+      if (!session) return
+      const response = await server.game(session.token)
+      lastSync = Date.now()
+      player.value = response.player.name
+      if (lastInLine()) {
+        receive(response.game)
+        if (welcome && response.game && state.value) awayReport.value = makeAwayReport(response.game, state.value)
+      }
+      screen.value = 'game'
+    })
+  }
+
+  /** Applique un ordre du joueur, s'il est possible à cet instant. */
+  function perform(action: Action) {
     if (!state.value) return
-    const t = Date.now()
-    const current = advance(state.value, t)
-    if (check(current).ok) update(run(current, t))
+    const result = performAction(state.value, action, clock())
+    // Un ordre impossible ne part pas : l'écran montre déjà pourquoi.
+    if (!result.ok) return
+    // La partie change tout de suite à l'écran, sans attendre le serveur…
+    show(result.state)
+    if (!session) return
+    // … puis le serveur applique l'ordre à son tour, et c'est sa réponse qui fait foi.
+    void enqueue(async () => {
+      if (!session) return
+      const response = await server.act(session.token, action)
+      if (!response.ok) notice.value = `Le serveur a refusé cet ordre : ${response.reason}.`
+      if (lastInLine()) receive(response.game)
+    })
   }
 
-  let timer: number | undefined
+  // --- Le compte ---
+
+  /** Connexion ou création de compte : le serveur ouvre une session, puis on charge la partie. */
+  async function enter(open: () => Promise<Session>) {
+    busy.value = true
+    notice.value = null
+    await enqueue(async () => {
+      const opened = await open()
+      session = opened
+      saveSession(opened)
+      player.value = opened.player.name
+      state.value = null
+      awayReport.value = null
+      screen.value = 'connecting'
+    })
+    if (session) await sync(true)
+    busy.value = false
+  }
+
+  /** Quitte le compte et revient à l'écran de connexion. La partie sans compte, elle, reste sur l'appareil. */
+  function leave(message: string | null) {
+    session = null
+    saveSession(null)
+    player.value = null
+    state.value = null
+    awayReport.value = null
+    notice.value = message
+    offline.value = false
+    screen.value = 'account'
+  }
+
+  async function logout() {
+    await enqueue(async () => {
+      // Même si le serveur ne répond pas, la session est oubliée sur cet appareil.
+      if (session) await server.logout(session.token).catch(() => undefined)
+    })
+    leave(null)
+  }
+
+  // --- Le temps qui passe, et les retours sur le jeu ---
+
+  function onVisibilityChange() {
+    tick()
+    if (document.visibilityState === 'visible' && session && screen.value === 'game') void sync()
+  }
+
+  let timers: number[] = []
   onMounted(() => {
-    timer = window.setInterval(tick, 1000)
-    document.addEventListener('visibilitychange', tick)
+    timers = [
+      window.setInterval(tick, 1000),
+      window.setInterval(() => {
+        if (!session || screen.value === 'account' || waiting > 0 || document.visibilityState !== 'visible') return
+        if (offline.value || Date.now() - lastSync >= SYNC_INTERVAL_MS) void sync(screen.value === 'connecting')
+      }, RETRY_INTERVAL_MS),
+    ]
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    if (session) void sync(true)
   })
   onUnmounted(() => {
-    window.clearInterval(timer)
-    document.removeEventListener('visibilitychange', tick)
+    timers.forEach((timer) => window.clearInterval(timer))
+    document.removeEventListener('visibilitychange', onVisibilityChange)
   })
 
   return {
+    screen,
+    player,
     state,
     now,
     awayReport,
-    chooseRace(race: RaceId) {
-      update(newGame(race, Date.now()))
+    notice,
+    offline,
+    busy,
+    login: (name: string, password: string) => enter(() => server.login(name, password)),
+    register: (name: string, password: string) => enter(() => server.register(name, password)),
+    logout,
+    retry: () => sync(true),
+    /** Jouer sans compte : la partie est gardée sur cet appareil. */
+    playLocally() {
+      const saved = loadLocalGame()
+      now.value = Date.now()
+      state.value = saved && advance(saved, now.value)
+      awayReport.value = saved && state.value ? makeAwayReport(saved, state.value) : null
+      notice.value = null
+      screen.value = 'game'
     },
-    upgrade(building: BuildingId) {
-      act(
-        (s) => checkUpgrade(s, building),
-        (s, t) => startUpgrade(s, building, t),
-      )
-    },
-    research(tech: TechId) {
-      act(
-        (s) => checkResearch(s, tech),
-        (s, t) => startResearch(s, tech, t),
-      )
-    },
-    train(unit: UnitId, count: number) {
-      act(
-        (s) => checkTraining(s, unit, count),
-        (s, t) => startTraining(s, unit, count, t),
-      )
-    },
-    attack(camp: CampId, troops: Army) {
-      act(
-        (s) => checkExpedition(s, camp, troops),
-        (s, t) => startExpedition(s, camp, troops, t),
-      )
-    },
-    dismiss(troops: Army) {
-      act(
-        (s) => checkDismiss(s, troops),
-        (s, t) => dismissTroops(s, troops, t),
-      )
-    },
-    restart() {
+    /** Depuis une partie sans compte : aller se connecter. */
+    showAccount() {
+      state.value = null
       awayReport.value = null
-      update(null)
+      notice.value = null
+      screen.value = 'account'
+    },
+    async chooseRace(race: RaceId) {
+      if (!session) {
+        show(newGame(race, Date.now()))
+        return
+      }
+      busy.value = true
+      await enqueue(async () => {
+        if (!session) return
+        receive((await server.start(session.token, race)).game)
+      })
+      // Refusé (une partie existe déjà, peut-être commencée sur un autre appareil) : on la charge.
+      if (!state.value && session) await sync()
+      busy.value = false
+    },
+    upgrade: (building: BuildingId) => perform({ type: 'upgrade', building }),
+    research: (tech: TechId) => perform({ type: 'research', tech }),
+    train: (unit: UnitId, count: number) => perform({ type: 'train', unit, count }),
+    attack: (camp: CampId, troops: Army) => perform({ type: 'attack', camp, troops }),
+    dismiss: (troops: Army) => perform({ type: 'dismiss', troops }),
+    async restart() {
+      awayReport.value = null
+      if (!session) {
+        show(null)
+        return
+      }
+      await enqueue(async () => {
+        if (!session) return
+        await server.restart(session.token)
+        state.value = null
+      })
     },
     dismissAwayReport() {
       awayReport.value = null
     },
+    dismissNotice() {
+      notice.value = null
+    },
   }
-}
-
-/** Une partie sauvegardée, peut-être par une version plus ancienne du jeu. */
-type SavedState = Partial<GameState> & {
-  race: RaceId
-  updatedAt: number
-  /** Avant, un seul entraînement à la fois. */
-  training?: Training | null
-  /** Avant, une seule armée en campagne. */
-  expedition?: Expedition | null
-}
-
-function loadSave(): GameState | null {
-  try {
-    const raw = localStorage.getItem(SAVE_KEY)
-    if (!raw) return null
-    const save = JSON.parse(raw) as { version?: number; state?: SavedState }
-    const state = save.state
-    if (save.version !== SAVE_VERSION || !state || typeof state.updatedAt !== 'number') return null
-    if (!RACES.some((race) => race.id === state.race)) return null
-    // On reconstruit la partie champ par champ : ce qui manque dans une sauvegarde plus ancienne
-    // prend sa valeur par défaut, et ce qui n'existe plus dans le jeu est oublié.
-    return {
-      race: state.race,
-      resources: { ...emptyResources(), ...state.resources },
-      levels: { ...START_LEVELS, ...state.levels },
-      construction: state.construction ?? null,
-      techs: { ...emptyTechs(), ...state.techs },
-      research: state.research ?? null,
-      troops: { ...emptyArmy(), ...state.troops },
-      trainings: state.trainings ?? (state.training ? [state.training] : []),
-      expeditions: state.expeditions ?? (state.expedition ? [state.expedition] : []),
-      // Les rapports d'avant le journal du combat n'ont ni manches ni liste des monstres.
-      reports: (state.reports ?? []).map((report) => ({
-        ...report,
-        enemies: report.enemies ?? {},
-        starving: report.starving ?? false,
-        rounds: report.rounds ?? [],
-      })),
-      updatedAt: state.updatedAt,
-    }
-  } catch {
-    return null
-  }
-}
-
-function writeSave(state: GameState | null) {
-  try {
-    if (state) localStorage.setItem(SAVE_KEY, JSON.stringify({ version: SAVE_VERSION, state }))
-    else localStorage.removeItem(SAVE_KEY)
-  } catch {
-    // Stockage indisponible (navigation privée…) : on joue quand même, sans sauvegarde.
-  }
-}
-
-function makeAwayReport(before: GameState, after: GameState): AwayReport | null {
-  const duration = after.updatedAt - before.updatedAt
-  if (duration < AWAY_REPORT_MIN_MS) return null
-
-  const gains = emptyResources()
-  for (const id of RESOURCE_IDS) gains[id] = after.resources[id] - before.resources[id]
-
-  const events: string[] = []
-  const works = before.construction
-  if (works && !after.construction) {
-    events.push(`${getBuilding(works.building).name} : le niveau ${works.targetLevel} est terminé.`)
-  }
-  const research = before.research
-  if (research && !after.research) {
-    events.push(`Recherche terminée : ${getTech(research.tech).name}, niveau ${research.targetLevel}.`)
-  }
-  for (const training of before.trainings) {
-    const finished = !after.trainings.some((t) => t.unit === training.unit && t.startedAt === training.startedAt)
-    if (finished) events.push(`Entraînement terminé : ${getUnit(training.unit).name} +${training.count}.`)
-  }
-  for (const report of after.reports.filter((r) => r.at > before.updatedAt).reverse()) {
-    events.push(`${report.victory ? 'Victoire' : 'Défaite'} contre : ${getCamp(report.camp).name}.`)
-  }
-  for (const expedition of before.expeditions) {
-    if (after.expeditions.some((e) => e.camp === expedition.camp && e.departedAt === expedition.departedAt)) continue
-    const report = after.reports.find((r) => r.at === expedition.arrivesAt && r.camp === expedition.camp)
-    const survived = report !== undefined && armySize(report.sent) > armySize(report.lost)
-    if (expedition.result || survived) {
-      events.push(`Ton armée est rentrée de : ${getCamp(expedition.camp).name}.`)
-    }
-  }
-  return { duration, gains, events }
 }

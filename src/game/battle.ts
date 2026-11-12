@@ -1,7 +1,7 @@
 // La bataille, calculée automatiquement : les deux camps s'affrontent en manches successives.
 // Pas de hasard : les mêmes armées donnent toujours le même résultat.
 
-import { COUNTER_BONUS, MAX_BATTLE_ROUNDS, UNITS, type UnitId } from './config'
+import { COUNTER_BONUS, MAX_BATTLE_ROUNDS, UNITS, type UnitId } from './config.ts'
 
 /** Un groupe de combattants identiques. */
 export interface Stack {

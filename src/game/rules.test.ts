@@ -8,7 +8,7 @@ import {
   type Army,
   type BuildingId,
   type TechId,
-} from './config'
+} from './config.ts'
 import {
   advance,
   armySize,
@@ -42,7 +42,7 @@ import {
   upgradeDuration,
   upkeepPerHour,
   type GameState,
-} from './rules'
+} from './rules.ts'
 
 const HOUR = 60 * 60 * 1000
 const T0 = Date.UTC(2026, 0, 1)

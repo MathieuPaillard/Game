@@ -10,9 +10,13 @@ Les choix de conception sont détaillés dans [docs/conception.md](docs/concepti
 
 ## Lancer le jeu
 
-1. Installer [Node.js](https://nodejs.org) (version 22 ou plus récente).
+1. Installer [Node.js](https://nodejs.org) (version 22.18 ou plus récente).
 2. Dans un terminal ouvert dans ce dossier, lancer `npm install` (une seule fois), puis `npm run dev`.
 3. Ouvrir l'adresse affichée dans le terminal (en général http://localhost:5173).
 
-Pour lancer les tests des règles du jeu : `npm test`.
+Pour jouer avec un compte, il faut aussi le serveur du jeu : dans un second terminal, lancer `npm run server`. Les comptes et les parties sont alors gardés dans `data/royaume.db`.
+
+Pour lancer les tests (règles du jeu et serveur) : `npm test`.
+
+Version finale, telle qu'un hébergeur la lancera : `npm run build`, puis `npm start` (le jeu et le serveur ensemble, sur http://localhost:3000).
 
