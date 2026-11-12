@@ -1,6 +1,6 @@
 # Guide graphique
 
-Ce guide sert à créer les images du jeu avec un générateur d'images, comme celui de ChatGPT. Le but : que toutes les images aient l'air de venir du même jeu. Les emojis actuels du jeu sont provisoires, ce sont eux que ces images remplaceront.
+Ce guide sert à créer les images du jeu avec un générateur d'images, comme celui de ChatGPT. Le but : que toutes les images aient l'air de venir du même jeu. Les emojis actuels du jeu sont provisoires, ce sont eux que ces images remplaceront, dans les fiches comme sur les cartes de la cité et des alentours.
 
 ## Le style
 

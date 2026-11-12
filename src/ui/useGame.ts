@@ -11,6 +11,7 @@ import {
   type CampId,
   type RaceId,
   type Resources,
+  type TechId,
   type UnitId,
 } from '../game/config'
 import {
@@ -18,19 +19,24 @@ import {
   armySize,
   checkDismiss,
   checkExpedition,
+  checkResearch,
   checkTraining,
   checkUpgrade,
   dismissTroops,
   emptyArmy,
   emptyResources,
+  emptyTechs,
   getBuilding,
   getCamp,
+  getTech,
   getUnit,
   newGame,
   startExpedition,
+  startResearch,
   startTraining,
   startUpgrade,
   type Check,
+  type Expedition,
   type GameState,
   type Training,
 } from '../game/rules'
@@ -98,6 +104,12 @@ export function useGame() {
         (s, t) => startUpgrade(s, building, t),
       )
     },
+    research(tech: TechId) {
+      act(
+        (s) => checkResearch(s, tech),
+        (s, t) => startResearch(s, tech, t),
+      )
+    },
     train(unit: UnitId, count: number) {
       act(
         (s) => checkTraining(s, unit, count),
@@ -127,7 +139,14 @@ export function useGame() {
 }
 
 /** Une partie sauvegardée, peut-être par une version plus ancienne du jeu. */
-type SavedState = Partial<GameState> & { race: RaceId; updatedAt: number; training?: Training | null }
+type SavedState = Partial<GameState> & {
+  race: RaceId
+  updatedAt: number
+  /** Avant, un seul entraînement à la fois. */
+  training?: Training | null
+  /** Avant, une seule armée en campagne. */
+  expedition?: Expedition | null
+}
 
 function loadSave(): GameState | null {
   try {
@@ -144,10 +163,11 @@ function loadSave(): GameState | null {
       resources: { ...emptyResources(), ...state.resources },
       levels: { ...START_LEVELS, ...state.levels },
       construction: state.construction ?? null,
+      techs: { ...emptyTechs(), ...state.techs },
+      research: state.research ?? null,
       troops: { ...emptyArmy(), ...state.troops },
-      // Avant, il n'y avait qu'un seul entraînement à la fois (`training`).
       trainings: state.trainings ?? (state.training ? [state.training] : []),
-      expedition: state.expedition ?? null,
+      expeditions: state.expeditions ?? (state.expedition ? [state.expedition] : []),
       // Les rapports d'avant le journal du combat n'ont ni manches ni liste des monstres.
       reports: (state.reports ?? []).map((report) => ({
         ...report,
@@ -183,6 +203,10 @@ function makeAwayReport(before: GameState, after: GameState): AwayReport | null 
   if (works && !after.construction) {
     events.push(`${getBuilding(works.building).name} : le niveau ${works.targetLevel} est terminé.`)
   }
+  const research = before.research
+  if (research && !after.research) {
+    events.push(`Recherche terminée : ${getTech(research.tech).name}, niveau ${research.targetLevel}.`)
+  }
   for (const training of before.trainings) {
     const finished = !after.trainings.some((t) => t.unit === training.unit && t.startedAt === training.startedAt)
     if (finished) events.push(`Entraînement terminé : ${getUnit(training.unit).name} +${training.count}.`)
@@ -190,11 +214,13 @@ function makeAwayReport(before: GameState, after: GameState): AwayReport | null 
   for (const report of after.reports.filter((r) => r.at > before.updatedAt).reverse()) {
     events.push(`${report.victory ? 'Victoire' : 'Défaite'} contre : ${getCamp(report.camp).name}.`)
   }
-  const expedition = before.expedition
-  if (expedition && !after.expedition) {
-    const report = after.reports.find((r) => r.at === expedition.arrivesAt)
+  for (const expedition of before.expeditions) {
+    if (after.expeditions.some((e) => e.camp === expedition.camp && e.departedAt === expedition.departedAt)) continue
+    const report = after.reports.find((r) => r.at === expedition.arrivesAt && r.camp === expedition.camp)
     const survived = report !== undefined && armySize(report.sent) > armySize(report.lost)
-    if (expedition.result || survived) events.push('Ton armée est rentrée à la cité.')
+    if (expedition.result || survived) {
+      events.push(`Ton armée est rentrée de : ${getCamp(expedition.camp).name}.`)
+    }
   }
   return { duration, gains, events }
 }

@@ -8,11 +8,14 @@ import {
   type Army,
   type BuildingId,
   type CampId,
+  type TechId,
   type UnitId,
 } from '../game/config'
-import { getRace, netPerHour, timeUntilFamine, type GameState } from '../game/rules'
+import { getBuilding, getRace, netPerHour, timeUntilFamine, type GameState } from '../game/rules'
 import ArmyPanel from './ArmyPanel.vue'
 import BuildingCard from './BuildingCard.vue'
+import CityMap from './CityMap.vue'
+import ResearchPanel from './ResearchPanel.vue'
 import ResourceBar from './ResourceBar.vue'
 import WorldPanel from './WorldPanel.vue'
 import { formatAmount, formatDuration, formatRate } from './format'
@@ -21,6 +24,7 @@ import type { AwayReport } from './useGame'
 const props = defineProps<{ state: GameState; now: number; awayReport: AwayReport | null }>()
 const emit = defineEmits<{
   upgrade: [building: BuildingId]
+  research: [tech: TechId]
   train: [unit: UnitId, count: number]
   attack: [camp: CampId, troops: Army]
   dismiss: [troops: Army]
@@ -28,14 +32,26 @@ const emit = defineEmits<{
   dismissAway: []
 }>()
 
-type Tab = 'city' | 'army' | 'world'
+type Tab = 'city' | 'army' | 'research' | 'world'
 const tab = ref<Tab>('city')
 // Un point doré signale l'onglet où quelque chose est en cours.
 const tabs = computed(() => [
   { id: 'city' as const, label: 'Cité', busy: props.state.construction !== null },
   { id: 'army' as const, label: 'Armée', busy: props.state.trainings.length > 0 },
-  { id: 'world' as const, label: 'Alentours', busy: props.state.expedition !== null },
+  { id: 'research' as const, label: 'Recherches', busy: props.state.research !== null },
+  { id: 'world' as const, label: 'Alentours', busy: props.state.expeditions.length > 0 },
 ])
+
+// Le bâtiment choisi sur la carte (ou dans la liste), dont on montre la fiche.
+const selected = ref<BuildingId>('castle')
+const buildingChips = computed(() =>
+  BUILDINGS.map((building) => {
+    const level = props.state.levels[building.id]
+    const busy = props.state.construction?.building === building.id
+    const locked = level === 0 && props.state.levels.castle < building.unlockedAtCastleLevel
+    return { building, busy, tag: busy ? 'chantier' : locked ? '🔒' : level > 0 ? `niv. ${level}` : 'à bâtir' }
+  }),
+)
 
 const race = computed(() => getRace(props.state.race))
 const rates = computed(() => netPerHour(props.state))
@@ -105,14 +121,28 @@ const confirmingRestart = ref(false)
       <button class="btn" type="button" @click="emit('dismissAway')">Continuer</button>
     </section>
 
-    <section v-if="tab === 'city'" class="grid thirds" aria-label="Bâtiments">
+    <section v-if="tab === 'city'" class="tab-city" aria-labelledby="city-title">
+      <h2 id="city-title" class="sr-only">Ta cité</h2>
+      <CityMap :state="state" :now="now" :selected="selected" @select="selected = $event" />
+      <ul class="chips" aria-label="Bâtiments">
+        <li v-for="chip in buildingChips" :key="chip.building.id">
+          <button
+            type="button"
+            class="chip"
+            :aria-pressed="selected === chip.building.id"
+            @click="selected = chip.building.id"
+          >
+            <span aria-hidden="true">{{ chip.building.icon }}</span>
+            {{ chip.building.name }}
+            <span class="chip-tag" :class="{ busy: chip.busy }">{{ chip.tag }}</span>
+          </button>
+        </li>
+      </ul>
       <BuildingCard
-        v-for="building in BUILDINGS"
-        :key="building.id"
-        :building="building"
+        :building="getBuilding(selected)"
         :state="state"
         :now="now"
-        @upgrade="emit('upgrade', building.id)"
+        @upgrade="emit('upgrade', selected)"
       />
     </section>
     <ArmyPanel
@@ -122,7 +152,19 @@ const confirmingRestart = ref(false)
       @train="(unit, count) => emit('train', unit, count)"
       @dismiss="(troops) => emit('dismiss', troops)"
     />
-    <WorldPanel v-else :state="state" :now="now" @attack="(camp, troops) => emit('attack', camp, troops)" />
+    <ResearchPanel
+      v-else-if="tab === 'research'"
+      :state="state"
+      :now="now"
+      @research="(tech) => emit('research', tech)"
+    />
+    <WorldPanel
+      v-else
+      :state="state"
+      :now="now"
+      :city-name="`Cité des ${race.name}`"
+      @attack="(camp, troops) => emit('attack', camp, troops)"
+    />
 
     <footer class="city-foot">
       <button v-if="!confirmingRestart" class="btn-quiet" type="button" @click="confirmingRestart = true">
@@ -178,10 +220,29 @@ const confirmingRestart = ref(false)
 }
 
 .tab-dot {
+  flex: none;
   width: 0.45rem;
   height: 0.45rem;
   border-radius: 50%;
   background: var(--gilt);
+}
+
+/* Quatre onglets sur un petit téléphone : on resserre un peu. */
+@media (max-width: 26rem) {
+  .tabs {
+    gap: 0;
+  }
+
+  .tab {
+    gap: 0.25rem;
+    font-size: 0.85rem;
+  }
+}
+
+.tab-city {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
 }
 
 .city {

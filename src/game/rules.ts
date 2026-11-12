@@ -18,6 +18,7 @@ import {
   START_LEVELS,
   START_RESOURCES,
   STARVATION_ATTACK_MALUS,
+  TECHS,
   TRAINING_BATCH_PER_LEVEL,
   UNITS,
   UNIT_IDS,
@@ -30,7 +31,11 @@ import {
   type MonsterId,
   type RaceDef,
   type RaceId,
+  type ResourceId,
   type Resources,
+  type TechDef,
+  type TechEffect,
+  type TechId,
   type UnitDef,
   type UnitId,
 } from './config'
@@ -49,6 +54,14 @@ export interface Construction {
 export interface Training {
   unit: UnitId
   count: number
+  startedAt: number
+  endsAt: number
+}
+
+/** Une recherche en cours à l'Académie. */
+export interface Research {
+  tech: TechId
+  targetLevel: number
   startedAt: number
   endsAt: number
 }
@@ -96,11 +109,15 @@ export interface GameState {
   resources: Resources
   levels: Record<BuildingId, number>
   construction: Construction | null
-  /** Troupes présentes dans la cité. Celles qui sont en campagne sont dans `expedition`. */
+  /** Niveau atteint dans chaque recherche. */
+  techs: Record<TechId, number>
+  research: Research | null
+  /** Troupes présentes dans la cité. Celles qui sont en campagne sont dans `expeditions`. */
   troops: Army
   /** Entraînements en cours à la Caserne : au plus un par type de troupe. */
   trainings: Training[]
-  expedition: Expedition | null
+  /** Armées en campagne : au plus une par camp, et pas plus que maxExpeditions(). */
+  expeditions: Expedition[]
   /** Derniers rapports de bataille, du plus récent au plus ancien. */
   reports: BattleReport[]
   /** Instant jusqu'auquel les ressources ont été calculées. */
@@ -119,9 +136,11 @@ export function newGame(race: RaceId, now: number): GameState {
     resources: { ...START_RESOURCES },
     levels: { ...START_LEVELS },
     construction: null,
+    techs: emptyTechs(),
+    research: null,
     troops: emptyArmy(),
     trainings: [],
-    expedition: null,
+    expeditions: [],
     reports: [],
     updatedAt: now,
   }
@@ -133,6 +152,10 @@ export function emptyResources(): Resources {
 
 export function emptyArmy(): Army {
   return Object.fromEntries(UNIT_IDS.map((id) => [id, 0])) as Army
+}
+
+export function emptyTechs(): Record<TechId, number> {
+  return Object.fromEntries(TECHS.map((tech) => [tech.id, 0])) as Record<TechId, number>
 }
 
 export function armySize(army: Army): number {
@@ -151,6 +174,10 @@ export function getBuilding(id: BuildingId): BuildingDef {
 
 export function getRace(id: RaceId): RaceDef {
   return byId(RACES, id)
+}
+
+export function getTech(id: TechId): TechDef {
+  return byId(TECHS, id)
 }
 
 export function getUnit(id: UnitId): UnitDef {
@@ -178,11 +205,12 @@ function addResources(resources: Resources, delta: Partial<Resources>, sign = 1)
   return result
 }
 
-/** Production par heure d'un bâtiment à un niveau donné, bonus de race compris. */
+/** Production par heure d'un bâtiment à un niveau donné, bonus de race et de recherches compris. */
 export function buildingOutput(state: GameState, building: BuildingDef, level: number): number {
   if (!building.produces || !building.baseProductionPerHour || level <= 0) return 0
   const raceBonus = getRace(state.race).productionBonus[building.produces] ?? 0
-  return building.baseProductionPerHour * PRODUCTION_GROWTH ** (level - 1) * (1 + raceBonus)
+  const researchBonus = techBonus(state, 'production', building.produces)
+  return building.baseProductionPerHour * PRODUCTION_GROWTH ** (level - 1) * (1 + raceBonus + researchBonus)
 }
 
 /** Production totale de la cité, par heure et par ressource. */
@@ -198,12 +226,18 @@ export function productionPerHour(state: GameState): Resources {
 
 // --- Entretien des troupes ---
 
+/** Les troupes d'une armée en campagne : celles parties, ou les survivantes sur le chemin du retour. */
+function expeditionTroops(expedition: Expedition): Army {
+  return expedition.result?.survivors ?? expedition.troops
+}
+
 /** Toutes les troupes du joueur : celles de la cité et celles qui sont en campagne. */
 export function allTroops(state: GameState): Army {
   const all = { ...state.troops }
-  const expedition = state.expedition
-  const away = expedition ? (expedition.result?.survivors ?? expedition.troops) : null
-  if (away) for (const id of UNIT_IDS) all[id] += away[id]
+  for (const expedition of state.expeditions) {
+    const away = expeditionTroops(expedition)
+    for (const id of UNIT_IDS) all[id] += away[id]
+  }
   return all
 }
 
@@ -240,20 +274,26 @@ export function isStarving(state: GameState): boolean {
 
 // --- Constructions ---
 
-/** Coût pour amener un bâtiment au niveau `level`. */
-export function upgradeCost(building: BuildingDef, level: number): Partial<Resources> {
+/** Coût d'un niveau : le coût de base, multiplié par COST_GROWTH à chaque niveau. */
+function levelCost(baseCost: Partial<Resources>, level: number): Partial<Resources> {
   const cost: Partial<Resources> = {}
   for (const id of RESOURCE_IDS) {
-    const base = building.baseCost[id]
+    const base = baseCost[id]
     if (base) cost[id] = Math.round(base * COST_GROWTH ** (level - 1))
   }
   return cost
 }
 
-/** Durée (en millisecondes) pour amener un bâtiment au niveau `level`, bonus de race compris. */
+/** Coût pour amener un bâtiment au niveau `level`. */
+export function upgradeCost(building: BuildingDef, level: number): Partial<Resources> {
+  return levelCost(building.baseCost, level)
+}
+
+/** Durée (en millisecondes) pour amener un bâtiment au niveau `level`, bonus de race et Maçonnerie compris. */
 export function upgradeDuration(state: GameState, building: BuildingDef, level: number): number {
   const seconds = building.baseDurationSeconds * DURATION_GROWTH ** (level - 1)
-  return Math.round(seconds * (1 - getRace(state.race).constructionSpeedBonus) * SECOND)
+  const speedUp = getRace(state.race).constructionSpeedBonus + techBonus(state, 'constructionSpeed')
+  return Math.round(seconds * (1 - speedUp) * SECOND)
 }
 
 export function checkUpgrade(state: GameState, buildingId: BuildingId): Check {
@@ -292,6 +332,64 @@ export function startUpgrade(state: GameState, buildingId: BuildingId, now: numb
       startedAt: now,
       endsAt: now + upgradeDuration(current, building, targetLevel),
     },
+  }
+}
+
+// --- Recherches ---
+
+/**
+ * Bonus total apporté par les recherches pour un type d'effet : 0.15 = +15 %,
+ * ou un nombre d'armées supplémentaires. Pour la production, on précise la ressource.
+ */
+export function techBonus(state: GameState, kind: TechEffect['kind'], resource?: ResourceId): number {
+  let total = 0
+  for (const tech of TECHS) {
+    const effect = tech.effect
+    if (effect.kind !== kind) continue
+    if (effect.kind === 'production' && (!resource || !effect.resources.includes(resource))) continue
+    total += effect.perLevel * state.techs[tech.id]
+  }
+  return total
+}
+
+export function researchCost(tech: TechDef, level: number): Partial<Resources> {
+  return levelCost(tech.baseCost, level)
+}
+
+/** Durée (en millisecondes) d'une recherche pour atteindre le niveau `level`. */
+export function researchDuration(tech: TechDef, level: number): number {
+  return Math.round(tech.baseDurationSeconds * DURATION_GROWTH ** (level - 1) * SECOND)
+}
+
+export function checkResearch(state: GameState, techId: TechId): Check {
+  const tech = getTech(techId)
+  const academy = state.levels.academy
+  const level = state.techs[techId]
+  if (academy === 0) return { ok: false, reason: 'Construis d’abord l’Académie' }
+  if (academy < tech.unlockedAtAcademyLevel) {
+    return { ok: false, reason: `Nécessite l’Académie niveau ${tech.unlockedAtAcademyLevel}` }
+  }
+  if (level >= tech.maxLevel) return { ok: false, reason: 'Niveau maximum atteint' }
+  if (level + 1 > academy) return { ok: false, reason: `Nécessite l’Académie niveau ${level + 1}` }
+  if (state.research) return { ok: false, reason: 'Une recherche est déjà en cours' }
+  if (!canAfford(state.resources, researchCost(tech, level + 1))) {
+    return { ok: false, reason: 'Ressources insuffisantes' }
+  }
+  return { ok: true }
+}
+
+/** Lance une recherche : retire son coût, le nouveau niveau s'applique à la fin. */
+export function startResearch(state: GameState, techId: TechId, now: number): GameState {
+  const current = advance(state, now)
+  const check = checkResearch(current, techId)
+  if (!check.ok) throw new Error(check.reason)
+
+  const tech = getTech(techId)
+  const targetLevel = current.techs[techId] + 1
+  return {
+    ...current,
+    resources: addResources(current.resources, researchCost(tech, targetLevel), -1),
+    research: { tech: techId, targetLevel, startedAt: now, endsAt: now + researchDuration(tech, targetLevel) },
   }
 }
 
@@ -358,6 +456,16 @@ export function startTraining(state: GameState, unitId: UnitId, count: number, n
 
 // --- Expéditions contre les monstres ---
 
+/** Nombre d'armées qui peuvent être en campagne en même temps : 1, plus le Commandement. */
+export function maxExpeditions(state: GameState): number {
+  return 1 + techBonus(state, 'armies')
+}
+
+/** Durée (en millisecondes) de la marche vers un camp (le retour dure autant), Marche forcée comprise. */
+export function marchDuration(state: GameState, camp: CampDef): number {
+  return Math.round(camp.marchSeconds * (1 - techBonus(state, 'marchSpeed')) * SECOND)
+}
+
 /** Vérifie une sélection de troupes prises dans la cité. */
 function checkSelection(state: GameState, troops: Army): Check {
   if (UNIT_IDS.some((id) => !Number.isInteger(troops[id]) || troops[id] < 0)) {
@@ -370,10 +478,25 @@ function checkSelection(state: GameState, troops: Army): Check {
   return { ok: true }
 }
 
-export function checkExpedition(state: GameState, campId: CampId, troops: Army): Check {
+/** Peut-on envoyer une armée vers ce camp, quelles que soient les troupes choisies ? */
+export function checkExpeditionSlot(state: GameState, campId: CampId): Check {
   getCamp(campId)
-  if (state.expedition) return { ok: false, reason: 'Une armée est déjà en campagne' }
-  return checkSelection(state, troops)
+  if (state.expeditions.some((e) => e.camp === campId)) {
+    return { ok: false, reason: 'Une armée est déjà en route vers ce camp' }
+  }
+  const max = maxExpeditions(state)
+  if (state.expeditions.length >= max) {
+    return {
+      ok: false,
+      reason: max === 1 ? 'Une armée est déjà en campagne' : `Tes ${max} armées sont déjà en campagne`,
+    }
+  }
+  return { ok: true }
+}
+
+export function checkExpedition(state: GameState, campId: CampId, troops: Army): Check {
+  const slot = checkExpeditionSlot(state, campId)
+  return slot.ok ? checkSelection(state, troops) : slot
 }
 
 /** Envoie une armée vers un camp : elle quitte la cité tout de suite. */
@@ -382,33 +505,36 @@ export function startExpedition(state: GameState, campId: CampId, troops: Army, 
   const check = checkExpedition(current, campId, troops)
   if (!check.ok) throw new Error(check.reason)
 
-  const march = getCamp(campId).marchSeconds * SECOND
+  const march = marchDuration(current, getCamp(campId))
   const home = { ...current.troops }
   for (const id of UNIT_IDS) home[id] -= troops[id]
-  return {
-    ...current,
-    troops: home,
-    expedition: {
-      camp: campId,
-      troops: { ...troops },
-      departedAt: now,
-      arrivesAt: now + march,
-      returnsAt: now + 2 * march,
-      result: null,
-    },
+  const expedition: Expedition = {
+    camp: campId,
+    troops: { ...troops },
+    departedAt: now,
+    arrivesAt: now + march,
+    returnsAt: now + 2 * march,
+    result: null,
   }
+  return { ...current, troops: home, expeditions: [...current.expeditions, expedition] }
 }
 
 /** L'armée arrive au camp : la bataille a lieu, et on écrit le rapport. */
 function resolveArrival(state: GameState, expedition: Expedition): GameState {
   const camp = getCamp(expedition.camp)
   const defenders = Object.entries(camp.defenders) as [MonsterId, number][]
-  // Une armée affamée se bat moins bien.
+  // Les recherches renforcent l'armée ; une armée affamée se bat moins bien.
   const starving = isStarving(state)
-  const attackFactor = starving ? 1 - STARVATION_ATTACK_MALUS : 1
+  const attackFactor = (1 + techBonus(state, 'attack')) * (starving ? 1 - STARVATION_ATTACK_MALUS : 1)
+  const healthFactor = 1 + techBonus(state, 'health')
   const attackerStacks: Stack[] = UNIT_IDS.map((id) => {
     const unit = getUnit(id)
-    return { family: id, attack: unit.attack * attackFactor, health: unit.health, count: expedition.troops[id] }
+    return {
+      family: id,
+      attack: unit.attack * attackFactor,
+      health: unit.health * healthFactor,
+      count: expedition.troops[id],
+    }
   })
   const defenderStacks: Stack[] = defenders.map(([id, count]) => {
     const monster = getMonster(id)
@@ -464,8 +590,25 @@ function resolveArrival(state: GameState, expedition: Expedition): GameState {
   const reports = [report, ...state.reports].slice(0, MAX_REPORTS)
 
   // Une armée entièrement détruite ne rentre pas : l'expédition s'arrête là.
-  if (armySize(survivors) === 0) return { ...state, reports, expedition: null }
-  return { ...state, reports, expedition: { ...expedition, result: { survivors, loot } } }
+  const expeditions =
+    armySize(survivors) === 0
+      ? state.expeditions.filter((e) => e.camp !== expedition.camp)
+      : state.expeditions.map((e) => (e.camp === expedition.camp ? { ...e, result: { survivors, loot } } : e))
+  return { ...state, reports, expeditions }
+}
+
+/** L'armée rentre : les survivants retrouvent la cité, avec le butin. */
+function resolveReturn(state: GameState, expedition: Expedition): GameState {
+  const result = expedition.result
+  if (!result) return state
+  const troops = { ...state.troops }
+  for (const id of UNIT_IDS) troops[id] += result.survivors[id]
+  return {
+    ...state,
+    troops,
+    resources: addResources(state.resources, result.loot),
+    expeditions: state.expeditions.filter((e) => e.camp !== expedition.camp),
+  }
 }
 
 // --- Renvoi de troupes ---
@@ -485,13 +628,6 @@ export function dismissTroops(state: GameState, troops: Army, now: number): Game
   return { ...current, troops: home }
 }
 
-/** L'armée rentre : les survivants retrouvent la cité, avec le butin. */
-function resolveReturn(state: GameState, result: NonNullable<Expedition['result']>): GameState {
-  const troops = { ...state.troops }
-  for (const id of UNIT_IDS) troops[id] += result.survivors[id]
-  return { ...state, troops, resources: addResources(state.resources, result.loot), expedition: null }
-}
-
 // --- Le temps qui passe ---
 
 interface PendingEvent {
@@ -499,9 +635,12 @@ interface PendingEvent {
   apply: (state: GameState) => GameState
 }
 
-/** Le prochain événement prévu : fin de chantier, fin d'entraînement, arrivée ou retour d'une armée. */
+/**
+ * Le prochain événement prévu : fin de chantier, de recherche ou d'entraînement,
+ * arrivée ou retour d'une armée.
+ */
 function nextEvent(state: GameState): PendingEvent | null {
-  const { construction, trainings, expedition } = state
+  const { construction, research, trainings, expeditions } = state
   const events: PendingEvent[] = []
   if (construction) {
     events.push({
@@ -511,6 +650,12 @@ function nextEvent(state: GameState): PendingEvent | null {
         levels: { ...s.levels, [construction.building]: construction.targetLevel },
         construction: null,
       }),
+    })
+  }
+  if (research) {
+    events.push({
+      at: research.endsAt,
+      apply: (s) => ({ ...s, techs: { ...s.techs, [research.tech]: research.targetLevel }, research: null }),
     })
   }
   for (const training of trainings) {
@@ -523,9 +668,8 @@ function nextEvent(state: GameState): PendingEvent | null {
       }),
     })
   }
-  if (expedition) {
-    const result = expedition.result
-    if (result) events.push({ at: expedition.returnsAt, apply: (s) => resolveReturn(s, result) })
+  for (const expedition of expeditions) {
+    if (expedition.result) events.push({ at: expedition.returnsAt, apply: (s) => resolveReturn(s, expedition) })
     else events.push({ at: expedition.arrivesAt, apply: (s) => resolveArrival(s, expedition) })
   }
   return events.reduce<PendingEvent | null>((first, e) => (!first || e.at < first.at ? e : first), null)
@@ -533,8 +677,8 @@ function nextEvent(state: GameState): PendingEvent | null {
 
 /**
  * Fait avancer la partie jusqu'à l'instant `now` : les ressources s'accumulent, et chaque
- * événement prévu (chantier, entraînement, bataille, retour d'armée) arrive à son heure,
- * même si personne ne regardait. C'est ce qui permet au royaume de vivre hors connexion.
+ * événement prévu (chantier, recherche, entraînement, bataille, retour d'armée) arrive à son
+ * heure, même si personne ne regardait. C'est ce qui permet au royaume de vivre hors connexion.
  */
 export function advance(state: GameState, now: number): GameState {
   if (now <= state.updatedAt) return state

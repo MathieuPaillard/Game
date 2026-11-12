@@ -17,6 +17,22 @@
   --font-body: 'Alegreya Sans', 'Segoe UI', system-ui, sans-serif;
 
   --radius: 8px;
+
+  /* Les cartes : une campagne au crépuscule, assortie au reste de l'interface. */
+  --map-ground: #3b4732;
+  --map-meadow: #46543a;
+  --map-water: #2e536e;
+  --map-water-light: #4a7491;
+  --map-marsh: #3a5a4e;
+  --map-road: #9a8661;
+  --map-dirt: #6b5a40;
+  --map-camp: #4a3a33;
+  --map-rock: #676b75;
+  --map-rock-light: #878b95;
+  --map-field: #86773d;
+  --map-field-line: #a3924c;
+  --map-wall: #7a5c3a;
+  --map-halo: rgba(12, 14, 20, 0.78);
 }
 
 *,
@@ -294,6 +310,177 @@ button:focus-visible {
 .field input:focus-visible {
   outline: 2px solid var(--gilt);
   outline-offset: 1px;
+}
+
+/* --- Les cartes (dessins SVG partagés par la cité et les alentours) --- */
+
+.ground {
+  fill: var(--map-ground);
+}
+
+.meadow {
+  fill: var(--map-meadow);
+}
+
+.river {
+  fill: none;
+  stroke: var(--map-water);
+  stroke-width: 46;
+  stroke-linecap: round;
+}
+
+.river-light {
+  fill: none;
+  stroke: var(--map-water-light);
+  stroke-width: 10;
+  stroke-linecap: round;
+  stroke-dasharray: 40 60;
+  opacity: 0.6;
+}
+
+.rock {
+  fill: var(--map-rock);
+}
+
+.rock-light {
+  fill: var(--map-rock-light);
+}
+
+.emoji {
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+
+.map-label,
+.map-sublabel {
+  text-anchor: middle;
+  dominant-baseline: central;
+  paint-order: stroke;
+  stroke: var(--map-halo);
+  stroke-linejoin: round;
+}
+
+.map-label {
+  font: 700 22px var(--font-body);
+  fill: var(--parchment);
+  stroke-width: 6px;
+}
+
+.map-sublabel {
+  font: 400 17px var(--font-body);
+  fill: var(--faded);
+  stroke-width: 5px;
+}
+
+/* Un emplacement qu'on peut toucher : bâtiment ou camp. */
+.spot {
+  cursor: pointer;
+  outline: none;
+}
+
+.spot-base {
+  fill: var(--map-dirt);
+}
+
+.spot-ring {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 5;
+}
+
+.spot:hover .spot-ring {
+  stroke: var(--faded);
+}
+
+.spot.selected .spot-ring {
+  stroke: var(--gilt);
+}
+
+.spot:focus-visible .spot-ring {
+  stroke: var(--parchment);
+  stroke-dasharray: 10 6;
+}
+
+.spot.empty .spot-icon {
+  opacity: 0.45;
+}
+
+.spot.locked .spot-icon {
+  opacity: 0.22;
+}
+
+.badge {
+  fill: var(--stone-raised);
+  stroke: var(--seam);
+  stroke-width: 2;
+}
+
+.badge.ready {
+  fill: var(--gilt);
+  stroke: var(--gilt-deep);
+}
+
+.badge-text {
+  font: 700 18px var(--font-body);
+  fill: var(--parchment);
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+
+.badge.ready + .badge-text {
+  fill: var(--gilt-deep);
+}
+
+.bar {
+  fill: var(--stone-raised);
+}
+
+.bar-fill {
+  fill: var(--gilt);
+  transition: width 1s linear;
+}
+
+/* --- Les pastilles : la liste rapide des bâtiments ou des camps, sous la carte --- */
+
+.chips {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid var(--seam);
+  border-radius: 999px;
+  background: var(--stone);
+  color: var(--parchment);
+  font: 700 0.9rem/1.2 var(--font-body);
+  cursor: pointer;
+}
+
+.chip:hover {
+  border-color: var(--faded);
+}
+
+.chip[aria-pressed='true'] {
+  border-color: var(--gilt);
+  background: var(--stone-raised);
+}
+
+.chip-tag {
+  color: var(--faded);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+.chip-tag.busy {
+  color: var(--gilt);
 }
 
 @media (prefers-reduced-motion: reduce) {

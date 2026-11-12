@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import {
   CAMPS,
   RESOURCES,
@@ -10,30 +10,38 @@ import {
   type MonsterId,
   type Resources,
 } from '../game/config'
-import { getCamp, getMonster, type GameState } from '../game/rules'
+import { getCamp, getMonster, maxExpeditions, type GameState } from '../game/rules'
 import CampCard from './CampCard.vue'
+import WorldMap from './WorldMap.vue'
 import { describeBattle } from './battleLog'
 import { formatAgo, formatAmount, formatArmy, formatDuration } from './format'
 
-const props = defineProps<{ state: GameState; now: number }>()
+const props = defineProps<{ state: GameState; now: number; cityName: string }>()
 const emit = defineEmits<{ attack: [camp: CampId, troops: Army] }>()
 
-const march = computed(() => {
-  const e = props.state.expedition
-  if (!e) return null
-  const camp = getCamp(e.camp).name
-  return e.result
-    ? { label: `Retour de : ${camp}`, start: e.arrivesAt, end: e.returnsAt }
-    : { label: `En route vers : ${camp}`, start: e.departedAt, end: e.arrivesAt }
-})
+// Le camp choisi sur la carte (ou dans la liste), dont on montre la fiche.
+const selected = ref<CampId>('wolfDen')
+const selectedCamp = computed(() => getCamp(selected.value))
+
+// Les armées en campagne, avec leur progression.
+const marches = computed(() =>
+  props.state.expeditions.map((e) => {
+    const camp = getCamp(e.camp).name
+    const outward = !e.result
+    const start = outward ? e.departedAt : e.arrivesAt
+    const end = outward ? e.arrivesAt : e.returnsAt
+    return {
+      key: e.camp,
+      label: outward ? `En route vers : ${camp}` : `Retour de : ${camp}`,
+      end,
+      progress: Math.min(1, Math.max(0, (props.now - start) / (end - start))),
+    }
+  }),
+)
+
 const malusPercent = Math.round(STARVATION_ATTACK_MALUS * 100)
 // Le journal de chaque rapport, dans le même ordre que les rapports.
 const stories = computed(() => props.state.reports.map(describeBattle))
-const progress = computed(() => {
-  const m = march.value
-  if (!m) return 0
-  return Math.min(1, Math.max(0, (props.now - m.start) / (m.end - m.start)))
-})
 
 function monstersText(monsters: Partial<Record<MonsterId, number>>): string {
   return (Object.entries(monsters) as [MonsterId, number][])
@@ -51,28 +59,49 @@ function lootText(loot: Partial<Resources>): string {
 
 <template>
   <div class="world">
-    <section v-if="march" class="march" role="status">
-      <p>
-        <strong>{{ march.label }}</strong> · {{ formatDuration(march.end - now) }}
-      </p>
-      <div class="progress"><span class="progress-fill" :style="{ width: `${progress * 100}%` }"></span></div>
-    </section>
-
-    <section class="block" aria-labelledby="camps-title">
-      <h2 id="camps-title" class="section-title">Camps de monstres</h2>
+    <section class="block" aria-labelledby="world-title">
+      <h2 id="world-title" class="section-title">Alentours</h2>
       <p class="muted">
-        Ton armée met du temps à atteindre le camp, puis la bataille se joue toute seule. En cas de victoire,
-        elle rapporte le butin.
+        Armées en campagne : <strong>{{ state.expeditions.length }} / {{ maxExpeditions(state) }}</strong>. Touche
+        un camp pour le voir. Ton armée met du temps à l’atteindre, puis la bataille se joue toute seule.
       </p>
-      <div class="grid">
-        <CampCard
-          v-for="camp in CAMPS"
-          :key="camp.id"
-          :camp="camp"
-          :state="state"
-          @attack="(troops) => emit('attack', camp.id, troops)"
-        />
-      </div>
+
+      <WorldMap
+        :state="state"
+        :now="now"
+        :selected="selected"
+        :city-name="cityName"
+        @select="selected = $event"
+      />
+
+      <ul class="chips" aria-label="Camps de monstres">
+        <li v-for="camp in CAMPS" :key="camp.id">
+          <button type="button" class="chip" :aria-pressed="selected === camp.id" @click="selected = camp.id">
+            {{ camp.name }}
+            <span class="chip-tag" :class="{ busy: state.expeditions.some((e) => e.camp === camp.id) }">
+              niv. {{ camp.level }}
+            </span>
+          </button>
+        </li>
+      </ul>
+
+      <ul v-if="marches.length" class="marches" aria-label="Armées en campagne">
+        <li v-for="march in marches" :key="march.key" class="march" role="status">
+          <p>
+            <strong>{{ march.label }}</strong> · {{ formatDuration(march.end - now) }}
+          </p>
+          <div class="progress">
+            <span class="progress-fill" :style="{ width: `${march.progress * 100}%` }"></span>
+          </div>
+        </li>
+      </ul>
+
+      <CampCard
+        :key="selectedCamp.id"
+        :camp="selectedCamp"
+        :state="state"
+        @attack="(troops) => emit('attack', selectedCamp.id, troops)"
+      />
     </section>
 
     <section class="block" aria-labelledby="reports-title">
@@ -119,14 +148,23 @@ function lootText(loot: Partial<Resources>): string {
 .block {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.9rem;
+}
+
+.marches {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
 }
 
 .march {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  padding: 1rem;
+  padding: 0.8rem 1rem;
   background: var(--stone);
   border: 1px solid var(--gilt);
   border-radius: var(--radius);

@@ -57,6 +57,8 @@ Plus tard, chaque race aura aussi une unité qui lui est propre.
 - **[Décidé]** Bâtiments de production : Ferme, Scierie, Carrière, Mine d'or, Puits de mana.
 - **[Décidé]** Un seul chantier à la fois au début, un second plus tard.
 - **[Décidé]** Bâtiments suivants : Caserne (troupes), Académie (recherches), Tour des mages (sorts), Remparts (défense).
+- **[Décidé]** L'**Académie** (débloquée au Château niveau 3) mène les recherches : une à la fois, et aucune recherche ne dépasse le niveau de l'Académie.
+- **[Proposition]** Huit recherches pour commencer : Agriculture (nourriture), Outils de qualité (bois et pierre), Alchimie (or et mana), Forge (attaque des troupes), Armures (vie des troupes), Maçonnerie (constructions plus rapides), Marche forcée (marche plus rapide) et Commandement (une armée de plus en campagne par niveau).
 
 ## 6. Armées et héros
 
@@ -76,14 +78,21 @@ Plus tard, chaque race aura aussi une unité qui lui est propre.
 
 - **[Décidé]** Une carte commune à tous les joueurs d'un serveur : cités, gisements de ressources, monstres, lieux légendaires.
 - **[Décidé]** Des **alliances** : entraide, attaques groupées, territoire commun.
-- **[Proposition]** En attendant la carte (étape 4), des camps de monstres « aux alentours » de la cité : Tanière de loups, Campement gobelin, Ruines hantées et Antre du troll. L'armée met du temps à y aller et à en revenir, la bataille a lieu à l'arrivée, et une victoire rapporte un butin. Une seule armée en campagne à la fois pour l'instant.
+- **[Proposition]** En attendant la carte (étape 4), des camps de monstres « aux alentours » de la cité : Tanière de loups, Campement gobelin, Ruines hantées et Antre du troll. L'armée met du temps à y aller et à en revenir, la bataille a lieu à l'arrivée, et une victoire rapporte un butin.
+- **[Décidé]** Plusieurs armées peuvent être en campagne en même temps, de plus en plus au fil des recherches.
+- **[Proposition]** Une armée au départ, plus une par niveau de Commandement (trois au maximum pour l'instant), et une seule armée à la fois vers un même camp.
 
-## 8. Feuille de route
+## 8. Les cartes
+
+- **[Décidé]** Le jeu se voit sur des cartes : la cité (chaque bâtiment sur son emplacement, dans l'enceinte) et ses alentours (les camps de monstres, les armées en marche). On s'y promène en faisant glisser la carte, et on zoome avec deux doigts, la molette ou les boutons.
+- **[Proposition]** Toucher un bâtiment ou un camp affiche sa fiche sous la carte ; une liste de pastilles permet aussi de les choisir sans chercher sur la carte. Les emojis seront remplacés par les images du guide graphique.
+
+## 9. Feuille de route
 
 Chaque étape donne un jeu jouable.
 
 1. **Prototype solo dans le navigateur** : la cité, les ressources, les bâtiments et leurs durées de construction. *En place* : choix de la race, cinq ressources, six bâtiments, un chantier à la fois, production hors connexion.
-2. **Armées** : troupes, recherches, combats contre des monstres. *En place* : Caserne, quatre troupes, camps de monstres, rapports de bataille. *Reste* : les recherches (Académie).
+2. **Armées** : troupes, recherches, combats contre des monstres. *En place* : Caserne, quatre troupes, camps de monstres, rapports de bataille, Académie et recherches, plusieurs armées en campagne, cartes de la cité et des alentours.
 3. **Serveur et comptes joueurs** : sauvegarde en ligne ; le serveur décide de tout.
 4. **Monde partagé** : la carte, les attaques entre joueurs, les alliances.
 5. **Contenu et mobile** : quêtes, livre de sorts, créatures légendaires, puis l'appli Android.

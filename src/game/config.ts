@@ -81,7 +81,7 @@ export const RACES: RaceDef[] = [
 
 // --- Bâtiments ---
 
-export type BuildingId = 'castle' | 'farm' | 'sawmill' | 'quarry' | 'goldMine' | 'manaWell' | 'barracks'
+export type BuildingId = 'castle' | 'farm' | 'sawmill' | 'quarry' | 'goldMine' | 'manaWell' | 'barracks' | 'academy'
 
 export interface BuildingDef {
   id: BuildingId
@@ -174,6 +174,15 @@ export const BUILDINGS: BuildingDef[] = [
     baseCost: { food: 120, wood: 160, stone: 100 },
     baseDurationSeconds: 12,
   },
+  {
+    id: 'academy',
+    name: 'Académie',
+    icon: '📜',
+    description: 'Tes savants y mènent les recherches. Chaque niveau en débloque de nouvelles.',
+    unlockedAtCastleLevel: 3,
+    baseCost: { food: 250, wood: 300, stone: 250, gold: 120, mana: 40 },
+    baseDurationSeconds: 25,
+  },
 ]
 
 /** Niveau maximum des bâtiments, pour l'instant. */
@@ -184,6 +193,135 @@ export const COST_GROWTH = 1.6
 export const DURATION_GROWTH = 1.6
 /** Chaque niveau produit 1,35 fois plus que le précédent. */
 export const PRODUCTION_GROWTH = 1.35
+
+// --- Recherches ---
+
+export type TechId =
+  | 'agriculture'
+  | 'tools'
+  | 'forge'
+  | 'command'
+  | 'alchemy'
+  | 'armor'
+  | 'masonry'
+  | 'forcedMarch'
+
+/** Ce que rapporte chaque niveau d'une recherche. */
+export type TechEffect =
+  | { kind: 'production'; resources: ResourceId[]; perLevel: number }
+  | { kind: 'attack'; perLevel: number }
+  | { kind: 'health'; perLevel: number }
+  | { kind: 'armies'; perLevel: number }
+  | { kind: 'marchSpeed'; perLevel: number }
+  | { kind: 'constructionSpeed'; perLevel: number }
+
+export interface TechDef {
+  id: TechId
+  name: string
+  icon: string
+  /** L'effet d'un niveau, tel qu'il est affiché au joueur. */
+  description: string
+  effect: TechEffect
+  maxLevel: number
+  /** Niveau d'Académie nécessaire pour commencer cette recherche. */
+  unlockedAtAcademyLevel: number
+  /** Coût du niveau 1. Chaque niveau suivant coûte COST_GROWTH fois plus que le précédent. */
+  baseCost: Partial<Resources>
+  /** Durée du niveau 1, en secondes. Chaque niveau suivant dure DURATION_GROWTH fois plus. */
+  baseDurationSeconds: number
+}
+
+// Une recherche ne peut pas dépasser le niveau de l'Académie.
+export const TECHS: TechDef[] = [
+  {
+    id: 'agriculture',
+    name: 'Agriculture',
+    icon: '🌱',
+    description: '+10 % de nourriture par niveau',
+    effect: { kind: 'production', resources: ['food'], perLevel: 0.1 },
+    maxLevel: 5,
+    unlockedAtAcademyLevel: 1,
+    baseCost: { wood: 150, stone: 100, gold: 50 },
+    baseDurationSeconds: 20,
+  },
+  {
+    id: 'tools',
+    name: 'Outils de qualité',
+    icon: '🪓',
+    description: '+10 % de bois et de pierre par niveau',
+    effect: { kind: 'production', resources: ['wood', 'stone'], perLevel: 0.1 },
+    maxLevel: 5,
+    unlockedAtAcademyLevel: 1,
+    baseCost: { food: 150, gold: 60 },
+    baseDurationSeconds: 20,
+  },
+  {
+    id: 'forge',
+    name: 'Forge',
+    icon: '⚒️',
+    description: '+5 % d’attaque pour toutes les troupes, par niveau',
+    effect: { kind: 'attack', perLevel: 0.05 },
+    maxLevel: 5,
+    unlockedAtAcademyLevel: 1,
+    baseCost: { wood: 200, stone: 150, gold: 80 },
+    baseDurationSeconds: 25,
+  },
+  {
+    id: 'command',
+    name: 'Commandement',
+    icon: '🚩',
+    description: '+1 armée en campagne en même temps, par niveau',
+    effect: { kind: 'armies', perLevel: 1 },
+    maxLevel: 2,
+    unlockedAtAcademyLevel: 1,
+    baseCost: { food: 400, wood: 300, gold: 150 },
+    baseDurationSeconds: 40,
+  },
+  {
+    id: 'alchemy',
+    name: 'Alchimie',
+    icon: '⚗️',
+    description: '+10 % d’or et de mana par niveau',
+    effect: { kind: 'production', resources: ['gold', 'mana'], perLevel: 0.1 },
+    maxLevel: 5,
+    unlockedAtAcademyLevel: 2,
+    baseCost: { food: 200, wood: 200, mana: 40 },
+    baseDurationSeconds: 30,
+  },
+  {
+    id: 'armor',
+    name: 'Armures',
+    icon: '⛓️',
+    description: '+5 % de vie pour toutes les troupes, par niveau',
+    effect: { kind: 'health', perLevel: 0.05 },
+    maxLevel: 5,
+    unlockedAtAcademyLevel: 2,
+    baseCost: { stone: 200, gold: 100 },
+    baseDurationSeconds: 25,
+  },
+  {
+    id: 'masonry',
+    name: 'Maçonnerie',
+    icon: '🧱',
+    description: '−5 % de durée de construction par niveau',
+    effect: { kind: 'constructionSpeed', perLevel: 0.05 },
+    maxLevel: 5,
+    unlockedAtAcademyLevel: 2,
+    baseCost: { wood: 250, stone: 250, gold: 60 },
+    baseDurationSeconds: 25,
+  },
+  {
+    id: 'forcedMarch',
+    name: 'Marche forcée',
+    icon: '🥾',
+    description: '−10 % de temps de marche par niveau',
+    effect: { kind: 'marchSpeed', perLevel: 0.1 },
+    maxLevel: 3,
+    unlockedAtAcademyLevel: 3,
+    baseCost: { food: 300, gold: 120 },
+    baseDurationSeconds: 30,
+  },
+]
 
 // --- Troupes ---
 
@@ -365,4 +503,5 @@ export const START_LEVELS: Record<BuildingId, number> = {
   goldMine: 0,
   manaWell: 0,
   barracks: 0,
+  academy: 0,
 }

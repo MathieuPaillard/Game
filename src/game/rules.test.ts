@@ -1,10 +1,20 @@
 import { describe, expect, it } from 'vitest'
-import { MAX_LEVEL, RESOURCE_IDS, START_LEVELS, START_RESOURCES, UNIT_IDS, type Army, type BuildingId } from './config'
+import {
+  MAX_LEVEL,
+  RESOURCE_IDS,
+  START_LEVELS,
+  START_RESOURCES,
+  UNIT_IDS,
+  type Army,
+  type BuildingId,
+  type TechId,
+} from './config'
 import {
   advance,
   armySize,
   checkDismiss,
   checkExpedition,
+  checkResearch,
   checkTraining,
   checkUpgrade,
   dismissTroops,
@@ -13,12 +23,17 @@ import {
   getBuilding,
   getCamp,
   getRace,
+  getTech,
   getUnit,
   isStarving,
+  marchDuration,
+  maxExpeditions,
   maxTrainingBatch,
   newGame,
   productionPerHour,
+  researchCost,
   startExpedition,
+  startResearch,
   startTraining,
   startUpgrade,
   trainingCost,
@@ -44,6 +59,11 @@ function army(troops: Partial<Army>): Army {
   return { ...emptyArmy(), ...troops }
 }
 
+/** La même partie, avec certaines recherches déjà faites. */
+function withTechs(game: GameState, techs: Partial<Record<TechId, number>>): GameState {
+  return { ...game, techs: { ...game.techs, ...techs } }
+}
+
 /** Une partie qui démarre avec une quantité de nourriture et une armée données. */
 function withFood(food: number, troops: Partial<Army>): GameState {
   const game = newGame('humans', T0)
@@ -65,21 +85,29 @@ describe('production', () => {
   })
 
   it('donne le même résultat d’un coup ou seconde par seconde (la partie continue hors ligne)', () => {
+    const base = newGame('humans', T0)
     const game: GameState = {
-      ...newGame('humans', T0),
-      levels: { ...START_LEVELS, castle: 5, barracks: 1 },
-      troops: army({ warrior: 30 }),
+      ...base,
+      resources: { food: 3000, wood: 3000, stone: 3000, gold: 1000, mana: 300 },
+      levels: { ...START_LEVELS, castle: 5, barracks: 1, academy: 1 },
+      techs: { ...base.techs, command: 1 },
+      troops: army({ warrior: 60 }),
     }
     let start = startUpgrade(game, 'farm', T0)
+    start = startResearch(start, 'agriculture', T0)
     start = startTraining(start, 'warrior', 5, T0)
     start = startExpedition(start, 'wolfDen', army({ warrior: 30 }), T0)
+    start = startExpedition(start, 'goblinCamp', army({ warrior: 30 }), T0)
     const end = T0 + 3 * HOUR
 
     const oneShot = advance(start, end)
     let stepped = start
     for (let t = T0; t <= end; t += 1000) stepped = advance(stepped, t)
 
+    expect(oneShot.techs.agriculture).toBe(1)
+    expect(oneShot.reports).toHaveLength(2)
     expect(stepped.levels).toEqual(oneShot.levels)
+    expect(stepped.techs).toEqual(oneShot.techs)
     expect(stepped.troops).toEqual(oneShot.troops)
     expect(stepped.reports).toEqual(oneShot.reports)
     for (const id of RESOURCE_IDS) expect(stepped.resources[id]).toBeCloseTo(oneShot.resources[id], 6)
@@ -241,7 +269,7 @@ describe('entretien des troupes', () => {
   it('une armée affamée se bat moins bien', () => {
     const attack = (game: GameState) => {
       const start = startExpedition(game, 'goblinCamp', army({ warrior: 60 }), T0)
-      return advance(start, start.expedition!.arrivesAt).reports[0]
+      return advance(start, start.expeditions[0].arrivesAt).reports[0]
     }
     const hungry = attack(withFood(0, { warrior: 2060 }))
     const fed = attack(withFood(1e9, { warrior: 2060 }))
@@ -278,13 +306,13 @@ describe('expéditions', () => {
     const start = startExpedition(richGame({}, { warrior: 1000 }), 'wolfDen', army({ warrior: 1000 }), T0)
     expect(start.troops.warrior).toBe(0)
 
-    const arrived = advance(start, start.expedition!.arrivesAt)
+    const arrived = advance(start, start.expeditions[0].arrivesAt)
     expect(arrived.reports[0]).toMatchObject({ camp: 'wolfDen', victory: true, loot: camp.loot })
     expect(arrived.troops.warrior).toBe(0)
 
-    const back = advance(start, start.expedition!.returnsAt)
+    const back = advance(start, start.expeditions[0].returnsAt)
     const survivors = 1000 - arrived.reports[0].lost.warrior
-    expect(back.expedition).toBeNull()
+    expect(back.expeditions).toEqual([])
     expect(back.troops.warrior).toBe(survivors)
     // La nourriture dépend aussi de l'entretien de l'armée : on vérifie le butin sur les autres ressources.
     const hours = (back.updatedAt - start.updatedAt) / HOUR
@@ -296,7 +324,7 @@ describe('expéditions', () => {
 
   it('le rapport contient le journal du combat, manche par manche', () => {
     const start = startExpedition(richGame({}, { warrior: 20, archer: 10 }), 'goblinCamp', army({ warrior: 20, archer: 10 }), T0)
-    const report = advance(start, start.expedition!.arrivesAt).reports[0]
+    const report = advance(start, start.expeditions[0].arrivesAt).reports[0]
     expect(report.enemies).toEqual(getCamp('goblinCamp').defenders)
     expect(report.rounds.length).toBeGreaterThan(0)
     // Les pertes de chaque manche s'additionnent pour donner les pertes totales.
@@ -310,23 +338,107 @@ describe('expéditions', () => {
 
   it('une armée anéantie ne rentre pas et ne rapporte rien', () => {
     const start = startExpedition(richGame({}, { archer: 1 }), 'trollLair', army({ archer: 1 }), T0)
-    const after = advance(start, start.expedition!.arrivesAt)
-    expect(after.expedition).toBeNull()
+    const after = advance(start, start.expeditions[0].arrivesAt)
+    expect(after.expeditions).toEqual([])
     expect(after.reports[0]).toMatchObject({ victory: false, loot: {} })
     expect(armySize(after.troops)).toBe(0)
   })
 
-  it('une seule armée en campagne à la fois', () => {
+  it('sans Commandement, une seule armée en campagne à la fois', () => {
     const start = startExpedition(richGame({}, { warrior: 20 }), 'wolfDen', army({ warrior: 10 }), T0)
-    expect(checkExpedition(start, 'wolfDen', army({ warrior: 10 }))).toEqual({
+    expect(checkExpedition(start, 'goblinCamp', army({ warrior: 10 }))).toEqual({
       ok: false,
       reason: 'Une armée est déjà en campagne',
     })
+  })
+
+  it('le Commandement permet plusieurs armées en campagne, vers des camps différents', () => {
+    let game = withTechs(richGame({}, { warrior: 90 }), { command: 2 })
+    expect(maxExpeditions(game)).toBe(3)
+    game = startExpedition(game, 'wolfDen', army({ warrior: 30 }), T0)
+    expect(checkExpedition(game, 'wolfDen', army({ warrior: 10 }))).toEqual({
+      ok: false,
+      reason: 'Une armée est déjà en route vers ce camp',
+    })
+    game = startExpedition(game, 'goblinCamp', army({ warrior: 30 }), T0)
+    game = startExpedition(game, 'hauntedRuins', army({ warrior: 20 }), T0)
+    expect(game.expeditions).toHaveLength(3)
+    expect(checkExpedition(game, 'trollLair', army({ warrior: 10 }))).toEqual({
+      ok: false,
+      reason: 'Tes 3 armées sont déjà en campagne',
+    })
+    // Les trois batailles ont lieu, chacune à son heure.
+    const later = advance(game, T0 + HOUR)
+    expect(later.reports.map((r) => r.camp).sort()).toEqual(['goblinCamp', 'hauntedRuins', 'wolfDen'])
+    expect(later.expeditions).toEqual([])
+  })
+
+  it('la Marche forcée raccourcit la marche', () => {
+    const camp = getCamp('trollLair')
+    expect(marchDuration(withTechs(richGame(), { forcedMarch: 2 }), camp)).toBeLessThan(
+      marchDuration(richGame(), camp),
+    )
   })
 
   it('on ne peut pas envoyer plus de troupes qu’on en a', () => {
     const game = richGame({}, { warrior: 5 })
     expect(checkExpedition(game, 'wolfDen', army({ warrior: 6 })).ok).toBe(false)
     expect(checkExpedition(game, 'wolfDen', army({})).ok).toBe(false)
+  })
+})
+
+describe('recherches', () => {
+  it('il faut une Académie, et une recherche ne dépasse pas son niveau', () => {
+    expect(checkResearch(richGame({ academy: 0 }), 'agriculture')).toEqual({
+      ok: false,
+      reason: 'Construis d’abord l’Académie',
+    })
+    expect(checkResearch(withTechs(richGame({ academy: 1 }), { agriculture: 1 }), 'agriculture')).toEqual({
+      ok: false,
+      reason: 'Nécessite l’Académie niveau 2',
+    })
+    const late = getTech('forcedMarch')
+    expect(checkResearch(richGame({ academy: late.unlockedAtAcademyLevel - 1 }), 'forcedMarch').ok).toBe(false)
+  })
+
+  it('retire le coût, puis applique le nouveau niveau à la fin', () => {
+    const game = richGame({ academy: 3 })
+    const started = startResearch(game, 'agriculture', T0)
+    const cost = researchCost(getTech('agriculture'), 1)
+    for (const id of RESOURCE_IDS) expect(started.resources[id]).toBe(game.resources[id] - (cost[id] ?? 0))
+    expect(checkResearch(started, 'tools')).toEqual({ ok: false, reason: 'Une recherche est déjà en cours' })
+
+    const endsAt = started.research!.endsAt
+    expect(advance(started, endsAt - 1).techs.agriculture).toBe(0)
+    const done = advance(started, endsAt)
+    expect(done.techs.agriculture).toBe(1)
+    expect(done.research).toBeNull()
+  })
+
+  it('l’Agriculture augmente la production de nourriture', () => {
+    const game = richGame()
+    const effect = getTech('agriculture').effect
+    const perLevel = effect.kind === 'production' ? effect.perLevel : 0
+    expect(productionPerHour(withTechs(game, { agriculture: 2 })).food).toBeCloseTo(
+      productionPerHour(game).food * (1 + 2 * perLevel),
+    )
+    expect(productionPerHour(withTechs(game, { agriculture: 2 })).wood).toBe(productionPerHour(game).wood)
+  })
+
+  it('la Maçonnerie accélère les constructions', () => {
+    const farm = getBuilding('farm')
+    expect(upgradeDuration(withTechs(richGame(), { masonry: 3 }), farm, 4)).toBeLessThan(
+      upgradeDuration(richGame(), farm, 4),
+    )
+  })
+
+  it('la Forge et les Armures rendent l’armée plus forte', () => {
+    const attack = (game: GameState) => {
+      const start = startExpedition(game, 'goblinCamp', army({ warrior: 40 }), T0)
+      return advance(start, start.expeditions[0].arrivesAt).reports[0]
+    }
+    const plain = attack(richGame({}, { warrior: 40 }))
+    const strong = attack(withTechs(richGame({}, { warrior: 40 }), { forge: 5, armor: 5 }))
+    expect(strong.lost.warrior).toBeLessThan(plain.lost.warrior)
   })
 })

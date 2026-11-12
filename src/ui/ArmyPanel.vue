@@ -2,6 +2,7 @@
 import { computed, reactive, ref } from 'vue'
 import { COUNTER_BONUS, STARVATION_ATTACK_MALUS, UNITS, UNIT_IDS, type Army, type UnitId } from '../game/config'
 import {
+  allTroops,
   armySize,
   checkDismiss,
   emptyArmy,
@@ -17,7 +18,8 @@ import { formatAmount } from './format'
 const props = defineProps<{ state: GameState; now: number }>()
 const emit = defineEmits<{ train: [unit: UnitId, count: number]; dismiss: [troops: Army] }>()
 
-const away = computed(() => (props.state.expedition ? armySize(props.state.expedition.troops) : 0))
+// Les troupes en campagne : toutes les troupes, moins celles de la cité.
+const away = computed(() => armySize(allTroops(props.state)) - armySize(props.state.troops))
 const upkeep = computed(() => upkeepPerHour(props.state))
 const starving = computed(() => isStarving(props.state))
 const counterPercent = Math.round((COUNTER_BONUS - 1) * 100)

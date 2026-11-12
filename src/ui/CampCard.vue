@@ -9,7 +9,16 @@ import {
   type CampDef,
   type MonsterId,
 } from '../game/config'
-import { checkExpedition, emptyArmy, getMonster, getUnit, timeUntilFamine, type GameState } from '../game/rules'
+import {
+  checkExpedition,
+  checkExpeditionSlot,
+  emptyArmy,
+  getMonster,
+  getUnit,
+  marchDuration,
+  timeUntilFamine,
+  type GameState,
+} from '../game/rules'
 import { formatAmount, formatDuration } from './format'
 
 const props = defineProps<{ camp: CampDef; state: GameState }>()
@@ -27,15 +36,17 @@ const defenders = computed(() =>
 const loot = computed(() =>
   RESOURCE_IDS.filter((id) => props.camp.loot[id]).map((id) => ({ id, amount: props.camp.loot[id] ?? 0 })),
 )
+const march = computed(() => marchDuration(props.state, props.camp))
 const blocked = computed(() => {
-  if (props.state.expedition) return 'Une armée est déjà en campagne'
+  const slot = checkExpeditionSlot(props.state, props.camp.id)
+  if (!slot.ok) return slot.reason
   if (available.value.length === 0) return 'Aucune troupe dans la cité'
   return null
 })
 // Les réserves de nourriture seront-elles vides quand l'armée arrivera au camp ?
 const hungryOnArrival = computed(() => {
   const famineIn = timeUntilFamine(props.state)
-  return famineIn !== null && famineIn < props.camp.marchSeconds * 1000
+  return famineIn !== null && famineIn < march.value
 })
 const malusPercent = Math.round(STARVATION_ATTACK_MALUS * 100)
 const check = computed(() => checkExpedition(props.state, props.camp.id, { ...selection }))
@@ -60,7 +71,7 @@ function send() {
       <span class="plaque-icon" aria-hidden="true">{{ defenders[0]?.monster.icon }}</span>
       <div>
         <h3 class="plaque-name">{{ camp.name }}</h3>
-        <p class="plaque-level">Niveau {{ camp.level }} · {{ formatDuration(camp.marchSeconds * 1000) }} de marche</p>
+        <p class="plaque-level">Niveau {{ camp.level }} · {{ formatDuration(march) }} de marche</p>
       </div>
     </header>
 
