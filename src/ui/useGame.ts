@@ -5,8 +5,8 @@
 
 import { onMounted, onUnmounted, shallowRef } from 'vue'
 import { performAction, type Action } from '../game/actions'
-import type { Army, BuildingId, CampId, RaceId, TechId, UnitId } from '../game/config'
-import { advance, newGame, type GameState } from '../game/rules'
+import type { Army, BuildingId, RaceId, TechId, UnitId } from '../game/config'
+import { advance, newGame, type GameState, type Target } from '../game/rules'
 import { ONLINE_AVAILABLE, server, ServerError, serverNow, type Session } from './api'
 import { makeAwayReport, type AwayReport } from './away'
 import { loadLocalGame, loadSession, saveLocalGame, saveSession } from './storage'
@@ -236,7 +236,7 @@ export function useGame() {
     upgrade: (building: BuildingId) => perform({ type: 'upgrade', building }),
     research: (tech: TechId) => perform({ type: 'research', tech }),
     train: (unit: UnitId, count: number) => perform({ type: 'train', unit, count }),
-    attack: (camp: CampId, troops: Army) => perform({ type: 'attack', camp, troops }),
+    attack: (target: Target, troops: Army) => perform({ type: 'attack', target, troops }),
     dismiss: (troops: Army) => perform({ type: 'dismiss', troops }),
     async restart() {
       awayReport.value = null

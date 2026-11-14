@@ -2,8 +2,13 @@
 
 import { isStrongAgainst } from '../game/battle'
 import { COUNTER_BONUS, UNIT_IDS, type MonsterId } from '../game/config'
-import { armySize, getMonster, getUnit, type BattleReport } from '../game/rules'
+import { armySize, getBandKind, getCamp, getMonster, getUnit, type BattleReport, type Foe } from '../game/rules'
 import { formatAmount } from './format'
+
+/** Le nom d'un adversaire : « Tanière de loups », ou « Meute de loups (niv. 2) ». */
+export function foeName(foe: Foe): string {
+  return foe.type === 'camp' ? getCamp(foe.camp).name : `${getBandKind(foe.kind).name} (niv. ${foe.level})`
+}
 
 export interface BattleStory {
   advantages: string

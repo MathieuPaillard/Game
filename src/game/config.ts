@@ -418,6 +418,24 @@ export const TRAINING_BATCH_PER_LEVEL = 20
 /** Chaque niveau de Caserne au-delà du premier réduit de 10 % la durée d'entraînement. */
 export const BARRACKS_SPEED_PER_LEVEL = 0.1
 
+// --- La carte des alentours ---
+
+/** Un point de la carte des alentours, en unités de carte. */
+export interface Point {
+  x: number
+  y: number
+}
+
+/** La carte des alentours : sa taille, et la cité en son centre. */
+export const WORLD: { width: number; height: number; city: Point } = {
+  width: 1600,
+  height: 1200,
+  city: { x: 800, y: 620 },
+}
+
+/** Vitesse de marche des armées, en unités de carte par seconde (Marche forcée l'augmente). */
+export const MARCH_SPEED = 10
+
 // --- Monstres et camps ---
 
 export type MonsterId = 'wolf' | 'goblin' | 'skeleton' | 'shaman' | 'troll'
@@ -446,8 +464,8 @@ export interface CampDef {
   id: CampId
   name: string
   level: number
-  /** Durée de la marche pour y aller (le retour prend autant de temps), en secondes. */
-  marchSeconds: number
+  /** Sa place sur la carte des alentours. */
+  position: Point
   defenders: Partial<Record<MonsterId, number>>
   /** Ce que l'armée rapporte en cas de victoire. */
   loot: Partial<Resources>
@@ -458,7 +476,7 @@ export const CAMPS: CampDef[] = [
     id: 'wolfDen',
     name: 'Tanière de loups',
     level: 1,
-    marchSeconds: 20,
+    position: { x: 560, y: 470 },
     defenders: { wolf: 8 },
     loot: { food: 250, wood: 150 },
   },
@@ -466,7 +484,7 @@ export const CAMPS: CampDef[] = [
     id: 'goblinCamp',
     name: 'Campement gobelin',
     level: 2,
-    marchSeconds: 40,
+    position: { x: 1110, y: 430 },
     defenders: { goblin: 14, shaman: 4 },
     loot: { food: 400, wood: 400, stone: 250, gold: 80 },
   },
@@ -474,7 +492,7 @@ export const CAMPS: CampDef[] = [
     id: 'hauntedRuins',
     name: 'Ruines hantées',
     level: 3,
-    marchSeconds: 60,
+    position: { x: 1190, y: 870 },
     defenders: { skeleton: 26, shaman: 6 },
     loot: { stone: 700, gold: 250, mana: 100 },
   },
@@ -482,14 +500,106 @@ export const CAMPS: CampDef[] = [
     id: 'trollLair',
     name: 'Antre du troll',
     level: 4,
-    marchSeconds: 90,
+    position: { x: 360, y: 930 },
     defenders: { troll: 2, goblin: 30, wolf: 15 },
     loot: { food: 1200, wood: 1200, stone: 900, gold: 450, mana: 200 },
   },
 ]
 
+// --- Les bandes de monstres ---
+// Elles apparaissent peu à peu sur la carte des alentours, d'autant plus fortes qu'elles sont loin
+// de la cité. Chacune garde une zone autour d'elle (sa zone d'aggro) : elle attaque toute armée
+// qui y entre.
+
+export type BandKindId = 'wolves' | 'goblins' | 'skeletons' | 'trolls'
+
+export interface BandKindDef {
+  id: BandKindId
+  name: string
+  /**
+   * Les monstres d'une bande de niveau 1 : chaque niveau au-dessus multiplie leur nombre par
+   * BAND_GROWTH. (Les sortes qui n'apparaissent qu'à un niveau élevé suivent le même calcul.)
+   */
+  monsters: Partial<Record<MonsterId, number>>
+  /** Le butin d'une bande de niveau 1 : chaque niveau au-dessus le multiplie par BAND_LOOT_GROWTH. */
+  loot: Partial<Resources>
+  /** Cette sorte de bande n'apparaît qu'à partir de ce niveau. */
+  minLevel: number
+}
+
+export const BAND_KINDS: BandKindDef[] = [
+  { id: 'wolves', name: 'Meute de loups', monsters: { wolf: 5 }, loot: { food: 120, wood: 60 }, minLevel: 1 },
+  {
+    id: 'goblins',
+    name: 'Pillards gobelins',
+    monsters: { goblin: 8, shaman: 1 },
+    loot: { food: 100, wood: 100, gold: 25 },
+    minLevel: 1,
+  },
+  {
+    id: 'skeletons',
+    name: 'Patrouille de squelettes',
+    monsters: { skeleton: 10, shaman: 2 },
+    loot: { stone: 120, gold: 40, mana: 20 },
+    minLevel: 2,
+  },
+  {
+    id: 'trolls',
+    name: 'Bande de trolls',
+    monsters: { troll: 1, goblin: 12 },
+    loot: { food: 300, wood: 200, stone: 200, gold: 80, mana: 40 },
+    minLevel: 4,
+  },
+]
+
+export const MAX_BAND_LEVEL = 5
+export const BAND_GROWTH = 1.45
+export const BAND_LOOT_GROWTH = 1.6
+/** Le niveau d'une bande dépend de sa distance à la cité : niveau 1 jusqu'à 335, puis un de plus tous les 135. */
+export const BAND_LEVEL_START = 200
+export const BAND_LEVEL_RING = 135
+/** Une bande sur quatre a un niveau de plus que ne le voudrait sa distance. */
+export const BAND_LEVEL_UP_CHANCE = 0.25
+/** Rayon de la zone d'aggro d'une bande de niveau 1, et ce que chaque niveau y ajoute. */
+export const BAND_AGGRO_RADIUS = 55
+export const BAND_AGGRO_PER_LEVEL = 12
+/** Les bandes présentes au début de la partie, et le maximum sur la carte. */
+export const START_BANDS = 4
+export const MAX_BANDS = 8
+/** Tant qu'il reste de la place, une nouvelle bande apparaît toutes les 90 secondes. */
+export const BAND_SPAWN_SECONDS = 90
+
+/** Les endroits où une bande peut s'installer, du plus près au plus loin de la cité. */
+export const BAND_SPOTS: Point[] = [
+  { x: 800, y: 380 },
+  { x: 590, y: 760 },
+  { x: 1020, y: 750 },
+  { x: 1040, y: 560 },
+  { x: 520, y: 600 },
+  { x: 760, y: 880 },
+  { x: 930, y: 210 },
+  { x: 640, y: 230 },
+  { x: 1260, y: 600 },
+  { x: 360, y: 760 },
+  { x: 900, y: 1060 },
+  { x: 450, y: 360 },
+  { x: 330, y: 470 },
+  { x: 1350, y: 470 },
+  { x: 1150, y: 1090 },
+  { x: 1100, y: 100 },
+  { x: 200, y: 560 },
+  { x: 740, y: 1110 },
+  { x: 1440, y: 330 },
+  { x: 1460, y: 760 },
+  { x: 300, y: 1120 },
+  { x: 220, y: 200 },
+  { x: 1490, y: 1090 },
+  { x: 110, y: 110 },
+  { x: 1490, y: 110 },
+]
+
 /** Nombre de rapports de bataille conservés. */
-export const MAX_REPORTS = 5
+export const MAX_REPORTS = 8
 
 // --- Départ ---
 

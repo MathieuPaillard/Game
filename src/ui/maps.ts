@@ -1,12 +1,9 @@
 // Les cartes du jeu : où se trouvent les bâtiments de la cité et les camps des alentours,
 // et le décor (forêts, montagnes, rivière…). Ce sont des choix d'affichage, pas des règles.
 
-import type { BuildingId, CampId } from '../game/config'
+import { BAND_SPOTS, CAMPS, WORLD, type BuildingId, type Point } from '../game/config'
 
-export interface Point {
-  x: number
-  y: number
-}
+export type { Point }
 
 export interface Mountain extends Point {
   /** Largeur de la base et hauteur, en unités de la carte. */
@@ -85,17 +82,10 @@ export const CITY_DECOR = {
 }
 
 // --- Les alentours ---
+// La cité, les camps et les endroits où rôdent les bandes sont des règles du jeu (config.ts) :
+// le serveur en a besoin pour savoir où marchent les armées. Ici, seulement le décor.
 
-export const WORLD_MAP = { width: 1600, height: 1200, center: { x: 800, y: 620 } }
-
-export const WORLD_CITY: Point = { x: 800, y: 620 }
-
-export const CAMP_SPOTS: Record<CampId, Point> = {
-  wolfDen: { x: 560, y: 470 },
-  goblinCamp: { x: 1110, y: 430 },
-  hauntedRuins: { x: 1190, y: 870 },
-  trollLair: { x: 360, y: 930 },
-}
+export const WORLD_MAP = { width: WORLD.width, height: WORLD.height, center: WORLD.city }
 
 export const WORLD_DECOR = {
   river: 'M 660 0 C 620 120 540 210 430 250 S 170 330 0 370',
@@ -115,6 +105,7 @@ export const WORLD_DECOR = {
     { x: 600, y: 1190, w: 200, h: 130 },
   ] as Mountain[],
   trees: [...scatter(3, 45, 330, 280, 420, 330), ...scatter(5, 30, 40, 40, 420, 230), ...scatter(9, 20, 900, 700, 260, 180)]
-    .filter(farFrom([CAMP_SPOTS.wolfDen, WORLD_CITY, CAMP_SPOTS.hauntedRuins], 110))
+    .filter(farFrom([WORLD.city, ...CAMPS.map((camp) => camp.position)], 110))
+    .filter(farFrom(BAND_SPOTS, 60))
     .sort((a, b) => a.y - b.y),
 }

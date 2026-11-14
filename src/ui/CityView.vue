@@ -7,11 +7,10 @@ import {
   STARVATION_ATTACK_MALUS,
   type Army,
   type BuildingId,
-  type CampId,
   type TechId,
   type UnitId,
 } from '../game/config'
-import { getBuilding, getRace, netPerHour, timeUntilFamine, type GameState } from '../game/rules'
+import { getBuilding, getRace, netPerHour, timeUntilFamine, type GameState, type Target } from '../game/rules'
 import AccountLine from './AccountLine.vue'
 import ArmyPanel from './ArmyPanel.vue'
 import type { AwayReport } from './away'
@@ -36,7 +35,7 @@ const emit = defineEmits<{
   upgrade: [building: BuildingId]
   research: [tech: TechId]
   train: [unit: UnitId, count: number]
-  attack: [camp: CampId, troops: Army]
+  attack: [target: Target, troops: Army]
   dismiss: [troops: Army]
   restart: []
   dismissAway: []
@@ -178,7 +177,7 @@ const confirmingRestart = ref(false)
       :state="state"
       :now="now"
       :city-name="`Cité des ${race.name}`"
-      @attack="(camp, troops) => emit('attack', camp, troops)"
+      @attack="(target, troops) => emit('attack', target, troops)"
     />
 
     <footer class="city-foot">

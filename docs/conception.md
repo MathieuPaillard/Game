@@ -80,27 +80,34 @@ Plus tard, chaque race aura aussi une unité qui lui est propre.
 - **[Décidé]** Des **alliances** : entraide, attaques groupées, territoire commun.
 - **[Proposition]** En attendant la carte (étape 4), des camps de monstres « aux alentours » de la cité : Tanière de loups, Campement gobelin, Ruines hantées et Antre du troll. L'armée met du temps à y aller et à en revenir, la bataille a lieu à l'arrivée, et une victoire rapporte un butin.
 - **[Décidé]** Plusieurs armées peuvent être en campagne en même temps, de plus en plus au fil des recherches.
-- **[Proposition]** Une armée au départ, plus une par niveau de Commandement (trois au maximum pour l'instant), et une seule armée à la fois vers un même camp.
+- **[Proposition]** Une armée au départ, plus une par niveau de Commandement (trois au maximum pour l'instant), et une seule armée à la fois vers une même cible.
+- **[Proposition]** Les armées marchent en ligne droite, toujours à la même vitesse (la Marche forcée l'augmente) : plus la cible est loin, plus la marche est longue.
+- **[Décidé]** Des **bandes de monstres** apparaissent sur la carte des alentours, avec des niveaux différents et une **zone d'aggro**.
+- **[Proposition]** Les bandes arrivent peu à peu : quatre au début de la partie, puis une nouvelle toutes les 90 secondes, huit au plus sur la carte. Plus une bande est loin de la cité, plus son niveau est élevé (de 1 à 5), et une sur quatre a un niveau de plus. Quatre sortes : meutes de loups, pillards gobelins, patrouilles de squelettes (dès le niveau 2) et bandes de trolls (dès le niveau 4).
+- **[Proposition]** La zone d'aggro est un cercle autour de la bande, plus grand quand son niveau monte. Une armée qui y entre est attaquée sur place. Victorieuse, elle poursuit sa route avec le butin de la bande ; repoussée, elle fait demi-tour ; vaincue, elle est perdue. Avant le départ, la fiche de la cible prévient des zones à traverser.
+- **[Proposition]** On peut aussi attaquer une bande directement. Vaincue, elle disparaît, et une autre viendra plus tard ; sinon, elle garde ses pertes jusqu'à la prochaine bataille.
 
 ## 8. Les cartes
 
 - **[Décidé]** Le jeu se voit sur des cartes : la cité (chaque bâtiment sur son emplacement, dans l'enceinte) et ses alentours (les camps de monstres, les armées en marche). On s'y promène en faisant glisser la carte, et on zoome avec deux doigts, la molette ou les boutons.
-- **[Proposition]** Toucher un bâtiment ou un camp affiche sa fiche sous la carte ; une liste de pastilles permet aussi de les choisir sans chercher sur la carte. Les emojis seront remplacés par les images du guide graphique.
+- **[Proposition]** Toucher un bâtiment, un camp ou une bande affiche sa fiche sous la carte ; une liste de pastilles permet aussi de les choisir sans chercher sur la carte. Les emojis seront remplacés par les images du guide graphique.
+- **[Proposition]** Sur la carte des alentours, chaque zone d'aggro est un cercle rouge, et la route vers la cible choisie est tracée en pointillés dorés. Les zones que cette route traverse ressortent davantage.
 
 ## 9. Les comptes et le serveur
 
 - **[Décidé]** Le serveur garde les parties et applique lui-même les règles du jeu. Le navigateur n'envoie que des ordres (« améliorer la Ferme », « entraîner 20 archers »…) : impossible de tricher en modifiant le jeu dans son navigateur.
 - **[Proposition]** Un compte, c'est un nom de joueur (unique, et visible des autres joueurs) et un mot de passe. Pas d'adresse e-mail pour l'instant : le serveur ne garde rien de personnel, mais un mot de passe oublié ne peut pas être récupéré.
 - **[Proposition]** On peut toujours jouer sans compte : la partie reste sur l'appareil. Elle ne peut pas passer en ligne ensuite, sinon on pourrait la modifier avant de l'envoyer.
-- **[À trancher]** Où héberger le serveur.
+- **[Décidé]** Pour l'instant, le jeu se développe avec un serveur local, sur l'ordinateur. La mise en ligne chez un hébergeur (payant) viendra plus tard.
+- **[À trancher]** Quel hébergeur, le moment venu.
 
 ## 10. Feuille de route
 
 Chaque étape donne un jeu jouable.
 
 1. **Prototype solo dans le navigateur** : la cité, les ressources, les bâtiments et leurs durées de construction. *En place* : choix de la race, cinq ressources, six bâtiments, un chantier à la fois, production hors connexion.
-2. **Armées** : troupes, recherches, combats contre des monstres. *En place* : Caserne, quatre troupes, camps de monstres, rapports de bataille, Académie et recherches, plusieurs armées en campagne, cartes de la cité et des alentours.
-3. **Serveur et comptes joueurs** : sauvegarde en ligne ; le serveur décide de tout. *En cours* : comptes (nom et mot de passe), parties gardées sur le serveur, qui applique les règles, et partie sans compte toujours possible. Reste à mettre le jeu en ligne chez un hébergeur.
+2. **Armées** : troupes, recherches, combats contre des monstres. *En place* : Caserne, quatre troupes, camps de monstres, bandes de monstres avec leurs niveaux et leurs zones d'aggro, rapports de bataille, Académie et recherches, plusieurs armées en campagne, cartes de la cité et des alentours.
+3. **Serveur et comptes joueurs** : sauvegarde en ligne ; le serveur décide de tout. *En cours* : comptes (nom et mot de passe), parties gardées sur le serveur, qui applique les règles, et partie sans compte toujours possible. Reste à mettre le jeu en ligne chez un hébergeur, plus tard.
 4. **Monde partagé** : la carte, les attaques entre joueurs, les alliances.
 5. **Contenu et mobile** : quêtes, livre de sorts, créatures légendaires, puis l'appli Android.
 

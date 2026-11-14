@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { START_LEVELS } from './config.ts'
-import { emptyArmy, emptyTechs, newGame } from './rules.ts'
+import { advance, emptyArmy, emptyTechs, getCamp, newGame } from './rules.ts'
 import { restoreState } from './save.ts'
 
 const T0 = Date.UTC(2026, 0, 1)
@@ -43,9 +43,65 @@ describe('restoreState', () => {
       construction: null,
       research: null,
     })
-    expect(state?.reports[0]).toMatchObject({ enemies: {}, starving: false, rounds: [] })
+    expect(state?.reports[0]).toMatchObject({
+      foe: { type: 'camp', camp: 'wolfDen' },
+      ambush: false,
+      enemies: {},
+      starving: false,
+      rounds: [],
+    })
+    // Avant les bandes de monstres, la carte était vide : elles arrivent peu à peu.
+    expect(state).toMatchObject({ bands: [], nextBandAt: T0, nextId: 1 })
+    expect(advance(state!, T0 + 1000).bands).toHaveLength(1)
     // Ce qui n'existe plus dans le jeu est oublié.
     expect(state).not.toHaveProperty('desertions')
     expect(state).not.toHaveProperty('training')
+  })
+
+  it('reprend les armées parties vers un camp avant l’arrivée des bandes', () => {
+    const survivors = { warrior: 7, archer: 0, rider: 0, mage: 0 }
+    const old = {
+      race: 'humans',
+      updatedAt: T0,
+      expeditions: [
+        {
+          camp: 'goblinCamp',
+          troops: { warrior: 10, archer: 0, rider: 0, mage: 0 },
+          departedAt: T0 - 2000,
+          arrivesAt: T0 - 1000,
+          returnsAt: T0 + 5000,
+          result: { survivors, loot: { gold: 80 } },
+        },
+        {
+          camp: 'wolfDen',
+          troops: { warrior: 3, archer: 0, rider: 0, mage: 0 },
+          departedAt: T0,
+          arrivesAt: T0 + 3000,
+          returnsAt: T0 + 6000,
+          result: null,
+        },
+      ],
+    }
+    const state = restoreState(old)
+    expect(state?.expeditions).toEqual([
+      {
+        id: 1,
+        target: { type: 'camp', camp: 'goblinCamp' },
+        foe: { type: 'camp', camp: 'goblinCamp' },
+        destination: getCamp('goblinCamp').position,
+        troops: survivors,
+        loot: { gold: 80 },
+        departedAt: T0 - 2000,
+        arrivesAt: T0 - 1000,
+        returnsAt: T0 + 5000,
+        returning: true,
+        fought: [],
+      },
+      expect.objectContaining({ id: 2, target: { type: 'camp', camp: 'wolfDen' }, returning: false }),
+    ])
+    expect(state?.nextId).toBe(3)
+    // L'armée sur le chemin du retour rentre bien, avec son butin.
+    const back = advance(state!, T0 + 5000)
+    expect(back.troops.warrior).toBe(7)
   })
 })

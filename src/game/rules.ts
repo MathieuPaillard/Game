@@ -4,17 +4,31 @@
 
 import { fight, type Stack } from './battle.ts'
 import {
+  BAND_AGGRO_PER_LEVEL,
+  BAND_AGGRO_RADIUS,
+  BAND_GROWTH,
+  BAND_KINDS,
+  BAND_LEVEL_RING,
+  BAND_LEVEL_START,
+  BAND_LEVEL_UP_CHANCE,
+  BAND_LOOT_GROWTH,
+  BAND_SPAWN_SECONDS,
+  BAND_SPOTS,
   BARRACKS_SPEED_PER_LEVEL,
   BUILDINGS,
   CAMPS,
   COST_GROWTH,
   DURATION_GROWTH,
+  MARCH_SPEED,
+  MAX_BAND_LEVEL,
+  MAX_BANDS,
   MAX_LEVEL,
   MAX_REPORTS,
   MONSTERS,
   PRODUCTION_GROWTH,
   RACES,
   RESOURCE_IDS,
+  START_BANDS,
   START_LEVELS,
   START_RESOURCES,
   STARVATION_ATTACK_MALUS,
@@ -22,13 +36,17 @@ import {
   TRAINING_BATCH_PER_LEVEL,
   UNITS,
   UNIT_IDS,
+  WORLD,
   type Army,
+  type BandKindDef,
+  type BandKindId,
   type BuildingDef,
   type BuildingId,
   type CampDef,
   type CampId,
   type MonsterDef,
   type MonsterId,
+  type Point,
   type RaceDef,
   type RaceId,
   type ResourceId,
@@ -66,15 +84,47 @@ export interface Research {
   endsAt: number
 }
 
-/** Une armée partie attaquer un camp de monstres. */
+/** Des monstres : un nombre pour chaque sorte. */
+export type Monsters = Partial<Record<MonsterId, number>>
+
+/** Ce qu'une armée peut attaquer : un camp, ou une bande de monstres (par son numéro). */
+export type Target = { type: 'camp'; camp: CampId } | { type: 'band'; band: number }
+
+/** Contre qui une bataille a lieu, pour les rapports : un camp, ou une sorte de bande et son niveau. */
+export type Foe = { type: 'camp'; camp: CampId } | { type: 'band'; kind: BandKindId; level: number }
+
+/** Une bande de monstres installée sur la carte des alentours. */
+export interface Band {
+  id: number
+  kind: BandKindId
+  level: number
+  position: Point
+  /** Les monstres encore debout : une bande garde ses pertes d'une bataille à l'autre. */
+  monsters: Monsters
+}
+
+/**
+ * Une armée en campagne. Elle marche en ligne droite de la cité jusqu'à `destination`, puis revient.
+ * En chemin, elle peut tomber dans la zone d'aggro d'une bande, qui l'attaque.
+ */
 export interface Expedition {
-  camp: CampId
+  id: number
+  target: Target
+  /** La cible, telle qu'elle était au départ (pour l'afficher, même si la bande a disparu depuis). */
+  foe: Foe
+  /** Où l'armée se rend : sa cible, ou l'endroit où elle a dû faire demi-tour. */
+  destination: Point
+  /** Les troupes encore debout dans cette armée. */
   troops: Army
+  /** Le butin gagné en chemin, déposé à la cité au retour. */
+  loot: Partial<Resources>
   departedAt: number
   arrivesAt: number
   returnsAt: number
-  /** Rempli à l'arrivée, une fois la bataille livrée : ce qui reviendra à la cité. */
-  result: { survivors: Army; loot: Partial<Resources> } | null
+  /** L'armée a fait demi-tour : elle rentre à la cité. */
+  returning: boolean
+  /** Les bandes que cette armée a déjà combattues : elles ne l'attaquent plus. */
+  fought: number[]
 }
 
 /** Une manche du combat, telle que la raconte le journal. */
@@ -84,18 +134,22 @@ export interface BattleRound {
   taken: number
   /** Pertes de la manche, de chaque côté. */
   lost: Army
-  enemyLost: Partial<Record<MonsterId, number>>
+  enemyLost: Monsters
 }
 
 export interface BattleReport {
   at: number
-  camp: CampId
+  /** Le numéro de l'armée qui s'est battue. */
+  army: number
+  foe: Foe
+  /** Une bande a attaqué l'armée en chemin, dans sa zone d'aggro. */
+  ambush: boolean
   victory: boolean
   sent: Army
   lost: Army
   /** Les monstres présents au début de la bataille. */
-  enemies: Partial<Record<MonsterId, number>>
-  enemyLost: Partial<Record<MonsterId, number>>
+  enemies: Monsters
+  enemyLost: Monsters
   loot: Partial<Resources>
   /** L'armée avait faim : son attaque était réduite. */
   starving: boolean
@@ -116,10 +170,18 @@ export interface GameState {
   troops: Army
   /** Entraînements en cours à la Caserne : au plus un par type de troupe. */
   trainings: Training[]
-  /** Armées en campagne : au plus une par camp, et pas plus que maxExpeditions(). */
+  /** Armées en campagne : au plus une par cible, et pas plus que maxExpeditions(). */
   expeditions: Expedition[]
   /** Derniers rapports de bataille, du plus récent au plus ancien. */
   reports: BattleReport[]
+  /** Les bandes de monstres installées sur la carte des alentours. */
+  bands: Band[]
+  /** Quand la prochaine bande apparaîtra, ou null si la carte est pleine. */
+  nextBandAt: number | null
+  /** La graine du hasard (voir random) : les bandes sont tirées au sort, de façon reproductible. */
+  seed: number
+  /** Le prochain numéro libre, pour les bandes et les armées. */
+  nextId: number
   /** Instant jusqu'auquel les ressources ont été calculées. */
   updatedAt: number
 }
@@ -130,8 +192,9 @@ export type Check = { ok: true } | { ok: false; reason: string }
 const SECOND = 1000
 const HOUR = 60 * 60 * SECOND
 
-export function newGame(race: RaceId, now: number): GameState {
-  return {
+/** Une nouvelle partie. La graine du hasard vient par défaut de l'heure de création. */
+export function newGame(race: RaceId, now: number, seed = now): GameState {
+  let state: GameState = {
     race,
     resources: { ...START_RESOURCES },
     levels: { ...START_LEVELS },
@@ -142,8 +205,15 @@ export function newGame(race: RaceId, now: number): GameState {
     trainings: [],
     expeditions: [],
     reports: [],
+    bands: [],
+    nextBandAt: null,
+    seed: seed | 0,
+    nextId: 1,
     updatedAt: now,
   }
+  // Quelques bandes rôdent déjà autour de la cité.
+  for (let i = 0; i < START_BANDS; i++) state = spawnBand(state, now)
+  return state
 }
 
 export function emptyResources(): Resources {
@@ -192,6 +262,15 @@ export function getCamp(id: CampId): CampDef {
   return byId(CAMPS, id)
 }
 
+export function getBandKind(id: BandKindId): BandKindDef {
+  return byId(BAND_KINDS, id)
+}
+
+/** La bande qui porte ce numéro, si elle est toujours sur la carte. */
+export function getBand(state: GameState, id: number): Band | undefined {
+  return state.bands.find((band) => band.id === id)
+}
+
 // --- Ressources et production ---
 
 export function canAfford(resources: Resources, cost: Partial<Resources>): boolean {
@@ -226,17 +305,11 @@ export function productionPerHour(state: GameState): Resources {
 
 // --- Entretien des troupes ---
 
-/** Les troupes d'une armée en campagne : celles parties, ou les survivantes sur le chemin du retour. */
-function expeditionTroops(expedition: Expedition): Army {
-  return expedition.result?.survivors ?? expedition.troops
-}
-
 /** Toutes les troupes du joueur : celles de la cité et celles qui sont en campagne. */
 export function allTroops(state: GameState): Army {
   const all = { ...state.troops }
   for (const expedition of state.expeditions) {
-    const away = expeditionTroops(expedition)
-    for (const id of UNIT_IDS) all[id] += away[id]
+    for (const id of UNIT_IDS) all[id] += expedition.troops[id]
   }
   return all
 }
@@ -454,16 +527,35 @@ export function startTraining(state: GameState, unitId: UnitId, count: number, n
   }
 }
 
-// --- Expéditions contre les monstres ---
+// --- Expéditions : les armées en campagne ---
 
 /** Nombre d'armées qui peuvent être en campagne en même temps : 1, plus le Commandement. */
 export function maxExpeditions(state: GameState): number {
   return 1 + techBonus(state, 'armies')
 }
 
-/** Durée (en millisecondes) de la marche vers un camp (le retour dure autant), Marche forcée comprise. */
-export function marchDuration(state: GameState, camp: CampDef): number {
-  return Math.round(camp.marchSeconds * (1 - techBonus(state, 'marchSpeed')) * SECOND)
+/** Durée (en millisecondes) de la marche de la cité jusqu'à `destination` (le retour dure autant), Marche forcée comprise. */
+export function marchDuration(state: GameState, destination: Point): number {
+  const seconds = distance(WORLD.city, destination) / MARCH_SPEED
+  return Math.round(seconds * (1 - techBonus(state, 'marchSpeed')) * SECOND)
+}
+
+/** La place d'une cible sur la carte, ou null si c'est une bande qui n'est plus là. */
+export function targetPosition(state: GameState, target: Target): Point | null {
+  if (target.type === 'camp') return getCamp(target.camp).position
+  return getBand(state, target.band)?.position ?? null
+}
+
+/** Ces deux cibles sont-elles la même ? */
+export function sameTarget(a: Target, b: Target): boolean {
+  return a.type === 'camp' ? b.type === 'camp' && a.camp === b.camp : b.type === 'band' && a.band === b.band
+}
+
+/** Le camp ciblé, ou la sorte et le niveau de la bande ciblée (null si elle n'est plus là). */
+function foeOf(state: GameState, target: Target): Foe | null {
+  if (target.type === 'camp') return { type: 'camp', camp: target.camp }
+  const band = getBand(state, target.band)
+  return band ? { type: 'band', kind: band.kind, level: band.level } : null
 }
 
 /** Vérifie une sélection de troupes prises dans la cité. */
@@ -478,11 +570,12 @@ function checkSelection(state: GameState, troops: Army): Check {
   return { ok: true }
 }
 
-/** Peut-on envoyer une armée vers ce camp, quelles que soient les troupes choisies ? */
-export function checkExpeditionSlot(state: GameState, campId: CampId): Check {
-  getCamp(campId)
-  if (state.expeditions.some((e) => e.camp === campId)) {
-    return { ok: false, reason: 'Une armée est déjà en route vers ce camp' }
+/** Peut-on envoyer une armée vers cette cible, quelles que soient les troupes choisies ? */
+export function checkExpeditionSlot(state: GameState, target: Target): Check {
+  if (target.type === 'camp') getCamp(target.camp)
+  else if (!getBand(state, target.band)) return { ok: false, reason: 'Cette bande n’est plus là' }
+  if (state.expeditions.some((e) => sameTarget(e.target, target))) {
+    return { ok: false, reason: `Une armée est déjà en route vers ${target.type === 'camp' ? 'ce camp' : 'cette bande'}` }
   }
   const max = maxExpeditions(state)
   if (state.expeditions.length >= max) {
@@ -494,36 +587,76 @@ export function checkExpeditionSlot(state: GameState, campId: CampId): Check {
   return { ok: true }
 }
 
-export function checkExpedition(state: GameState, campId: CampId, troops: Army): Check {
-  const slot = checkExpeditionSlot(state, campId)
+export function checkExpedition(state: GameState, target: Target, troops: Army): Check {
+  const slot = checkExpeditionSlot(state, target)
   return slot.ok ? checkSelection(state, troops) : slot
 }
 
-/** Envoie une armée vers un camp : elle quitte la cité tout de suite. */
-export function startExpedition(state: GameState, campId: CampId, troops: Army, now: number): GameState {
+/** Envoie une armée vers une cible : elle quitte la cité tout de suite, et marche en ligne droite. */
+export function startExpedition(state: GameState, target: Target, troops: Army, now: number): GameState {
   const current = advance(state, now)
-  const check = checkExpedition(current, campId, troops)
+  const check = checkExpedition(current, target, troops)
   if (!check.ok) throw new Error(check.reason)
 
-  const march = marchDuration(current, getCamp(campId))
+  const destination = targetPosition(current, target)
+  const foe = foeOf(current, target)
+  if (!destination || !foe) throw new Error('Cible introuvable')
+  const march = marchDuration(current, destination)
   const home = { ...current.troops }
   for (const id of UNIT_IDS) home[id] -= troops[id]
   const expedition: Expedition = {
-    camp: campId,
+    id: current.nextId,
+    target: { ...target },
+    foe,
+    destination: { ...destination },
     troops: { ...troops },
+    loot: {},
     departedAt: now,
     arrivesAt: now + march,
     returnsAt: now + 2 * march,
-    result: null,
+    returning: false,
+    fought: [],
   }
-  return { ...current, troops: home, expeditions: [...current.expeditions, expedition] }
+  return { ...current, troops: home, expeditions: [...current.expeditions, expedition], nextId: current.nextId + 1 }
 }
 
-/** L'armée arrive au camp : la bataille a lieu, et on écrit le rapport. */
-function resolveArrival(state: GameState, expedition: Expedition): GameState {
-  const camp = getCamp(expedition.camp)
-  const defenders = Object.entries(camp.defenders) as [MonsterId, number][]
-  // Les recherches renforcent l'armée ; une armée affamée se bat moins bien.
+/** Où se trouve une armée à l'instant `at` : elle marche en ligne droite, à l'aller comme au retour. */
+export function expeditionPosition(expedition: Expedition, at: number): Point {
+  const leg = currentLeg(expedition)
+  const t = leg.end > leg.start ? Math.min(1, Math.max(0, (at - leg.start) / (leg.end - leg.start))) : 1
+  return along(leg.from, leg.to, t)
+}
+
+/** Le trajet en cours d'une armée : l'aller, ou le retour. */
+function currentLeg(expedition: Expedition) {
+  const { destination, departedAt, arrivesAt, returnsAt } = expedition
+  return expedition.returning
+    ? { from: destination, to: WORLD.city, start: arrivesAt, end: returnsAt }
+    : { from: WORLD.city, to: destination, start: departedAt, end: arrivesAt }
+}
+
+interface BattleResult {
+  report: BattleReport
+  /** Les troupes de l'armée encore debout. */
+  survivors: Army
+  /** Les monstres encore debout. */
+  monstersLeft: Monsters
+}
+
+/**
+ * Une bataille entre une armée et des monstres, à l'instant `at`. Les recherches renforcent
+ * l'armée ; une armée affamée se bat moins bien. `loot` est ce que rapporte la victoire.
+ */
+function battle(
+  state: GameState,
+  expedition: Expedition,
+  foe: Foe,
+  monsters: Monsters,
+  loot: Partial<Resources>,
+  at: number,
+  ambush: boolean,
+): BattleResult {
+  const defenders = (Object.entries(monsters) as [MonsterId, number][]).filter(([, count]) => count > 0)
   const starving = isStarving(state)
   const attackFactor = (1 + techBonus(state, 'attack')) * (starving ? 1 - STARVATION_ATTACK_MALUS : 1)
   const healthFactor = 1 + techBonus(state, 'health')
@@ -548,8 +681,10 @@ function resolveArrival(state: GameState, expedition: Expedition): GameState {
     survivors[id] = outcome.attackers[i]
     lost[id] = expedition.troops[id] - outcome.attackers[i]
   })
-  const enemyLost: Partial<Record<MonsterId, number>> = {}
+  const monstersLeft: Monsters = {}
+  const enemyLost: Monsters = {}
   defenders.forEach(([id, count], i) => {
+    monstersLeft[id] = outcome.defenders[i]
     enemyLost[id] = count - outcome.defenders[i]
   })
 
@@ -560,7 +695,7 @@ function resolveArrival(state: GameState, expedition: Expedition): GameState {
     UNIT_IDS.forEach((id, i) => {
       roundLost[id] = before.attackers[i] - entry.attackers[i]
     })
-    const roundEnemyLost: Partial<Record<MonsterId, number>> = {}
+    const roundEnemyLost: Monsters = {}
     defenders.forEach(([id], i) => {
       roundEnemyLost[id] = before.defenders[i] - entry.defenders[i]
     })
@@ -574,41 +709,273 @@ function resolveArrival(state: GameState, expedition: Expedition): GameState {
   })
 
   const victory = outcome.winner === 'attacker'
-  const loot = victory ? { ...camp.loot } : {}
   const report: BattleReport = {
-    at: expedition.arrivesAt,
-    camp: camp.id,
+    at,
+    army: expedition.id,
+    foe,
+    ambush,
     victory,
     sent: { ...expedition.troops },
     lost,
-    enemies: { ...camp.defenders },
+    enemies: Object.fromEntries(defenders),
     enemyLost,
-    loot,
+    loot: victory ? { ...loot } : {},
     starving,
     rounds,
   }
-  const reports = [report, ...state.reports].slice(0, MAX_REPORTS)
+  return { report, survivors, monstersLeft }
+}
 
+function withReport(state: GameState, report: BattleReport): GameState {
+  return { ...state, reports: [report, ...state.reports].slice(0, MAX_REPORTS) }
+}
+
+function updateExpedition(state: GameState, expedition: Expedition): GameState {
+  return { ...state, expeditions: state.expeditions.map((e) => (e.id === expedition.id ? expedition : e)) }
+}
+
+function removeExpedition(state: GameState, id: number): GameState {
+  return { ...state, expeditions: state.expeditions.filter((e) => e.id !== id) }
+}
+
+function mergeLoot(a: Partial<Resources>, b: Partial<Resources>): Partial<Resources> {
+  const total: Partial<Resources> = { ...a }
+  for (const id of RESOURCE_IDS) if (b[id]) total[id] = (total[id] ?? 0) + (b[id] ?? 0)
+  return total
+}
+
+/** L'armée arrive à sa cible : la bataille a lieu, puis les survivants rentrent avec le butin. */
+function resolveArrival(state: GameState, id: number): GameState {
+  const expedition = state.expeditions.find((e) => e.id === id)
+  if (!expedition) return state
+  const at = expedition.arrivesAt
+  const target = expedition.target
+  let next = state
+  let result: BattleResult
+  if (target.type === 'camp') {
+    const camp = getCamp(target.camp)
+    result = battle(state, expedition, expedition.foe, camp.defenders, camp.loot, at, false)
+  } else {
+    const band = getBand(state, target.band)
+    // La bande a été vaincue entre-temps : l'armée trouve la place vide, et rentre.
+    if (!band) return updateExpedition(state, { ...expedition, returning: true })
+    result = battle(state, expedition, expedition.foe, band.monsters, bandLoot(band.kind, band.level), at, false)
+    next = afterBandBattle(next, band.id, result.monstersLeft, at)
+  }
+  next = withReport(next, result.report)
   // Une armée entièrement détruite ne rentre pas : l'expédition s'arrête là.
-  const expeditions =
-    armySize(survivors) === 0
-      ? state.expeditions.filter((e) => e.camp !== expedition.camp)
-      : state.expeditions.map((e) => (e.camp === expedition.camp ? { ...e, result: { survivors, loot } } : e))
-  return { ...state, reports, expeditions }
+  if (armySize(result.survivors) === 0) return removeExpedition(next, id)
+  return updateExpedition(next, {
+    ...expedition,
+    troops: result.survivors,
+    loot: mergeLoot(expedition.loot, result.report.loot),
+    returning: true,
+    fought: target.type === 'band' ? [...expedition.fought, target.band] : expedition.fought,
+  })
+}
+
+/**
+ * L'armée entre dans la zone d'aggro d'une bande : la bande l'attaque sur place.
+ * Victorieuse, l'armée poursuit sa route. Sinon, elle est anéantie, ou elle fait demi-tour.
+ */
+function resolveAmbush(state: GameState, id: number, bandId: number, at: number): GameState {
+  const expedition = state.expeditions.find((e) => e.id === id)
+  const band = getBand(state, bandId)
+  if (!expedition || !band) return state
+  const foe: Foe = { type: 'band', kind: band.kind, level: band.level }
+  const result = battle(state, expedition, foe, band.monsters, bandLoot(band.kind, band.level), at, true)
+  const next = withReport(afterBandBattle(state, band.id, result.monstersLeft, at), result.report)
+  if (armySize(result.survivors) === 0) return removeExpedition(next, id)
+
+  const continued: Expedition = {
+    ...expedition,
+    troops: result.survivors,
+    loot: mergeLoot(expedition.loot, result.report.loot),
+    fought: [...expedition.fought, band.id],
+  }
+  // Repoussée à l'aller, l'armée fait demi-tour vers la cité, aussi vite qu'elle est venue.
+  if (!result.report.victory && !expedition.returning) {
+    return updateExpedition(next, {
+      ...continued,
+      destination: expeditionPosition(expedition, at),
+      arrivesAt: at,
+      returnsAt: at + (at - expedition.departedAt),
+      returning: true,
+    })
+  }
+  return updateExpedition(next, continued)
 }
 
 /** L'armée rentre : les survivants retrouvent la cité, avec le butin. */
-function resolveReturn(state: GameState, expedition: Expedition): GameState {
-  const result = expedition.result
-  if (!result) return state
+function resolveReturn(state: GameState, id: number): GameState {
+  const expedition = state.expeditions.find((e) => e.id === id)
+  if (!expedition) return state
   const troops = { ...state.troops }
-  for (const id of UNIT_IDS) troops[id] += result.survivors[id]
+  for (const unit of UNIT_IDS) troops[unit] += expedition.troops[unit]
+  return {
+    ...removeExpedition(state, id),
+    troops,
+    resources: addResources(state.resources, expedition.loot),
+  }
+}
+
+/** La prochaine embuscade sur le trajet en cours d'une armée : la première zone d'aggro où elle entrera. */
+function nextAmbush(state: GameState, expedition: Expedition): { at: number; band: number } | null {
+  const leg = currentLeg(expedition)
+  let first: { at: number; band: number } | null = null
+  for (const band of state.bands) {
+    if (expedition.fought.includes(band.id)) continue
+    // La bande visée, elle, se bat à l'arrivée de l'armée.
+    const targeted = expedition.target.type === 'band' && expedition.target.band === band.id
+    if (targeted && !expedition.returning) continue
+    const entry = circleEntry(leg.from, leg.to, band.position, aggroRadius(band.level))
+    if (entry === null) continue
+    const at = Math.max(state.updatedAt, leg.start + entry * (leg.end - leg.start))
+    if (!first || at < first.at) first = { at, band: band.id }
+  }
+  return first
+}
+
+/** Les bandes dont l'armée traversera la zone d'aggro en allant vers sa cible, dans l'ordre du trajet. */
+export function bandsOnPath(state: GameState, target: Target): Band[] {
+  const destination = targetPosition(state, target)
+  if (!destination) return []
+  return state.bands
+    .filter((band) => !(target.type === 'band' && target.band === band.id))
+    .map((band) => ({ band, entry: circleEntry(WORLD.city, destination, band.position, aggroRadius(band.level)) }))
+    .filter((crossing): crossing is { band: Band; entry: number } => crossing.entry !== null)
+    .sort((a, b) => a.entry - b.entry)
+    .map((crossing) => crossing.band)
+}
+
+// --- Les bandes de monstres ---
+
+/** Le niveau d'une bande installée à cet endroit, d'après sa distance à la cité (sans le niveau de plus tiré au sort). */
+export function bandLevelAt(point: Point): number {
+  const level = 1 + Math.floor(Math.max(0, distance(WORLD.city, point) - BAND_LEVEL_START) / BAND_LEVEL_RING)
+  return Math.min(MAX_BAND_LEVEL, level)
+}
+
+/** Le rayon de la zone d'aggro d'une bande, en unités de carte : il grandit avec son niveau. */
+export function aggroRadius(level: number): number {
+  return BAND_AGGRO_RADIUS + BAND_AGGRO_PER_LEVEL * (level - 1)
+}
+
+/** Les monstres d'une bande au complet, selon sa sorte et son niveau. */
+export function bandMonsters(kind: BandKindId, level: number): Monsters {
+  return scaled(getBandKind(kind).monsters, BAND_GROWTH ** (level - 1))
+}
+
+/** Ce que rapporte la victoire sur une bande. */
+export function bandLoot(kind: BandKindId, level: number): Partial<Resources> {
+  return scaled(getBandKind(kind).loot, BAND_LOOT_GROWTH ** (level - 1))
+}
+
+function scaled<K extends string>(base: Partial<Record<K, number>>, factor: number): Partial<Record<K, number>> {
+  const result: Partial<Record<K, number>> = {}
+  for (const [key, value] of Object.entries(base) as [K, number][]) {
+    result[key] = Math.max(1, Math.round(value * factor))
+  }
+  return result
+}
+
+/**
+ * Un tirage au hasard, mais reproductible : la même graine donne toujours le même nombre.
+ * La graine est gardée dans la partie : le navigateur et le serveur tirent donc les mêmes
+ * nombres, et la partie avance de la même façon d'un coup ou seconde par seconde.
+ * Renvoie un nombre entre 0 (compris) et 1 (exclu), et la graine suivante (algorithme mulberry32).
+ */
+export function random(seed: number): { value: number; seed: number } {
+  const next = (seed + 0x6d2b79f5) | 0
+  let t = Math.imul(next ^ (next >>> 15), next | 1)
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+  return { value: ((t ^ (t >>> 14)) >>> 0) / 4294967296, seed: next }
+}
+
+/**
+ * Une nouvelle bande s'installe sur un endroit libre, tiré au sort. Son niveau dépend de sa distance
+ * à la cité (parfois un de plus), et sa sorte est tirée parmi celles de ce niveau. Un endroit est
+ * libre s'il n'a pas déjà sa bande, et si sa zone d'aggro ne touche le chemin d'aucune armée en
+ * campagne : une bande ne surgit jamais sous le nez d'une armée.
+ */
+function spawnBand(state: GameState, at: number): GameState {
+  const free = BAND_SPOTS.filter((spot) => {
+    if (state.bands.some((band) => distance(band.position, spot) < 1)) return false
+    const radius = aggroRadius(Math.min(MAX_BAND_LEVEL, bandLevelAt(spot) + 1))
+    return state.expeditions.every((e) => distanceToSegment(spot, WORLD.city, e.destination) > radius)
+  })
+  let next = state
+  if (free.length > 0 && state.bands.length < MAX_BANDS) {
+    let seed = state.seed
+    const draw = () => {
+      const result = random(seed)
+      seed = result.seed
+      return result.value
+    }
+    const spot = free[Math.floor(draw() * free.length)]
+    const level = Math.min(MAX_BAND_LEVEL, bandLevelAt(spot) + (draw() < BAND_LEVEL_UP_CHANCE ? 1 : 0))
+    const kinds = BAND_KINDS.filter((kind) => kind.minLevel <= level)
+    const kind = kinds[Math.floor(draw() * kinds.length)].id
+    const band: Band = { id: state.nextId, kind, level, position: { ...spot }, monsters: bandMonsters(kind, level) }
+    next = { ...state, bands: [...state.bands, band], seed, nextId: state.nextId + 1 }
+  }
+  // Tant qu'il reste de la place, une autre bande viendra plus tard.
+  return { ...next, nextBandAt: next.bands.length < MAX_BANDS ? at + BAND_SPAWN_SECONDS * SECOND : null }
+}
+
+/** Une bande vaincue disparaît. Si la carte était pleine, une autre bande viendra prendre sa place. */
+function removeBand(state: GameState, id: number, at: number): GameState {
   return {
     ...state,
-    troops,
-    resources: addResources(state.resources, result.loot),
-    expeditions: state.expeditions.filter((e) => e.camp !== expedition.camp),
+    bands: state.bands.filter((band) => band.id !== id),
+    nextBandAt: state.nextBandAt ?? at + BAND_SPAWN_SECONDS * SECOND,
   }
+}
+
+/** Après une bataille, une bande garde ses survivants ; vaincue, elle disparaît. */
+function afterBandBattle(state: GameState, id: number, monstersLeft: Monsters, at: number): GameState {
+  if (Object.values(monstersLeft).every((count) => !count)) return removeBand(state, id, at)
+  return { ...state, bands: state.bands.map((band) => (band.id === id ? { ...band, monsters: monstersLeft } : band)) }
+}
+
+// --- La carte : distances et trajets en ligne droite ---
+
+export function distance(a: Point, b: Point): number {
+  return Math.hypot(a.x - b.x, a.y - b.y)
+}
+
+/** Le point situé à la fraction `t` (de 0 à 1) du chemin de `from` à `to`. */
+function along(from: Point, to: Point, t: number): Point {
+  return { x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t }
+}
+
+/** La distance entre un point et le segment qui va de `a` à `b`. */
+function distanceToSegment(point: Point, a: Point, b: Point): number {
+  const dx = b.x - a.x
+  const dy = b.y - a.y
+  const length2 = dx * dx + dy * dy
+  const t = length2 === 0 ? 0 : Math.min(1, Math.max(0, ((point.x - a.x) * dx + (point.y - a.y) * dy) / length2))
+  return distance(point, along(a, b, t))
+}
+
+/**
+ * À quel moment du chemin de `from` à `to` entre-t-on dans le cercle (`center`, `radius`) ?
+ * Renvoie la fraction du chemin (0 au départ, 1 à l'arrivée), ou null si le chemin ne le touche pas.
+ */
+function circleEntry(from: Point, to: Point, center: Point, radius: number): number | null {
+  const dx = to.x - from.x
+  const dy = to.y - from.y
+  const fx = from.x - center.x
+  const fy = from.y - center.y
+  const c = fx * fx + fy * fy - radius * radius
+  // Déjà dans le cercle au départ.
+  if (c <= 0) return 0
+  const a = dx * dx + dy * dy
+  const b = 2 * (fx * dx + fy * dy)
+  const discriminant = b * b - 4 * a * c
+  if (a === 0 || discriminant < 0) return null
+  const t = (-b - Math.sqrt(discriminant)) / (2 * a)
+  return t >= 0 && t <= 1 ? t : null
 }
 
 // --- Renvoi de troupes ---
@@ -636,11 +1003,11 @@ interface PendingEvent {
 }
 
 /**
- * Le prochain événement prévu : fin de chantier, de recherche ou d'entraînement,
- * arrivée ou retour d'une armée.
+ * Le prochain événement prévu : fin de chantier, de recherche ou d'entraînement, apparition d'une
+ * bande, embuscade, arrivée ou retour d'une armée.
  */
 function nextEvent(state: GameState): PendingEvent | null {
-  const { construction, research, trainings, expeditions } = state
+  const { construction, research, trainings, expeditions, nextBandAt } = state
   const events: PendingEvent[] = []
   if (construction) {
     events.push({
@@ -668,9 +1035,13 @@ function nextEvent(state: GameState): PendingEvent | null {
       }),
     })
   }
+  if (nextBandAt !== null) events.push({ at: nextBandAt, apply: (s) => spawnBand(s, nextBandAt) })
   for (const expedition of expeditions) {
-    if (expedition.result) events.push({ at: expedition.returnsAt, apply: (s) => resolveReturn(s, expedition) })
-    else events.push({ at: expedition.arrivesAt, apply: (s) => resolveArrival(s, expedition) })
+    // Une embuscade en chemin passe avant l'arrivée ou le retour, même à la même heure.
+    const ambush = nextAmbush(state, expedition)
+    if (ambush) events.push({ at: ambush.at, apply: (s) => resolveAmbush(s, expedition.id, ambush.band, ambush.at) })
+    if (expedition.returning) events.push({ at: expedition.returnsAt, apply: (s) => resolveReturn(s, expedition.id) })
+    else events.push({ at: expedition.arrivesAt, apply: (s) => resolveArrival(s, expedition.id) })
   }
   return events.reduce<PendingEvent | null>((first, e) => (!first || e.at < first.at ? e : first), null)
 }
@@ -683,9 +1054,12 @@ function nextEvent(state: GameState): PendingEvent | null {
 export function advance(state: GameState, now: number): GameState {
   if (now <= state.updatedAt) return state
   let current = state
+  let count = 0
   for (let event = nextEvent(current); event && event.at <= now; event = nextEvent(current)) {
     // On produit avec l'état actuel jusqu'à l'événement, puis on l'applique.
     current = event.apply(accrue(current, event.at))
+    // Garde-fou : une erreur dans les règles ne doit jamais faire tourner le jeu en boucle.
+    if (++count > 100_000) throw new Error('Trop d’événements à rejouer')
   }
   return accrue(current, now)
 }

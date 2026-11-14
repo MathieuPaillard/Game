@@ -1,43 +1,100 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { CAMPS, type CampId, type MonsterId } from '../game/config'
-import { armySize, getMonster, type GameState } from '../game/rules'
+import { CAMPS, WORLD, type MonsterId } from '../game/config'
+import {
+  aggroRadius,
+  armySize,
+  bandsOnPath,
+  expeditionPosition,
+  getBandKind,
+  getMonster,
+  sameTarget,
+  targetPosition,
+  type GameState,
+  type Monsters,
+  type Target,
+} from '../game/rules'
 import MapViewport from './MapViewport.vue'
 import { formatDuration } from './format'
-import { CAMP_SPOTS, WORLD_CITY, WORLD_DECOR, WORLD_MAP, mountainLight, mountainPoints } from './maps'
+import { WORLD_DECOR, WORLD_MAP, mountainLight, mountainPoints } from './maps'
 
-// Les alentours de la cité : les camps de monstres, et les armées en marche.
-const props = defineProps<{ state: GameState; now: number; selected: CampId; cityName: string }>()
-const emit = defineEmits<{ select: [camp: CampId] }>()
+// Les alentours de la cité : les camps, les bandes de monstres et leurs zones d'aggro, et les armées
+// en marche. Toucher un camp ou une bande le sélectionne.
+const props = defineProps<{ state: GameState; now: number; selected: Target; cityName: string }>()
+const emit = defineEmits<{ select: [target: Target] }>()
 
-const camps = computed(() =>
-  CAMPS.map((camp) => ({
-    camp,
-    ...CAMP_SPOTS[camp.id],
-    icon: getMonster(Object.keys(camp.defenders)[0] as MonsterId).icon,
-    targeted: props.state.expeditions.some((e) => e.camp === camp.id),
-  })).sort((a, b) => a.y - b.y),
+const city = WORLD.city
+
+/** L'icône d'un groupe de monstres : celle du premier monstre encore debout. */
+function iconOf(monsters: Monsters): string {
+  const first = (Object.keys(monsters) as MonsterId[]).find((id) => (monsters[id] ?? 0) > 0)
+  return first ? getMonster(first).icon : '❔'
+}
+
+const isTargeted = (target: Target) => props.state.expeditions.some((e) => sameTarget(e.target, target))
+
+// Les bandes dont l'armée traverserait la zone d'aggro pour atteindre la cible choisie.
+const crossed = computed(() => new Set(bandsOnPath(props.state, props.selected).map((band) => band.id)))
+
+const bands = computed(() =>
+  props.state.bands.map((band) => ({
+    key: `band-${band.id}`,
+    target: { type: 'band', band: band.id } as Target,
+    ...band.position,
+    radius: aggroRadius(band.level),
+    crossed: crossed.value.has(band.id),
+  })),
 )
 
-// Chaque armée avance en ligne droite entre la cité et son camp, selon l'heure.
+// Les camps et les bandes, du haut vers le bas de la carte : ceux du bas passent devant.
+const spots = computed(() =>
+  [
+    ...CAMPS.map((camp) => ({
+      key: camp.id,
+      target: { type: 'camp', camp: camp.id } as Target,
+      ...camp.position,
+      isBand: false,
+      name: camp.name,
+      level: camp.level,
+      icon: iconOf(camp.defenders),
+    })),
+    ...props.state.bands.map((band) => ({
+      key: `band-${band.id}`,
+      target: { type: 'band', band: band.id } as Target,
+      ...band.position,
+      isBand: true,
+      name: getBandKind(band.kind).name,
+      level: band.level,
+      icon: iconOf(band.monsters),
+    })),
+  ]
+    .map((spot) => ({ ...spot, selected: sameTarget(spot.target, props.selected), targeted: isTargeted(spot.target) }))
+    .sort((a, b) => a.y - b.y),
+)
+
+// La route que prendrait une armée vers la cible choisie.
+const route = computed(() => {
+  const to = targetPosition(props.state, props.selected)
+  return to && { x1: city.x, y1: city.y, x2: to.x, y2: to.y }
+})
+
+// Chaque armée avance en ligne droite, selon l'heure.
 const armies = computed(() =>
   props.state.expeditions.map((expedition) => {
-    const spot = CAMP_SPOTS[expedition.camp]
-    const outward = !expedition.result
-    const start = outward ? expedition.departedAt : expedition.arrivesAt
-    const end = outward ? expedition.arrivesAt : expedition.returnsAt
-    const t = Math.min(1, Math.max(0, (props.now - start) / (end - start)))
-    const from = outward ? WORLD_CITY : spot
-    const to = outward ? spot : WORLD_CITY
+    const end = expedition.returning ? expedition.returnsAt : expedition.arrivesAt
     return {
-      key: expedition.camp,
-      x: from.x + (to.x - from.x) * t,
-      y: from.y + (to.y - from.y) * t,
-      label: `${outward ? 'Aller' : 'Retour'} · ${formatDuration(end - props.now)}`,
-      size: armySize(expedition.result?.survivors ?? expedition.troops),
+      key: expedition.id,
+      ...expeditionPosition(expedition, props.now),
+      label: `${expedition.returning ? 'Retour' : 'Aller'} · ${formatDuration(end - props.now)}`,
+      size: armySize(expedition.troops),
     }
   }),
 )
+
+function describe(spot: (typeof spots.value)[number]): string {
+  const what = spot.isBand ? `bande de monstres, niveau ${spot.level}` : `camp de niveau ${spot.level}`
+  return `${spot.name}, ${what}${spot.targeted ? ', une armée y est envoyée' : ''}`
+}
 </script>
 
 <template>
@@ -50,20 +107,32 @@ const armies = computed(() =>
   >
     <!-- Le décor -->
     <rect :width="WORLD_MAP.width" :height="WORLD_MAP.height" class="ground" />
-    <ellipse :cx="WORLD_CITY.x" :cy="WORLD_CITY.y" rx="260" ry="190" class="meadow" />
+    <ellipse :cx="city.x" :cy="city.y" rx="260" ry="190" class="meadow" />
     <path :d="WORLD_DECOR.river" class="river" />
     <path :d="WORLD_DECOR.river" class="river-light" />
     <ellipse v-bind="WORLD_DECOR.lake" class="water" />
     <ellipse v-for="(marsh, i) in WORLD_DECOR.marshes" :key="`marsh-${i}`" v-bind="marsh" class="marsh" />
     <line
-      v-for="spot in camps"
-      :key="`road-${spot.camp.id}`"
-      :x1="WORLD_CITY.x"
-      :y1="WORLD_CITY.y"
-      :x2="spot.x"
-      :y2="spot.y"
+      v-for="camp in CAMPS"
+      :key="`road-${camp.id}`"
+      :x1="city.x"
+      :y1="city.y"
+      :x2="camp.position.x"
+      :y2="camp.position.y"
       class="trail"
     />
+
+    <!-- Les zones d'aggro : une armée qui y entre est attaquée -->
+    <circle
+      v-for="band in bands"
+      :key="`aggro-${band.key}`"
+      :cx="band.x"
+      :cy="band.y"
+      :r="band.radius"
+      class="aggro"
+      :class="{ crossed: band.crossed }"
+    />
+
     <g v-for="(mountain, i) in WORLD_DECOR.mountains" :key="`mountain-${i}`">
       <polygon :points="mountainPoints(mountain)" class="rock" />
       <polygon :points="mountainLight(mountain)" class="rock-light" />
@@ -80,37 +149,52 @@ const armies = computed(() =>
       🌲
     </text>
 
+    <!-- La route vers la cible choisie -->
+    <line v-if="route" v-bind="route" class="route" />
+
     <!-- La cité -->
-    <g :transform="`translate(${WORLD_CITY.x} ${WORLD_CITY.y})`" aria-hidden="true">
+    <g :transform="`translate(${city.x} ${city.y})`" aria-hidden="true">
       <ellipse class="spot-base" rx="84" ry="32" cy="46" />
       <text class="emoji" font-size="104">🏰</text>
       <text class="map-label" y="100">{{ cityName }}</text>
     </g>
 
-    <!-- Les camps -->
+    <!-- Les camps et les bandes -->
     <g
-      v-for="spot in camps"
-      :key="spot.camp.id"
+      v-for="spot in spots"
+      :key="spot.key"
       class="spot"
-      :class="{ selected: spot.camp.id === selected }"
+      :class="{ selected: spot.selected, band: spot.isBand }"
       :transform="`translate(${spot.x} ${spot.y})`"
       role="button"
       tabindex="0"
-      :aria-label="`${spot.camp.name}, niveau ${spot.camp.level}${spot.targeted ? ', une armée y est envoyée' : ''}`"
-      :aria-pressed="spot.camp.id === selected"
-      @click="emit('select', spot.camp.id)"
-      @keydown.enter.prevent="emit('select', spot.camp.id)"
-      @keydown.space.prevent="emit('select', spot.camp.id)"
+      :aria-label="describe(spot)"
+      :aria-pressed="spot.selected"
+      @click="emit('select', spot.target)"
+      @keydown.enter.prevent="emit('select', spot.target)"
+      @keydown.space.prevent="emit('select', spot.target)"
     >
-      <ellipse class="spot-base camp-base" rx="66" ry="26" cy="32" />
-      <ellipse class="spot-ring" rx="78" ry="33" cy="32" />
-      <text class="emoji" font-size="70">{{ spot.icon }}</text>
-      <g v-if="spot.targeted" transform="translate(40 -38)">
+      <template v-if="spot.isBand">
+        <ellipse class="spot-base band-base" rx="40" ry="16" cy="24" />
+        <ellipse class="spot-ring" rx="50" ry="22" cy="24" />
+        <text class="emoji" font-size="50">{{ spot.icon }}</text>
+        <g transform="translate(30 -26)">
+          <circle r="15" class="badge level" />
+          <text class="badge-text">{{ spot.level }}</text>
+        </g>
+        <text class="map-label" y="58">{{ spot.name }}</text>
+      </template>
+      <template v-else>
+        <ellipse class="spot-base camp-base" rx="66" ry="26" cy="32" />
+        <ellipse class="spot-ring" rx="78" ry="33" cy="32" />
+        <text class="emoji" font-size="70">{{ spot.icon }}</text>
+        <text class="map-label" y="74">{{ spot.name }}</text>
+        <text class="map-sublabel" y="98">Niveau {{ spot.level }}</text>
+      </template>
+      <g v-if="spot.targeted" :transform="spot.isBand ? 'translate(-30 -26)' : 'translate(40 -38)'">
         <circle r="18" class="badge ready" />
         <text class="emoji" font-size="20">⚔️</text>
       </g>
-      <text class="map-label" y="74">{{ spot.camp.name }}</text>
-      <text class="map-sublabel" y="98">Niveau {{ spot.camp.level }}</text>
     </g>
 
     <!-- Les armées en marche -->
@@ -147,6 +231,38 @@ const armies = computed(() =>
 
 .camp-base {
   fill: var(--map-camp);
+}
+
+.band-base {
+  fill: var(--map-camp);
+  opacity: 0.85;
+}
+
+/* Une zone d'aggro : un cercle rouge, plus marqué s'il coupe la route vers la cible choisie. */
+.aggro {
+  fill: var(--map-aggro);
+  stroke: var(--ember);
+  stroke-width: 3;
+  stroke-dasharray: 12 9;
+  opacity: 0.8;
+}
+
+.aggro.crossed {
+  stroke-width: 6;
+  opacity: 1;
+}
+
+.route {
+  stroke: var(--gilt);
+  stroke-width: 5;
+  stroke-linecap: round;
+  stroke-dasharray: 2 14;
+  opacity: 0.9;
+}
+
+.badge.level {
+  fill: var(--map-aggro-badge);
+  stroke: var(--ember);
 }
 
 .army {

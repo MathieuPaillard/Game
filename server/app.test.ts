@@ -208,6 +208,26 @@ describe('la partie', () => {
     expect(third.data.game.levels.farm).toBe(2)
   })
 
+  it('envoie une armée attaquer une bande de monstres', async () => {
+    const server = testServer()
+    const token = await server.register()
+    const game = { ...richGame(), troops: { warrior: 50, archer: 0, rider: 0, mage: 0 } }
+    const band = game.bands[0]
+    server.giveGame('Arthur', game)
+    const attack = { type: 'attack', target: { type: 'band', band: band.id }, troops: { warrior: 20 } }
+    const response = await server.call('POST', '/api/game/actions', { token, body: attack })
+    expect(response.data.ok).toBe(true)
+    expect(response.data.game.expeditions[0]).toMatchObject({
+      target: { type: 'band', band: band.id },
+      foe: { type: 'band', kind: band.kind, level: band.level },
+      troops: { warrior: 20 },
+    })
+    // Une bande qui n'existe pas : l'ordre est refusé par les règles.
+    const ghost = { ...attack, target: { type: 'band', band: 999 } }
+    const refused = await server.call('POST', '/api/game/actions', { token, body: ghost })
+    expect(refused.data).toMatchObject({ ok: false, reason: 'Cette bande n’est plus là' })
+  })
+
   it('refuse les ordres mal formés', async () => {
     const server = testServer()
     const token = await server.register()

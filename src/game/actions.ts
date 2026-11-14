@@ -8,7 +8,6 @@ import {
   UNIT_IDS,
   type Army,
   type BuildingId,
-  type CampId,
   type TechId,
   type UnitId,
 } from './config.ts'
@@ -27,13 +26,14 @@ import {
   startUpgrade,
   type Check,
   type GameState,
+  type Target,
 } from './rules.ts'
 
 export type Action =
   | { type: 'upgrade'; building: BuildingId }
   | { type: 'research'; tech: TechId }
   | { type: 'train'; unit: UnitId; count: number }
-  | { type: 'attack'; camp: CampId; troops: Army }
+  | { type: 'attack'; target: Target; troops: Army }
   | { type: 'dismiss'; troops: Army }
 
 /** La partie après un ordre, et la raison du refus si l'ordre était impossible. */
@@ -49,7 +49,7 @@ export function checkAction(state: GameState, action: Action): Check {
     case 'train':
       return checkTraining(state, action.unit, action.count)
     case 'attack':
-      return checkExpedition(state, action.camp, action.troops)
+      return checkExpedition(state, action.target, action.troops)
     case 'dismiss':
       return checkDismiss(state, action.troops)
   }
@@ -72,7 +72,7 @@ function run(state: GameState, action: Action, now: number): GameState {
     case 'train':
       return startTraining(state, action.unit, action.count, now)
     case 'attack':
-      return startExpedition(state, action.camp, action.troops, now)
+      return startExpedition(state, action.target, action.troops, now)
     case 'dismiss':
       return dismissTroops(state, action.troops, now)
   }
@@ -103,8 +103,9 @@ export function parseAction(input: unknown): Action | null {
         ? { type: 'train', unit: input.unit, count: input.count }
         : null
     case 'attack': {
+      const target = parseTarget(input.target)
       const troops = parseArmy(input.troops)
-      return isOneOf(input.camp, CAMP_IDS) && troops ? { type: 'attack', camp: input.camp, troops } : null
+      return target && troops ? { type: 'attack', target, troops } : null
     }
     case 'dismiss': {
       const troops = parseArmy(input.troops)
@@ -125,6 +126,14 @@ function isOneOf<T extends string>(value: unknown, allowed: readonly T[]): value
 
 function isCount(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= MAX_COUNT
+}
+
+/** Une cible : un camp qui existe, ou une bande désignée par son numéro (les règles vérifient qu'elle est là). */
+function parseTarget(value: unknown): Target | null {
+  if (!isRecord(value)) return null
+  if (value.type === 'camp') return isOneOf(value.camp, CAMP_IDS) ? { type: 'camp', camp: value.camp } : null
+  if (value.type === 'band') return isCount(value.band) ? { type: 'band', band: value.band } : null
+  return null
 }
 
 /** Une armée : un nombre entier par type de troupe (0 s'il manque), et rien d'autre. */

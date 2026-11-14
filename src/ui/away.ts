@@ -1,7 +1,8 @@
 // Le résumé « Bon retour » : ce qui s'est passé pendant que le joueur n'était pas là.
 
 import { RESOURCE_IDS, type Resources } from '../game/config'
-import { armySize, emptyResources, getBuilding, getCamp, getTech, getUnit, type GameState } from '../game/rules'
+import { armySize, emptyResources, getBuilding, getTech, getUnit, type GameState } from '../game/rules'
+import { foeName } from './battleLog'
 
 // En dessous d'une minute d'absence, pas de résumé.
 const AWAY_REPORT_MIN_MS = 60 * 1000
@@ -34,15 +35,18 @@ export function makeAwayReport(before: GameState, after: GameState): AwayReport 
     if (finished) events.push(`Entraînement terminé : ${getUnit(training.unit).name} +${training.count}.`)
   }
   for (const report of after.reports.filter((r) => r.at > before.updatedAt).reverse()) {
-    events.push(`${report.victory ? 'Victoire' : 'Défaite'} contre : ${getCamp(report.camp).name}.`)
+    const ambush = report.ambush ? ' (embuscade)' : ''
+    events.push(`${report.victory ? 'Victoire' : 'Défaite'} contre : ${foeName(report.foe)}${ambush}.`)
   }
   for (const expedition of before.expeditions) {
-    if (after.expeditions.some((e) => e.camp === expedition.camp && e.departedAt === expedition.departedAt)) continue
-    const report = after.reports.find((r) => r.at === expedition.arrivesAt && r.camp === expedition.camp)
-    const survived = report !== undefined && armySize(report.sent) > armySize(report.lost)
-    if (expedition.result || survived) {
-      events.push(`Ton armée est rentrée de : ${getCamp(expedition.camp).name}.`)
-    }
+    if (after.expeditions.some((e) => e.id === expedition.id)) continue
+    // Anéantie, l'armée n'est pas rentrée : son dernier rapport le dit.
+    const last = after.reports.find((r) => r.army === expedition.id)
+    const wiped = last !== undefined && armySize(last.sent) === armySize(last.lost)
+    if (!wiped) events.push(`Ton armée est rentrée (cible : ${foeName(expedition.foe)}).`)
   }
+  const newcomers = after.bands.filter((band) => !before.bands.some((b) => b.id === band.id)).length
+  if (newcomers === 1) events.push('Une nouvelle bande de monstres rôde aux alentours.')
+  if (newcomers > 1) events.push(`${newcomers} nouvelles bandes de monstres rôdent aux alentours.`)
   return { duration, gains, events }
 }
