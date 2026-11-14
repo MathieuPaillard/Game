@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { START_LEVELS } from './config.ts'
-import { advance, emptyArmy, emptyTechs, getCamp, newGame } from './rules.ts'
+import { advance, bandPosition, emptyArmy, emptyTechs, newGame } from './rules.ts'
 import { restoreState } from './save.ts'
 
 const T0 = Date.UTC(2026, 0, 1)
@@ -28,7 +28,7 @@ describe('restoreState', () => {
       troops: { archer: 3 },
       training,
       expedition: null,
-      reports: [{ at: T0, camp: 'wolfDen', victory: true, sent: {}, lost: {}, enemyLost: {}, loot: {} }],
+      reports: [{ at: T0, camp: 'wolfDen', victory: true, sent: {}, lost: {} }],
       desertions: 4,
     }
     const state = restoreState(old)
@@ -39,69 +39,86 @@ describe('restoreState', () => {
       techs: emptyTechs(),
       troops: { ...emptyArmy(), archer: 3 },
       trainings: [training],
-      expeditions: [],
+      armies: [],
+      battles: [],
       construction: null,
       research: null,
     })
     expect(state?.reports[0]).toMatchObject({
       foe: { type: 'camp', camp: 'wolfDen' },
       ambush: false,
+      outcome: 'victory',
+      startedAt: T0,
       enemies: {},
+      enemyLost: {},
+      loot: {},
       starving: false,
       rounds: [],
     })
-    // Avant les bandes de monstres, la carte était vide : elles arrivent peu à peu.
-    expect(state).toMatchObject({ bands: [], nextBandAt: T0, nextId: 1 })
-    expect(advance(state!, T0 + 1000).bands).toHaveLength(1)
+    // Avant les bandes et les gisements, la carte était vide : ils arrivent peu à peu.
+    expect(state).toMatchObject({ bands: [], nextBandAt: T0, nodes: [], nextNodeAt: T0, nextId: 1 })
+    const later = advance(state!, T0 + 1000)
+    expect(later.bands).toHaveLength(1)
+    expect(later.nodes).toHaveLength(1)
     // Ce qui n'existe plus dans le jeu est oublié.
     expect(state).not.toHaveProperty('desertions')
     expect(state).not.toHaveProperty('training')
   })
 
-  it('reprend les armées parties vers un camp avant l’arrivée des bandes', () => {
-    const survivors = { warrior: 7, archer: 0, rider: 0, mage: 0 }
+  it('fait rentrer à la cité les armées parties avec une version plus ancienne', () => {
     const old = {
       race: 'humans',
       updatedAt: T0,
+      troops: { warrior: 2 },
+      resources: { food: 100, wood: 100, stone: 100, gold: 100, mana: 100 },
       expeditions: [
+        // Sur le chemin du retour, butin en poche (la toute première version).
         {
           camp: 'goblinCamp',
           troops: { warrior: 10, archer: 0, rider: 0, mage: 0 },
           departedAt: T0 - 2000,
           arrivesAt: T0 - 1000,
           returnsAt: T0 + 5000,
-          result: { survivors, loot: { gold: 80 } },
+          result: { survivors: { warrior: 7, archer: 0, rider: 0, mage: 0 }, loot: { gold: 80 } },
         },
+        // En route vers une bande (la version d'avant les ordres sur la carte).
         {
-          camp: 'wolfDen',
-          troops: { warrior: 3, archer: 0, rider: 0, mage: 0 },
-          departedAt: T0,
-          arrivesAt: T0 + 3000,
-          returnsAt: T0 + 6000,
-          result: null,
+          id: 4,
+          target: { type: 'band', band: 2 },
+          troops: { warrior: 0, archer: 3, rider: 0, mage: 0 },
+          loot: { wood: 50 },
+          returning: false,
         },
       ],
     }
     const state = restoreState(old)
-    expect(state?.expeditions).toEqual([
-      {
-        id: 1,
-        target: { type: 'camp', camp: 'goblinCamp' },
-        foe: { type: 'camp', camp: 'goblinCamp' },
-        destination: getCamp('goblinCamp').position,
-        troops: survivors,
-        loot: { gold: 80 },
-        departedAt: T0 - 2000,
-        arrivesAt: T0 - 1000,
-        returnsAt: T0 + 5000,
-        returning: true,
-        fought: [],
-      },
-      expect.objectContaining({ id: 2, target: { type: 'camp', camp: 'wolfDen' }, returning: false }),
-    ])
-    expect(state?.nextId).toBe(3)
-    // L'armée sur le chemin du retour rentre bien, avec son butin.
-    const back = advance(state!, T0 + 5000)
-    expect(back.troops.warrior).toBe(7)
+    expect(state?.armies).toEqual([])
+    expect(state?.troops).toEqual({ ...emptyArmy(), warrior: 9, archer: 3 })
+    expect(state?.resources).toMatchObject({ gold: 180, wood: 150, food: 100 })
+  })
+
+  it('fait patrouiller les bandes d’avant les rondes autour de l’endroit où elles étaient', () => {
+    const old = {
+      race: 'humans',
+      updatedAt: T0,
+      bands: [{ id: 3, kind: 'goblins', level: 2, position: { x: 900, y: 200 }, monsters: { goblin: 9 } }],
+      reports: [
+        {
+          at: T0,
+          army: 4,
+          foe: { type: 'band', kind: 'wolves', level: 1 },
+          ambush: true,
+          victory: false,
+          sent: { warrior: 5, archer: 0, rider: 0, mage: 0 },
+          lost: { warrior: 5, archer: 0, rider: 0, mage: 0 },
+          enemyLost: {},
+          loot: {},
+        },
+      ],
+    }
+    const state = restoreState(old)!
+    expect(state.bands[0]).toMatchObject({ id: 3, kind: 'goblins', level: 2, home: { x: 900, y: 200 }, since: T0 })
+    expect(bandPosition(state.bands[0], T0 + 10_000)).not.toEqual(bandPosition(state.bands[0], T0))
+    expect(state.reports[0]).toMatchObject({ ambush: true, outcome: 'defeat' })
   })
 })

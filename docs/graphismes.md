@@ -62,7 +62,18 @@ Pour chaque image : le nom du fichier à utiliser, puis ce qu'il faut écrire ap
 | `troupe-cavaliers.png` | Personnage en pied : un cavalier en armure sur un cheval de guerre caparaçonné. |
 | `troupe-mages.png` | Personnage en pied : un mage en robe bleu nuit, bâton surmonté d'un cristal violet. |
 
-Les monstres viendront ensuite.
+### Carte des alentours
+
+| Fichier | Description |
+|---|---|
+| `gisement-champs.png` | Élément de carte, vu de trois quarts : un petit champ de blé doré entouré d'une barrière de bois, avec quelques gerbes. |
+| `gisement-scierie.png` | Élément de carte, vu de trois quarts : un bosquet de grands pins, des troncs abattus et une scie posée sur des tréteaux. |
+| `gisement-carriere.png` | Élément de carte, vu de trois quarts : un rocher gris entaillé de marches, avec des blocs taillés à son pied. |
+| `gisement-mine-or.png` | Élément de carte, vu de trois quarts : une colline rocheuse percée d'une galerie étayée, avec des pépites d'or qui brillent dans la roche. |
+| `gisement-source-mana.png` | Élément de carte, vu de trois quarts : une source violette et lumineuse qui jaillit entre des pierres levées couvertes de runes. |
+| `carte-armee.png` | Élément de carte : un étendard bleu nuit et or, planté au milieu d'un petit groupe de soldats vus de loin. |
+
+Les monstres et leurs camps viendront ensuite.
 
 ## Quand des images sont prêtes
 

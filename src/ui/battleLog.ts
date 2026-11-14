@@ -2,8 +2,16 @@
 
 import { isStrongAgainst } from '../game/battle'
 import { COUNTER_BONUS, UNIT_IDS, type MonsterId } from '../game/config'
-import { armySize, getBandKind, getCamp, getMonster, getUnit, type BattleReport, type Foe } from '../game/rules'
+import { getBandKind, getCamp, getMonster, getUnit, type BattleReport, type Foe, type Outcome } from '../game/rules'
 import { formatAmount } from './format'
+
+/** L'issue d'une bataille, pour le titre d'un rapport. */
+export const OUTCOME_NAMES: Record<Outcome, string> = {
+  victory: 'Victoire',
+  defeat: 'Défaite',
+  retreat: 'Retraite',
+  draw: 'Sans vainqueur',
+}
 
 /** Le nom d'un adversaire : « Tanière de loups », ou « Meute de loups (niv. 2) ». */
 export function foeName(foe: Foe): string {
@@ -65,12 +73,13 @@ export function describeBattle(report: BattleReport): BattleStory {
 
   const count = report.rounds.length
   const length = `${count} manche${count > 1 ? 's' : ''}`
-  const survivors = armySize(report.sent) - armySize(report.lost)
-  const ending = report.victory
-    ? `Victoire en ${length}.`
-    : survivors === 0
-      ? `Défaite en ${length} : ton armée a été anéantie.`
-      : `Après ${length}, personne ne l’emporte : ton armée se replie.`
+  const endings: Record<Outcome, string> = {
+    victory: `Victoire en ${length}.`,
+    defeat: `Défaite en ${length} : ton armée a été anéantie.`,
+    retreat: `Après ${length}, tu as ordonné la retraite.`,
+    draw: `Après ${length}, les deux camps se séparent sans vainqueur.`,
+  }
+  const ending = endings[report.outcome]
 
   return { advantages, rounds, ending }
 }

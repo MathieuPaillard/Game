@@ -6,6 +6,7 @@ import {
   CAMPS,
   TECHS,
   UNIT_IDS,
+  WORLD,
   type Army,
   type BuildingId,
   type TechId,
@@ -14,13 +15,15 @@ import {
 import {
   advance,
   checkDismiss,
-  checkExpedition,
+  checkMarch,
+  checkOrder,
   checkResearch,
   checkTraining,
   checkUpgrade,
   dismissTroops,
   emptyArmy,
-  startExpedition,
+  orderArmy,
+  startMarch,
   startResearch,
   startTraining,
   startUpgrade,
@@ -33,8 +36,11 @@ export type Action =
   | { type: 'upgrade'; building: BuildingId }
   | { type: 'research'; tech: TechId }
   | { type: 'train'; unit: UnitId; count: number }
-  | { type: 'attack'; target: Target; troops: Army }
   | { type: 'dismiss'; troops: Army }
+  /** Une armée sort de la cité, avec un premier ordre. */
+  | { type: 'march'; target: Target; troops: Army }
+  /** Un nouvel ordre pour une armée déjà dehors : aller ailleurs, attaquer, récolter, rentrer. */
+  | { type: 'order'; army: number; target: Target }
 
 /** La partie après un ordre, et la raison du refus si l'ordre était impossible. */
 export type ActionResult = { ok: true; state: GameState } | { ok: false; reason: string; state: GameState }
@@ -48,10 +54,12 @@ export function checkAction(state: GameState, action: Action): Check {
       return checkResearch(state, action.tech)
     case 'train':
       return checkTraining(state, action.unit, action.count)
-    case 'attack':
-      return checkExpedition(state, action.target, action.troops)
     case 'dismiss':
       return checkDismiss(state, action.troops)
+    case 'march':
+      return checkMarch(state, action.target, action.troops)
+    case 'order':
+      return checkOrder(state, action.army, action.target)
   }
 }
 
@@ -71,10 +79,12 @@ function run(state: GameState, action: Action, now: number): GameState {
       return startResearch(state, action.tech, now)
     case 'train':
       return startTraining(state, action.unit, action.count, now)
-    case 'attack':
-      return startExpedition(state, action.target, action.troops, now)
     case 'dismiss':
       return dismissTroops(state, action.troops, now)
+    case 'march':
+      return startMarch(state, action.target, action.troops, now)
+    case 'order':
+      return orderArmy(state, action.army, action.target, now)
   }
 }
 
@@ -102,14 +112,18 @@ export function parseAction(input: unknown): Action | null {
       return isOneOf(input.unit, UNIT_IDS) && isCount(input.count)
         ? { type: 'train', unit: input.unit, count: input.count }
         : null
-    case 'attack': {
-      const target = parseTarget(input.target)
-      const troops = parseArmy(input.troops)
-      return target && troops ? { type: 'attack', target, troops } : null
-    }
     case 'dismiss': {
       const troops = parseArmy(input.troops)
       return troops ? { type: 'dismiss', troops } : null
+    }
+    case 'march': {
+      const target = parseTarget(input.target)
+      const troops = parseArmy(input.troops)
+      return target && troops ? { type: 'march', target, troops } : null
+    }
+    case 'order': {
+      const target = parseTarget(input.target)
+      return isCount(input.army) && target ? { type: 'order', army: input.army, target } : null
     }
     default:
       return null
@@ -128,12 +142,33 @@ function isCount(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= MAX_COUNT
 }
 
-/** Une cible : un camp qui existe, ou une bande désignée par son numéro (les règles vérifient qu'elle est là). */
+/** Un nombre de la carte : entre 0 et `max`. */
+function isCoordinate(value: unknown, max: number): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= max
+}
+
+/**
+ * Une cible : un endroit de la carte, un camp qui existe, une bande ou un gisement désignés par
+ * leur numéro (les règles vérifient qu'ils sont là), ou la cité.
+ */
 function parseTarget(value: unknown): Target | null {
   if (!isRecord(value)) return null
-  if (value.type === 'camp') return isOneOf(value.camp, CAMP_IDS) ? { type: 'camp', camp: value.camp } : null
-  if (value.type === 'band') return isCount(value.band) ? { type: 'band', band: value.band } : null
-  return null
+  switch (value.type) {
+    case 'point':
+      return isCoordinate(value.x, WORLD.width) && isCoordinate(value.y, WORLD.height)
+        ? { type: 'point', x: value.x, y: value.y }
+        : null
+    case 'camp':
+      return isOneOf(value.camp, CAMP_IDS) ? { type: 'camp', camp: value.camp } : null
+    case 'band':
+      return isCount(value.band) ? { type: 'band', band: value.band } : null
+    case 'node':
+      return isCount(value.node) ? { type: 'node', node: value.node } : null
+    case 'city':
+      return { type: 'city' }
+    default:
+      return null
+  }
 }
 
 /** Une armée : un nombre entier par type de troupe (0 s'il manque), et rien d'autre. */

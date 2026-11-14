@@ -236,7 +236,8 @@ export function useGame() {
     upgrade: (building: BuildingId) => perform({ type: 'upgrade', building }),
     research: (tech: TechId) => perform({ type: 'research', tech }),
     train: (unit: UnitId, count: number) => perform({ type: 'train', unit, count }),
-    attack: (target: Target, troops: Army) => perform({ type: 'attack', target, troops }),
+    march: (target: Target, troops: Army) => perform({ type: 'march', target, troops }),
+    order: (army: number, target: Target) => perform({ type: 'order', army, target }),
     dismiss: (troops: Army) => perform({ type: 'dismiss', troops }),
     async restart() {
       awayReport.value = null

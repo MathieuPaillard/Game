@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import {
   CAMPS,
   MAX_BANDS,
+  NODE_KINDS,
   RESOURCES,
   RESOURCE_IDS,
   STARVATION_ATTACK_MALUS,
@@ -10,58 +11,128 @@ import {
   type MonsterId,
   type Resources,
 } from '../game/config'
-import { getBand, getBandKind, getMonster, maxExpeditions, sameTarget, type GameState, type Target } from '../game/rules'
+import {
+  armySize,
+  getArmy,
+  getBand,
+  getBandKind,
+  getMonster,
+  getNode,
+  maxArmies,
+  nodeGatherer,
+  sameTarget,
+  type GameState,
+  type Target,
+} from '../game/rules'
+import ArmyCard from './ArmyCard.vue'
 import TargetCard from './TargetCard.vue'
 import WorldMap from './WorldMap.vue'
-import { describeBattle, foeName } from './battleLog'
+import { OUTCOME_NAMES, describeBattle, foeName } from './battleLog'
 import { formatAgo, formatAmount, formatArmy, formatDuration } from './format'
+import { STATUS_ICONS, armyStatusText, monstersIcon, type Selection } from './world'
 
 const props = defineProps<{ state: GameState; now: number; cityName: string }>()
-const emit = defineEmits<{ attack: [target: Target, troops: Army] }>()
+const emit = defineEmits<{ march: [target: Target, troops: Army]; order: [army: number, target: Target] }>()
 
-const FIRST_CAMP: Target = { type: 'camp', camp: 'wolfDen' }
-// La cible choisie sur la carte (ou dans la liste), dont on montre la fiche.
-const chosen = ref<Target>(FIRST_CAMP)
-// Une bande vaincue disparaît de la carte : on revient alors au premier camp.
-const selected = computed(() => {
-  const target = chosen.value
-  return target.type === 'band' && !getBand(props.state, target.band) ? FIRST_CAMP : target
+const FIRST_CAMP: Selection = { kind: 'target', target: { type: 'camp', camp: 'wolfDen' } }
+
+// Ce qui est choisi : une cible (dont on montre la fiche), ou une de tes armées (à qui donner des ordres).
+const chosen = ref<Selection>(FIRST_CAMP)
+// Le prochain ordre envisagé pour l'armée choisie : un endroit touché sur la carte, ou une cible.
+const plan = ref<Target | null>(null)
+
+// Une armée rentrée, une bande vaincue, un gisement épuisé : on revient alors au premier camp.
+const selection = computed<Selection>(() => {
+  const current = chosen.value
+  if (current.kind === 'army') return getArmy(props.state, current.id) ? current : FIRST_CAMP
+  const target = current.target
+  if (target.type === 'band' && !getBand(props.state, target.band)) return FIRST_CAMP
+  if (target.type === 'node' && !getNode(props.state, target.node)) return FIRST_CAMP
+  return current
 })
-const selectedKey = computed(() => keyOf(selected.value))
+const selectedArmy = computed(() => {
+  const current = selection.value
+  return current.kind === 'army' ? getArmy(props.state, current.id) : undefined
+})
+const selectedTarget = computed(() => (selection.value.kind === 'target' ? selection.value.target : null))
 
 function keyOf(target: Target): string {
-  return target.type === 'camp' ? target.camp : `band-${target.band}`
+  switch (target.type) {
+    case 'camp':
+      return target.camp
+    case 'band':
+      return `band-${target.band}`
+    case 'node':
+      return `node-${target.node}`
+    default:
+      return target.type
+  }
 }
 
-const isTargeted = (target: Target) => props.state.expeditions.some((e) => sameTarget(e.target, target))
+const isChosen = (target: Target) => selectedTarget.value !== null && sameTarget(selectedTarget.value, target)
 
-// Les bandes, des plus faibles aux plus fortes.
+/** Une armée est choisie : toucher une cible en fait son prochain ordre. Sinon, on choisit cette cible. */
+function choose(next: Selection) {
+  if (selection.value.kind === 'army' && next.kind === 'target') {
+    plan.value = next.target
+    return
+  }
+  chosen.value = next
+  plan.value = null
+}
+
+/** Un endroit touché sur la carte : il devient le prochain ordre de l'armée choisie. */
+function tap(point: { x: number; y: number }) {
+  if (selection.value.kind !== 'army') return
+  plan.value = { type: 'point', x: Math.round(point.x), y: Math.round(point.y) }
+}
+
+function order(target: Target) {
+  const current = selection.value
+  if (current.kind !== 'army') return
+  emit('order', current.id, target)
+  plan.value = null
+}
+
+function closeArmy() {
+  chosen.value = FIRST_CAMP
+  plan.value = null
+}
+
+function march(troops: Army) {
+  const target = selectedTarget.value
+  if (target) emit('march', target, troops)
+}
+
+// Les pastilles : tes armées, les camps, les bandes (des plus faibles aux plus fortes) et les gisements.
+const armyChips = computed(() =>
+  props.state.armies.map((army) => ({
+    id: army.id,
+    icon: STATUS_ICONS[army.status],
+    size: armySize(army.troops),
+    status: armyStatusText(props.state, army),
+  })),
+)
 const bandChips = computed(() =>
   [...props.state.bands]
     .sort((a, b) => a.level - b.level || a.id - b.id)
-    .map((band) => {
-      const first = (Object.keys(band.monsters) as MonsterId[]).find((id) => (band.monsters[id] ?? 0) > 0)
-      return {
-        target: { type: 'band', band: band.id } as Target,
-        icon: first ? getMonster(first).icon : '',
-        name: getBandKind(band.kind).name,
-        level: band.level,
-      }
-    }),
+    .map((band) => ({
+      target: { type: 'band', band: band.id } as Target,
+      icon: monstersIcon(band.monsters),
+      name: getBandKind(band.kind).name,
+      level: band.level,
+    })),
 )
-
-// Les armées en campagne, avec leur progression.
-const marches = computed(() =>
-  props.state.expeditions.map((e) => {
-    const start = e.returning ? e.arrivesAt : e.departedAt
-    const end = e.returning ? e.returnsAt : e.arrivesAt
-    return {
-      key: e.id,
-      label: e.returning ? `Retour à la cité (${foeName(e.foe)})` : `En route vers : ${foeName(e.foe)}`,
-      end,
-      progress: Math.min(1, Math.max(0, (props.now - start) / (end - start))),
-    }
-  }),
+const nodeChips = computed(() =>
+  [...props.state.nodes]
+    .sort((a, b) => a.level - b.level || a.id - b.id)
+    .map((node) => ({
+      target: { type: 'node', node: node.id } as Target,
+      icon: NODE_KINDS[node.resource].icon,
+      name: NODE_KINDS[node.resource].name,
+      level: node.level,
+      busy: nodeGatherer(props.state, node.id) !== undefined,
+    })),
 )
 
 const malusPercent = Math.round(STARVATION_ATTACK_MALUS * 100)
@@ -87,17 +158,47 @@ function lootText(loot: Partial<Resources>): string {
     <section class="block" aria-labelledby="world-title">
       <h2 id="world-title" class="section-title">Alentours</h2>
       <p class="muted">
-        Armées en campagne : <strong>{{ state.expeditions.length }} / {{ maxExpeditions(state) }}</strong>. Touche
-        un camp ou une bande pour voir sa fiche. Ton armée marche en ligne droite : si elle entre dans la zone
-        d’aggro d’une bande (le cercle rouge), la bande l’attaque.
+        Armées dehors : <strong>{{ state.armies.length }} / {{ maxArmies(state) }}</strong>. Touche une de tes
+        armées, puis la carte pour l’envoyer quelque part, un camp, une bande ou un gisement pour l’attaquer ou y
+        récolter, ou la cité pour la faire rentrer. Les bandes patrouillent : si ton armée entre dans leur zone d’aggro (le cercle rouge), elles
+        l’attaquent.
       </p>
 
       <WorldMap
         :state="state"
         :now="now"
-        :selected="selected"
+        :selection="selection"
+        :plan="plan"
         :city-name="cityName"
-        @select="chosen = $event"
+        @select="choose"
+        @tap="tap"
+      />
+
+      <ul v-if="armyChips.length" class="chips" aria-label="Tes armées dehors">
+        <li v-for="chip in armyChips" :key="chip.id">
+          <button
+            type="button"
+            class="chip army-chip"
+            :aria-pressed="selection.kind === 'army' && selection.id === chip.id"
+            @click="choose({ kind: 'army', id: chip.id })"
+          >
+            <span aria-hidden="true">{{ chip.icon }}</span>
+            {{ chip.size }}
+            <span class="chip-tag busy">{{ chip.status }}</span>
+          </button>
+        </li>
+      </ul>
+
+      <ArmyCard
+        v-if="selectedArmy"
+        :key="selectedArmy.id"
+        :state="state"
+        :now="now"
+        :army="selectedArmy"
+        :plan="plan"
+        @order="order"
+        @clear-plan="plan = null"
+        @close="closeArmy"
       />
 
       <ul class="chips" aria-label="Camps de monstres">
@@ -105,49 +206,53 @@ function lootText(loot: Partial<Resources>): string {
           <button
             type="button"
             class="chip"
-            :aria-pressed="selectedKey === camp.id"
-            @click="chosen = { type: 'camp', camp: camp.id }"
+            :aria-pressed="isChosen({ type: 'camp', camp: camp.id })"
+            @click="choose({ kind: 'target', target: { type: 'camp', camp: camp.id } })"
           >
             {{ camp.name }}
-            <span class="chip-tag" :class="{ busy: isTargeted({ type: 'camp', camp: camp.id }) }">
-              niv. {{ camp.level }}
-            </span>
+            <span class="chip-tag">niv. {{ camp.level }}</span>
           </button>
         </li>
       </ul>
 
-      <p class="muted">Bandes de monstres sur la carte : {{ state.bands.length }} / {{ MAX_BANDS }}.</p>
+      <p class="muted">Bandes de monstres : {{ state.bands.length }} / {{ MAX_BANDS }}.</p>
       <ul v-if="bandChips.length" class="chips" aria-label="Bandes de monstres">
         <li v-for="chip in bandChips" :key="keyOf(chip.target)">
           <button
             type="button"
             class="chip"
-            :aria-pressed="selectedKey === keyOf(chip.target)"
-            @click="chosen = chip.target"
+            :aria-pressed="isChosen(chip.target)"
+            @click="choose({ kind: 'target', target: chip.target })"
           >
             <span aria-hidden="true">{{ chip.icon }}</span>
             {{ chip.name }}
-            <span class="chip-tag" :class="{ busy: isTargeted(chip.target) }">niv. {{ chip.level }}</span>
+            <span class="chip-tag">niv. {{ chip.level }}</span>
           </button>
         </li>
       </ul>
 
-      <ul v-if="marches.length" class="marches" aria-label="Armées en campagne">
-        <li v-for="march in marches" :key="march.key" class="march" role="status">
-          <p>
-            <strong>{{ march.label }}</strong> · {{ formatDuration(march.end - now) }}
-          </p>
-          <div class="progress">
-            <span class="progress-fill" :style="{ width: `${march.progress * 100}%` }"></span>
-          </div>
+      <p class="muted">Gisements de ressources : {{ state.nodes.length }}.</p>
+      <ul v-if="nodeChips.length" class="chips" aria-label="Gisements de ressources">
+        <li v-for="chip in nodeChips" :key="keyOf(chip.target)">
+          <button
+            type="button"
+            class="chip"
+            :aria-pressed="isChosen(chip.target)"
+            @click="choose({ kind: 'target', target: chip.target })"
+          >
+            <span aria-hidden="true">{{ chip.icon }}</span>
+            {{ chip.name }}
+            <span class="chip-tag" :class="{ busy: chip.busy }">niv. {{ chip.level }}</span>
+          </button>
         </li>
       </ul>
 
       <TargetCard
-        :key="selectedKey"
-        :target="selected"
+        v-if="selectedTarget"
+        :key="keyOf(selectedTarget)"
+        :target="selectedTarget"
         :state="state"
-        @attack="(troops) => emit('attack', selected, troops)"
+        @march="march"
       />
     </section>
 
@@ -157,15 +262,19 @@ function lootText(loot: Partial<Resources>): string {
       <ol v-else class="reports">
         <li v-for="(report, index) in state.reports" :key="`${report.at}-${report.army}-${index}`" class="report">
           <p>
-            <strong :class="report.victory ? 'won' : 'lost'">{{ report.victory ? 'Victoire' : 'Défaite' }}</strong>
+            <strong :class="report.outcome === 'victory' ? 'won' : 'lost'">{{ OUTCOME_NAMES[report.outcome] }}</strong>
             · {{ foeName(report.foe) }}
             <template v-if="report.ambush">· <strong class="lost">embuscade</strong></template>
             <span class="muted">· {{ formatAgo(now - report.at) }}</span>
           </p>
+          <p class="muted">
+            {{ report.rounds.length }} manche{{ report.rounds.length > 1 ? 's' : '' }}, en
+            {{ formatDuration(report.at - report.startedAt) }}.
+          </p>
           <p>Envoyés : {{ formatArmy(report.sent) }}</p>
           <p>Pertes : {{ formatArmy(report.lost) || 'aucune' }}</p>
           <p>Monstres vaincus : {{ monstersText(report.enemyLost) || 'aucun' }}</p>
-          <p v-if="report.victory">Butin : {{ lootText(report.loot) }}</p>
+          <p v-if="report.outcome === 'victory'">Butin : {{ lootText(report.loot) }}</p>
           <p v-if="report.starving" class="lost">Tes troupes avaient faim : {{ malusPercent }} % d’attaque en moins.</p>
           <details v-if="report.rounds.length" class="journal">
             <summary>Journal du combat</summary>
@@ -200,24 +309,8 @@ function lootText(loot: Partial<Resources>): string {
   gap: 0.9rem;
 }
 
-.marches {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-}
-
-.march {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.8rem 1rem;
-  background: var(--stone);
-  border: 1px solid var(--gilt);
-  border-radius: var(--radius);
-  font-variant-numeric: tabular-nums;
+.army-chip {
+  border-color: var(--gilt);
 }
 
 .reports {

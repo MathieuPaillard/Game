@@ -214,14 +214,17 @@ describe('la partie', () => {
     const game = { ...richGame(), troops: { warrior: 50, archer: 0, rider: 0, mage: 0 } }
     const band = game.bands[0]
     server.giveGame('Arthur', game)
-    const attack = { type: 'attack', target: { type: 'band', band: band.id }, troops: { warrior: 20 } }
+    const attack = { type: 'march', target: { type: 'band', band: band.id }, troops: { warrior: 20 } }
     const response = await server.call('POST', '/api/game/actions', { token, body: attack })
     expect(response.data.ok).toBe(true)
-    expect(response.data.game.expeditions[0]).toMatchObject({
-      target: { type: 'band', band: band.id },
-      foe: { type: 'band', kind: band.kind, level: band.level },
-      troops: { warrior: 20 },
-    })
+    const sent = response.data.game.armies[0]
+    expect(sent).toMatchObject({ order: { type: 'band', band: band.id }, status: 'marching', troops: { warrior: 20 } })
+
+    // Un nouvel ordre pour l'armée dehors : rentrer à la cité.
+    const recall = { type: 'order', army: sent.id, target: { type: 'city' } }
+    const recalled = await server.call('POST', '/api/game/actions', { token, body: recall })
+    expect(recalled.data.ok).toBe(true)
+    expect(recalled.data.game.armies[0].order).toEqual({ type: 'city' })
     // Une bande qui n'existe pas : l'ordre est refusé par les règles.
     const ghost = { ...attack, target: { type: 'band', band: 999 } }
     const refused = await server.call('POST', '/api/game/actions', { token, body: ghost })

@@ -18,7 +18,7 @@ import { formatAmount } from './format'
 const props = defineProps<{ state: GameState; now: number }>()
 const emit = defineEmits<{ train: [unit: UnitId, count: number]; dismiss: [troops: Army] }>()
 
-// Les troupes en campagne : toutes les troupes, moins celles de la cité.
+// Les troupes dehors : toutes les troupes, moins celles de la cité.
 const away = computed(() => armySize(allTroops(props.state)) - armySize(props.state.troops))
 const upkeep = computed(() => upkeepPerHour(props.state))
 const starving = computed(() => isStarving(props.state))
@@ -56,11 +56,11 @@ function confirmDismiss() {
     <template v-else>
       <p>
         Troupes dans la cité : <strong>{{ armySize(state.troops) }}</strong>
-        <template v-if="away"> · en campagne : <strong>{{ away }}</strong></template>
+        <template v-if="away"> · dehors : <strong>{{ away }}</strong></template>
       </p>
       <p>
         Entretien : <strong><span aria-hidden="true">🌾</span> {{ formatAmount(upkeep) }}</strong> de nourriture
-        par heure, troupes en campagne comprises.
+        par heure, troupes dehors comprises.
       </p>
       <p v-if="starving" class="hungry">
         Tes troupes ont faim : elles perdent {{ malusPercent }} % de leur attaque au combat, tant que tes fermes ne

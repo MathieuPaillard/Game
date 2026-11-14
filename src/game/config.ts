@@ -348,6 +348,8 @@ export interface UnitDef {
   barracksLevel: number
   /** Entretien : nourriture mangée par heure par une troupe, dans la cité comme en campagne. */
   upkeepPerHour: number
+  /** Ressources qu'une troupe peut porter : le butin et la récolte rapportés à la cité. */
+  load: number
 }
 
 // Les forces et faiblesses forment un cycle :
@@ -365,6 +367,7 @@ export const UNITS: UnitDef[] = [
     trainingSeconds: 3,
     barracksLevel: 1,
     upkeepPerHour: 4,
+    load: 20,
   },
   {
     id: 'archer',
@@ -378,6 +381,7 @@ export const UNITS: UnitDef[] = [
     trainingSeconds: 3,
     barracksLevel: 1,
     upkeepPerHour: 4,
+    load: 15,
   },
   {
     id: 'rider',
@@ -391,6 +395,7 @@ export const UNITS: UnitDef[] = [
     trainingSeconds: 5,
     barracksLevel: 2,
     upkeepPerHour: 8,
+    load: 30,
   },
   {
     id: 'mage',
@@ -404,6 +409,7 @@ export const UNITS: UnitDef[] = [
     trainingSeconds: 6,
     barracksLevel: 3,
     upkeepPerHour: 6,
+    load: 10,
   },
 ]
 
@@ -411,8 +417,10 @@ export const UNITS: UnitDef[] = [
 export const COUNTER_BONUS = 1.5
 /** Quand les réserves de nourriture sont vides, les troupes ont faim : 0.3 = 30 % d'attaque en moins. */
 export const STARVATION_ATTACK_MALUS = 0.3
-/** Une bataille s'arrête au plus tard après ce nombre de manches. */
-export const MAX_BATTLE_ROUNDS = 10
+/** Une manche de bataille se joue toutes les 2 secondes : une bataille dure un moment. */
+export const BATTLE_ROUND_SECONDS = 2
+/** Au-delà de ce nombre de manches, les deux camps se séparent sans vainqueur. */
+export const MAX_BATTLE_ROUNDS = 100
 /** Troupes maximum par entraînement, pour chaque niveau de Caserne. */
 export const TRAINING_BATCH_PER_LEVEL = 20
 /** Chaque niveau de Caserne au-delà du premier réduit de 10 % la durée d'entraînement. */
@@ -435,6 +443,8 @@ export const WORLD: { width: number; height: number; city: Point } = {
 
 /** Vitesse de marche des armées, en unités de carte par seconde (Marche forcée l'augmente). */
 export const MARCH_SPEED = 10
+/** Tant que des armées sont dehors, le monde avance par pas d'une seconde. */
+export const WORLD_TICK_SECONDS = 1
 
 // --- Monstres et camps ---
 
@@ -508,8 +518,8 @@ export const CAMPS: CampDef[] = [
 
 // --- Les bandes de monstres ---
 // Elles apparaissent peu à peu sur la carte des alentours, d'autant plus fortes qu'elles sont loin
-// de la cité. Chacune garde une zone autour d'elle (sa zone d'aggro) : elle attaque toute armée
-// qui y entre.
+// de la cité, et patrouillent autour de leur repaire. Chacune a une zone autour d'elle (sa zone
+// d'aggro) : elle attaque toute armée qui y entre.
 
 export type BandKindId = 'wolves' | 'goblins' | 'skeletons' | 'trolls'
 
@@ -568,8 +578,11 @@ export const START_BANDS = 4
 export const MAX_BANDS = 8
 /** Tant qu'il reste de la place, une nouvelle bande apparaît toutes les 90 secondes. */
 export const BAND_SPAWN_SECONDS = 90
+/** Une bande fait des rondes autour de son repaire, sur une boucle de ce rayon, à cette vitesse (par seconde). */
+export const PATROL_RADIUS = 60
+export const PATROL_SPEED = 4
 
-/** Les endroits où une bande peut s'installer, du plus près au plus loin de la cité. */
+/** Les endroits où une bande peut installer son repaire, du plus près au plus loin de la cité. */
 export const BAND_SPOTS: Point[] = [
   { x: 800, y: 380 },
   { x: 590, y: 760 },
@@ -596,6 +609,56 @@ export const BAND_SPOTS: Point[] = [
   { x: 1490, y: 1090 },
   { x: 110, y: 110 },
   { x: 1490, y: 110 },
+]
+
+// --- Les gisements de ressources ---
+// Des champs, des scieries, des carrières, des mines et des sources de mana, sur la carte des
+// alentours. Une armée peut aller y récolter : chaque troupe récolte un peu chaque seconde, et
+// l'armée rentre à la cité quand elle ne peut plus rien porter, ou que le gisement est épuisé.
+
+export interface NodeKindDef {
+  name: string
+  icon: string
+  /** Ce que contient un gisement de niveau 1 : chaque niveau au-dessus le multiplie par NODE_GROWTH. */
+  amount: number
+  /** Ce qu'une troupe récolte par seconde. */
+  gatherRate: number
+}
+
+/** Une sorte de gisement par ressource. */
+export const NODE_KINDS: Record<ResourceId, NodeKindDef> = {
+  food: { name: 'Champs', icon: '🌾', amount: 1500, gatherRate: 0.3 },
+  wood: { name: 'Scierie', icon: '🪵', amount: 1500, gatherRate: 0.3 },
+  stone: { name: 'Carrière', icon: '🪨', amount: 1200, gatherRate: 0.25 },
+  gold: { name: 'Mine d’or', icon: '⛏️', amount: 400, gatherRate: 0.1 },
+  mana: { name: 'Source de mana', icon: '🔮', amount: 200, gatherRate: 0.06 },
+}
+
+export const NODE_GROWTH = 1.6
+/** Les gisements présents au début de la partie, et le maximum sur la carte. */
+export const START_NODES = 6
+export const MAX_NODES = 10
+/** Un gisement épuisé est remplacé : un nouveau apparaît toutes les 60 secondes, tant qu'il reste de la place. */
+export const NODE_SPAWN_SECONDS = 60
+
+/** Les endroits où un gisement peut apparaître. Leur niveau dépend aussi de la distance à la cité. */
+export const NODE_SPOTS: Point[] = [
+  { x: 680, y: 400 },
+  { x: 980, y: 470 },
+  { x: 900, y: 830 },
+  { x: 600, y: 900 },
+  { x: 420, y: 650 },
+  { x: 1180, y: 700 },
+  { x: 580, y: 1010 },
+  { x: 780, y: 150 },
+  { x: 1010, y: 1120 },
+  { x: 520, y: 130 },
+  { x: 270, y: 380 },
+  { x: 1390, y: 620 },
+  { x: 1000, y: 120 },
+  { x: 120, y: 720 },
+  { x: 1330, y: 1060 },
+  { x: 1510, y: 480 },
 ]
 
 /** Nombre de rapports de bataille conservés. */

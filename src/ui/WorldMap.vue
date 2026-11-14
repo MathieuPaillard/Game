@@ -1,109 +1,193 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { CAMPS, WORLD, type MonsterId } from '../game/config'
+import { computed, ref, watch } from 'vue'
+import { CAMPS, NODE_KINDS, WORLD } from '../game/config'
 import {
   aggroRadius,
   armySize,
-  bandsOnPath,
-  expeditionPosition,
+  bandPosition,
+  bandsNearPath,
+  getArmy,
+  getBand,
   getBandKind,
-  getMonster,
+  nodeGatherer,
+  patrolLoop,
   sameTarget,
   targetPosition,
   type GameState,
-  type Monsters,
   type Target,
 } from '../game/rules'
 import MapViewport from './MapViewport.vue'
-import { formatDuration } from './format'
+import { formatShort } from './format'
 import { WORLD_DECOR, WORLD_MAP, mountainLight, mountainPoints } from './maps'
+import { STATUS_ICONS, monstersIcon, type Selection } from './world'
 
-// Les alentours de la cité : les camps, les bandes de monstres et leurs zones d'aggro, et les armées
-// en marche. Toucher un camp ou une bande le sélectionne.
-const props = defineProps<{ state: GameState; now: number; selected: Target; cityName: string }>()
-const emit = defineEmits<{ select: [target: Target] }>()
+// Les alentours de la cité : les camps, les gisements, les bandes qui patrouillent (avec leur zone
+// d'aggro), tes armées et leurs batailles. Toucher un repère le choisit ; toucher le fond de la carte
+// donne un endroit, où envoyer l'armée choisie.
+const props = defineProps<{
+  state: GameState
+  now: number
+  selection: Selection
+  /** Le prochain ordre envisagé pour l'armée choisie, s'il y en a un. */
+  plan: Target | null
+  cityName: string
+}>()
+const emit = defineEmits<{ select: [selection: Selection]; tap: [point: { x: number; y: number }] }>()
 
 const city = WORLD.city
+const viewport = ref<InstanceType<typeof MapViewport> | null>(null)
 
-/** L'icône d'un groupe de monstres : celle du premier monstre encore debout. */
-function iconOf(monsters: Monsters): string {
-  const first = (Object.keys(monsters) as MonsterId[]).find((id) => (monsters[id] ?? 0) > 0)
-  return first ? getMonster(first).icon : '❔'
+// Quand on choisit une armée ou une cible (sur la carte ou dans les listes), la carte se centre dessus.
+watch(
+  () => props.selection,
+  (selection) => {
+    const point =
+      selection.kind === 'army'
+        ? getArmy(props.state, selection.id)?.position
+        : targetPosition(props.state, selection.target, props.now)
+    if (point) viewport.value?.centerOn(point)
+  },
+)
+
+/** Avec une armée choisie, toucher la cité prépare son retour ; sinon, c'est un simple toucher sur la carte. */
+const armyChosen = computed(() => props.selection.kind === 'army')
+const cityPlanned = computed(() => props.plan?.type === 'city')
+
+function goHome() {
+  if (armyChosen.value) emit('select', { kind: 'target', target: { type: 'city' } })
 }
 
-const isTargeted = (target: Target) => props.state.expeditions.some((e) => sameTarget(e.target, target))
+function onCityClick(e: MouseEvent) {
+  if (!armyChosen.value) return
+  e.stopPropagation()
+  goHome()
+}
 
-// Les bandes dont l'armée traverserait la zone d'aggro pour atteindre la cible choisie.
-const crossed = computed(() => new Set(bandsOnPath(props.state, props.selected).map((band) => band.id)))
+const isSelectedTarget = (target: Target) =>
+  props.selection.kind === 'target' && sameTarget(props.selection.target, target)
 
-const bands = computed(() =>
-  props.state.bands.map((band) => ({
-    key: `band-${band.id}`,
-    target: { type: 'band', band: band.id } as Target,
-    ...band.position,
-    radius: aggroRadius(band.level),
-    crossed: crossed.value.has(band.id),
-  })),
-)
-
-// Les camps et les bandes, du haut vers le bas de la carte : ceux du bas passent devant.
-const spots = computed(() =>
-  [
-    ...CAMPS.map((camp) => ({
-      key: camp.id,
-      target: { type: 'camp', camp: camp.id } as Target,
-      ...camp.position,
-      isBand: false,
-      name: camp.name,
-      level: camp.level,
-      icon: iconOf(camp.defenders),
-    })),
-    ...props.state.bands.map((band) => ({
-      key: `band-${band.id}`,
-      target: { type: 'band', band: band.id } as Target,
-      ...band.position,
-      isBand: true,
-      name: getBandKind(band.kind).name,
-      level: band.level,
-      icon: iconOf(band.monsters),
-    })),
-  ]
-    .map((spot) => ({ ...spot, selected: sameTarget(spot.target, props.selected), targeted: isTargeted(spot.target) }))
-    .sort((a, b) => a.y - b.y),
-)
-
-// La route que prendrait une armée vers la cible choisie.
-const route = computed(() => {
-  const to = targetPosition(props.state, props.selected)
-  return to && { x1: city.x, y1: city.y, x2: to.x, y2: to.y }
+/** D'où part le chemin dessiné : de l'armée choisie, ou de la cité. */
+const pathStart = computed(() => {
+  const selection = props.selection
+  if (selection.kind === 'army') return getArmy(props.state, selection.id)?.position ?? city
+  return city
 })
 
-// Chaque armée avance en ligne droite, selon l'heure.
-const armies = computed(() =>
-  props.state.expeditions.map((expedition) => {
-    const end = expedition.returning ? expedition.returnsAt : expedition.arrivesAt
+/** Où mène le chemin dessiné : vers l'ordre envisagé pour l'armée, ou vers la cible choisie. */
+const pathTarget = computed<Target | null>(() =>
+  props.selection.kind === 'army' ? props.plan : props.selection.target,
+)
+
+const path = computed(() => {
+  const target = pathTarget.value
+  const to = target && targetPosition(props.state, target, props.now)
+  return to ? { x1: pathStart.value.x, y1: pathStart.value.y, x2: to.x, y2: to.y } : null
+})
+
+// Les bandes qui patrouillent près de ce chemin : l'armée risque d'y être attaquée.
+const dangers = computed(() => {
+  const target = pathTarget.value
+  const to = target && targetPosition(props.state, target, props.now)
+  if (!target || !to) return new Set<number>()
+  return new Set(bandsNearPath(props.state, pathStart.value, to, target).map((band) => band.id))
+})
+
+const camps = computed(() =>
+  CAMPS.map((camp) => {
+    const target: Target = { type: 'camp', camp: camp.id }
     return {
-      key: expedition.id,
-      ...expeditionPosition(expedition, props.now),
-      label: `${expedition.returning ? 'Retour' : 'Aller'} · ${formatDuration(end - props.now)}`,
-      size: armySize(expedition.troops),
+      key: camp.id,
+      target,
+      ...camp.position,
+      name: camp.name,
+      level: camp.level,
+      icon: monstersIcon(camp.defenders),
+      selected: isSelectedTarget(target),
     }
   }),
 )
 
-function describe(spot: (typeof spots.value)[number]): string {
-  const what = spot.isBand ? `bande de monstres, niveau ${spot.level}` : `camp de niveau ${spot.level}`
-  return `${spot.name}, ${what}${spot.targeted ? ', une armée y est envoyée' : ''}`
-}
+const nodes = computed(() =>
+  props.state.nodes.map((node) => {
+    const target: Target = { type: 'node', node: node.id }
+    return {
+      key: `node-${node.id}`,
+      target,
+      ...node.position,
+      name: NODE_KINDS[node.resource].name,
+      icon: NODE_KINDS[node.resource].icon,
+      level: node.level,
+      remaining: formatShort(node.remaining),
+      busy: nodeGatherer(props.state, node.id)?.status === 'gathering',
+      selected: isSelectedTarget(target) || (props.plan !== null && sameTarget(props.plan, target)),
+    }
+  }),
+)
+
+const bands = computed(() =>
+  props.state.bands.map((band) => {
+    const target: Target = { type: 'band', band: band.id }
+    return {
+      key: `band-${band.id}`,
+      target,
+      ...bandPosition(band, props.now),
+      loop: patrolLoop(band.home)
+        .map((p) => `${p.x},${p.y}`)
+        .join(' '),
+      radius: aggroRadius(band.level),
+      name: getBandKind(band.kind).name,
+      level: band.level,
+      icon: monstersIcon(band.monsters),
+      fighting: band.since === null,
+      danger: dangers.value.has(band.id),
+      selected: isSelectedTarget(target) || (props.plan !== null && sameTarget(props.plan, target)),
+    }
+  }),
+)
+
+const armies = computed(() =>
+  props.state.armies.map((army) => ({
+    key: army.id,
+    ...army.position,
+    icon: STATUS_ICONS[army.status],
+    size: armySize(army.troops),
+    selected: props.selection.kind === 'army' && props.selection.id === army.id,
+  })),
+)
+
+// Les batailles en cours : une ligne entre l'armée et la bande, et le numéro de la manche.
+const battles = computed(() =>
+  props.state.battles.flatMap((battle) => {
+    const army = getArmy(props.state, battle.army)
+    if (!army) return []
+    const band = battle.band === null ? undefined : getBand(props.state, battle.band)
+    const foe = band ? bandPosition(band, props.now) : army.position
+    return [
+      {
+        key: battle.id,
+        from: army.position,
+        to: foe,
+        x: (army.position.x + foe.x) / 2,
+        y: (army.position.y + foe.y) / 2,
+        round: battle.rounds.length,
+      },
+    ]
+  }),
+)
+
+// L'endroit choisi pour l'armée, quand on a touché le fond de la carte.
+const pointPlan = computed(() => (props.plan?.type === 'point' ? props.plan : null))
 </script>
 
 <template>
   <MapViewport
+    ref="viewport"
     :width="WORLD_MAP.width"
     :height="WORLD_MAP.height"
     :center="WORLD_MAP.center"
     :span="1100"
     label="Carte des alentours"
+    @tap="emit('tap', $event)"
   >
     <!-- Le décor -->
     <rect :width="WORLD_MAP.width" :height="WORLD_MAP.height" class="ground" />
@@ -121,18 +205,8 @@ function describe(spot: (typeof spots.value)[number]): string {
       :y2="camp.position.y"
       class="trail"
     />
-
-    <!-- Les zones d'aggro : une armée qui y entre est attaquée -->
-    <circle
-      v-for="band in bands"
-      :key="`aggro-${band.key}`"
-      :cx="band.x"
-      :cy="band.y"
-      :r="band.radius"
-      class="aggro"
-      :class="{ crossed: band.crossed }"
-    />
-
+    <!-- Les rondes des bandes -->
+    <polygon v-for="band in bands" :key="`loop-${band.key}`" :points="band.loop" class="patrol" />
     <g v-for="(mountain, i) in WORLD_DECOR.mountains" :key="`mountain-${i}`">
       <polygon :points="mountainPoints(mountain)" class="rock" />
       <polygon :points="mountainLight(mountain)" class="rock-light" />
@@ -149,65 +223,135 @@ function describe(spot: (typeof spots.value)[number]): string {
       🌲
     </text>
 
-    <!-- La route vers la cible choisie -->
-    <line v-if="route" v-bind="route" class="route" />
+    <!-- Le chemin vers la cible choisie, ou vers le prochain ordre de l'armée choisie -->
+    <line v-if="path" v-bind="path" class="route" />
+    <g v-if="pointPlan" :transform="`translate(${pointPlan.x} ${pointPlan.y})`" aria-hidden="true">
+      <circle r="14" class="plan-mark" />
+      <circle r="4" class="plan-dot" />
+    </g>
 
-    <!-- La cité -->
-    <g :transform="`translate(${city.x} ${city.y})`" aria-hidden="true">
+    <!-- La cité : avec une armée choisie, la toucher prépare son retour -->
+    <g
+      :class="{ spot: armyChosen, selected: cityPlanned }"
+      :transform="`translate(${city.x} ${city.y})`"
+      :role="armyChosen ? 'button' : undefined"
+      :tabindex="armyChosen ? 0 : undefined"
+      :aria-label="armyChosen ? `${cityName} : y faire rentrer ton armée` : undefined"
+      :aria-hidden="armyChosen ? undefined : 'true'"
+      @click="onCityClick"
+      @keydown.enter.prevent="goHome"
+      @keydown.space.prevent="goHome"
+    >
       <ellipse class="spot-base" rx="84" ry="32" cy="46" />
+      <ellipse v-if="armyChosen" class="spot-ring" rx="96" ry="40" cy="46" />
       <text class="emoji" font-size="104">🏰</text>
       <text class="map-label" y="100">{{ cityName }}</text>
     </g>
 
-    <!-- Les camps et les bandes -->
+    <!-- Les gisements -->
     <g
-      v-for="spot in spots"
-      :key="spot.key"
-      class="spot"
-      :class="{ selected: spot.selected, band: spot.isBand }"
-      :transform="`translate(${spot.x} ${spot.y})`"
+      v-for="node in nodes"
+      :key="node.key"
+      class="spot node"
+      :class="{ selected: node.selected }"
+      :transform="`translate(${node.x} ${node.y})`"
       role="button"
       tabindex="0"
-      :aria-label="describe(spot)"
-      :aria-pressed="spot.selected"
-      @click="emit('select', spot.target)"
-      @keydown.enter.prevent="emit('select', spot.target)"
-      @keydown.space.prevent="emit('select', spot.target)"
+      :aria-label="`${node.name}, niveau ${node.level}, ${node.remaining} à récolter`"
+      :aria-pressed="node.selected"
+      @click.stop="emit('select', { kind: 'target', target: node.target })"
+      @keydown.enter.prevent="emit('select', { kind: 'target', target: node.target })"
+      @keydown.space.prevent="emit('select', { kind: 'target', target: node.target })"
     >
-      <template v-if="spot.isBand">
-        <ellipse class="spot-base band-base" rx="40" ry="16" cy="24" />
-        <ellipse class="spot-ring" rx="50" ry="22" cy="24" />
-        <text class="emoji" font-size="50">{{ spot.icon }}</text>
-        <g transform="translate(30 -26)">
-          <circle r="15" class="badge level" />
-          <text class="badge-text">{{ spot.level }}</text>
-        </g>
-        <text class="map-label" y="58">{{ spot.name }}</text>
-      </template>
-      <template v-else>
-        <ellipse class="spot-base camp-base" rx="66" ry="26" cy="32" />
-        <ellipse class="spot-ring" rx="78" ry="33" cy="32" />
-        <text class="emoji" font-size="70">{{ spot.icon }}</text>
-        <text class="map-label" y="74">{{ spot.name }}</text>
-        <text class="map-sublabel" y="98">Niveau {{ spot.level }}</text>
-      </template>
-      <g v-if="spot.targeted" :transform="spot.isBand ? 'translate(-30 -26)' : 'translate(40 -38)'">
-        <circle r="18" class="badge ready" />
-        <text class="emoji" font-size="20">⚔️</text>
+      <ellipse class="spot-base node-base" rx="38" ry="15" cy="22" />
+      <ellipse class="spot-ring" rx="48" ry="21" cy="22" />
+      <text class="emoji" font-size="44">{{ node.icon }}</text>
+      <g transform="translate(28 -24)">
+        <circle r="14" class="badge" />
+        <text class="badge-text">{{ node.level }}</text>
       </g>
+      <text v-if="node.busy" class="emoji" font-size="24" x="-30" y="-24">⛏️</text>
+      <text class="map-label" y="52">{{ node.name }}</text>
+      <text class="map-sublabel" y="74">{{ node.remaining }}</text>
     </g>
 
-    <!-- Les armées en marche -->
+    <!-- Les camps -->
+    <g
+      v-for="camp in camps"
+      :key="camp.key"
+      class="spot"
+      :class="{ selected: camp.selected }"
+      :transform="`translate(${camp.x} ${camp.y})`"
+      role="button"
+      tabindex="0"
+      :aria-label="`${camp.name}, camp de niveau ${camp.level}`"
+      :aria-pressed="camp.selected"
+      @click.stop="emit('select', { kind: 'target', target: camp.target })"
+      @keydown.enter.prevent="emit('select', { kind: 'target', target: camp.target })"
+      @keydown.space.prevent="emit('select', { kind: 'target', target: camp.target })"
+    >
+      <ellipse class="spot-base camp-base" rx="66" ry="26" cy="32" />
+      <ellipse class="spot-ring" rx="78" ry="33" cy="32" />
+      <text class="emoji" font-size="70">{{ camp.icon }}</text>
+      <text class="map-label" y="74">{{ camp.name }}</text>
+      <text class="map-sublabel" y="98">Niveau {{ camp.level }}</text>
+    </g>
+
+    <!-- Les bandes, en patrouille, avec leur zone d'aggro -->
+    <g
+      v-for="band in bands"
+      :key="band.key"
+      class="mover spot band"
+      :class="{ selected: band.selected }"
+      :style="{ transform: `translate(${band.x}px, ${band.y}px)` }"
+      role="button"
+      tabindex="0"
+      :aria-label="`${band.name}, bande de niveau ${band.level}${band.fighting ? ', au combat' : ', en patrouille'}`"
+      :aria-pressed="band.selected"
+      @click.stop="emit('select', { kind: 'target', target: band.target })"
+      @keydown.enter.prevent="emit('select', { kind: 'target', target: band.target })"
+      @keydown.space.prevent="emit('select', { kind: 'target', target: band.target })"
+    >
+      <circle :r="band.radius" class="aggro" :class="{ danger: band.danger }" />
+      <ellipse class="spot-base band-base" rx="34" ry="13" cy="20" />
+      <ellipse class="spot-ring" rx="44" ry="19" cy="20" />
+      <text class="emoji" font-size="44">{{ band.icon }}</text>
+      <g transform="translate(26 -22)">
+        <circle r="14" class="badge level" />
+        <text class="badge-text">{{ band.level }}</text>
+      </g>
+      <text class="map-label" y="50">{{ band.name }}</text>
+    </g>
+
+    <!-- Tes armées -->
     <g
       v-for="army in armies"
       :key="army.key"
-      class="army"
+      class="mover spot army"
+      :class="{ selected: army.selected }"
       :style="{ transform: `translate(${army.x}px, ${army.y}px)` }"
-      aria-hidden="true"
+      role="button"
+      tabindex="0"
+      :aria-label="`Ton armée de ${army.size} troupes`"
+      :aria-pressed="army.selected"
+      @click.stop="emit('select', { kind: 'army', id: army.key })"
+      @keydown.enter.prevent="emit('select', { kind: 'army', id: army.key })"
+      @keydown.space.prevent="emit('select', { kind: 'army', id: army.key })"
     >
+      <circle r="34" class="spot-ring army-ring" />
       <circle r="26" class="army-dot" />
-      <text class="emoji" font-size="30">🚩</text>
-      <text class="map-label" y="-44">{{ army.size }} · {{ army.label }}</text>
+      <text class="emoji" font-size="28">{{ army.icon }}</text>
+      <text class="map-label" y="-44">{{ army.size }}</text>
+    </g>
+
+    <!-- Les batailles en cours -->
+    <g v-for="battle in battles" :key="`battle-${battle.key}`" aria-hidden="true">
+      <line :x1="battle.from.x" :y1="battle.from.y" :x2="battle.to.x" :y2="battle.to.y" class="clash" />
+      <g :transform="`translate(${battle.x} ${battle.y})`">
+        <circle r="24" class="clash-mark" />
+        <text class="emoji" font-size="26">⚔️</text>
+        <text class="map-label" y="40">Manche {{ battle.round + 1 }}</text>
+      </g>
     </g>
   </MapViewport>
 </template>
@@ -233,12 +377,22 @@ function describe(spot: (typeof spots.value)[number]): string {
   fill: var(--map-camp);
 }
 
-.band-base {
+.band-base,
+.node-base {
   fill: var(--map-camp);
   opacity: 0.85;
 }
 
-/* Une zone d'aggro : un cercle rouge, plus marqué s'il coupe la route vers la cible choisie. */
+/* La ronde d'une bande, en pointillés discrets. */
+.patrol {
+  fill: none;
+  stroke: var(--ember);
+  stroke-width: 2;
+  stroke-dasharray: 4 10;
+  opacity: 0.45;
+}
+
+/* La zone d'aggro : un cercle rouge, plus marqué si le chemin choisi passe tout près. */
 .aggro {
   fill: var(--map-aggro);
   stroke: var(--ember);
@@ -247,7 +401,7 @@ function describe(spot: (typeof spots.value)[number]): string {
   opacity: 0.8;
 }
 
-.aggro.crossed {
+.aggro.danger {
   stroke-width: 6;
   opacity: 1;
 }
@@ -260,18 +414,45 @@ function describe(spot: (typeof spots.value)[number]): string {
   opacity: 0.9;
 }
 
+.plan-mark {
+  fill: none;
+  stroke: var(--gilt);
+  stroke-width: 4;
+}
+
+.plan-dot {
+  fill: var(--gilt);
+}
+
 .badge.level {
   fill: var(--map-aggro-badge);
   stroke: var(--ember);
 }
 
-.army {
+/* Les bandes et les armées glissent d'une seconde à l'autre. */
+.mover {
   transition: transform 1s linear;
 }
 
 .army-dot {
   fill: var(--gilt);
   stroke: var(--gilt-deep);
+  stroke-width: 3;
+}
+
+.army-ring {
+  stroke-width: 6;
+}
+
+.clash {
+  stroke: var(--ember);
+  stroke-width: 4;
+  stroke-dasharray: 8 6;
+}
+
+.clash-mark {
+  fill: var(--stone);
+  stroke: var(--ember);
   stroke-width: 3;
 }
 </style>

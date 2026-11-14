@@ -6,7 +6,8 @@ import {
   emptyResources,
   getBuilding,
   newGame,
-  startExpedition,
+  orderArmy,
+  startMarch,
   startResearch,
   startTraining,
   startUpgrade,
@@ -34,8 +35,12 @@ describe('parseAction', () => {
       { type: 'upgrade', building: 'farm' },
       { type: 'research', tech: 'forge' },
       { type: 'train', unit: 'archer', count: 12 },
-      { type: 'attack', target: { type: 'camp', camp: 'wolfDen' }, troops: army({ warrior: 5 }) },
-      { type: 'attack', target: { type: 'band', band: 3 }, troops: army({ archer: 2 }) },
+      { type: 'march', target: { type: 'camp', camp: 'wolfDen' }, troops: army({ warrior: 5 }) },
+      { type: 'march', target: { type: 'band', band: 3 }, troops: army({ archer: 2 }) },
+      { type: 'march', target: { type: 'node', node: 4 }, troops: army({ rider: 6 }) },
+      { type: 'march', target: { type: 'point', x: 120.5, y: 900 }, troops: army({ mage: 1 }) },
+      { type: 'order', army: 7, target: { type: 'city' } },
+      { type: 'order', army: 7, target: { type: 'band', band: 2 } },
       { type: 'dismiss', troops: army({ mage: 2 }) },
     ]
     // Comme s'ils arrivaient du réseau : transformés en texte, puis relus.
@@ -63,14 +68,21 @@ describe('parseAction', () => {
       { type: 'train', unit: 'archer', count: -1 },
       { type: 'train', unit: 'archer', count: '10' },
       { type: 'train', unit: 'archer', count: 1e12 },
-      { type: 'attack', camp: 'wolfDen', troops: { warrior: 1 } },
-      { type: 'attack', target: 'wolfDen', troops: { warrior: 1 } },
-      { type: 'attack', target: { type: 'camp', camp: 'nowhere' }, troops: { warrior: 1 } },
-      { type: 'attack', target: { type: 'band', band: -1 }, troops: { warrior: 1 } },
-      { type: 'attack', target: { type: 'band', band: 1.5 }, troops: { warrior: 1 } },
-      { type: 'attack', target: { type: 'dragon' }, troops: { warrior: 1 } },
-      { type: 'attack', target: { type: 'camp', camp: 'wolfDen' }, troops: [1, 2] },
-      { type: 'attack', target: { type: 'camp', camp: 'wolfDen' }, troops: { warrior: 1, dragon: 1 } },
+      { type: 'attack', target: { type: 'camp', camp: 'wolfDen' }, troops: { warrior: 1 } },
+      { type: 'march', camp: 'wolfDen', troops: { warrior: 1 } },
+      { type: 'march', target: 'wolfDen', troops: { warrior: 1 } },
+      { type: 'march', target: { type: 'camp', camp: 'nowhere' }, troops: { warrior: 1 } },
+      { type: 'march', target: { type: 'band', band: -1 }, troops: { warrior: 1 } },
+      { type: 'march', target: { type: 'band', band: 1.5 }, troops: { warrior: 1 } },
+      { type: 'march', target: { type: 'dragon' }, troops: { warrior: 1 } },
+      { type: 'march', target: { type: 'point', x: -1, y: 10 }, troops: { warrior: 1 } },
+      { type: 'march', target: { type: 'point', x: 10, y: 99999 }, troops: { warrior: 1 } },
+      { type: 'march', target: { type: 'point', x: '10', y: 10 }, troops: { warrior: 1 } },
+      { type: 'march', target: { type: 'camp', camp: 'wolfDen' }, troops: [1, 2] },
+      { type: 'march', target: { type: 'camp', camp: 'wolfDen' }, troops: { warrior: 1, dragon: 1 } },
+      { type: 'order', army: -2, target: { type: 'city' } },
+      { type: 'order', army: 3 },
+      { type: 'order', army: 3, target: { type: 'node' } },
       { type: 'dismiss', troops: { warrior: Number.NaN } },
       JSON.parse('{"type": "dismiss", "troops": {"__proto__": 1}}'),
     ]
@@ -101,9 +113,12 @@ describe('performAction', () => {
     })
     const troops = army({ warrior: 6 })
     const target = { type: 'camp', camp: 'wolfDen' } as const
-    expect(performAction(game, { type: 'attack', target, troops }, t)).toEqual({
+    const marched = startMarch(game, target, troops, t)
+    expect(performAction(game, { type: 'march', target, troops }, t)).toEqual({ ok: true, state: marched })
+    const id = marched.armies[0].id
+    expect(performAction(marched, { type: 'order', army: id, target: { type: 'city' } }, t + 1000)).toEqual({
       ok: true,
-      state: startExpedition(game, target, troops, t),
+      state: orderArmy(marched, id, { type: 'city' }, t + 1000),
     })
     const dismissed = performAction(game, { type: 'dismiss', troops: army({ warrior: 4 }) }, t)
     expect(dismissed.ok && dismissed.state.troops.warrior).toBe(6)

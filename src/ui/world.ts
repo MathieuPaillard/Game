@@ -1,0 +1,86 @@
+// Les mots et les icônes de la carte des alentours : le nom des cibles et ce que font les armées.
+
+import { NODE_KINDS, type MonsterId } from '../game/config'
+import {
+  getBand,
+  getCamp,
+  getMonster,
+  getNode,
+  type ArmyStatus,
+  type FieldArmy,
+  type GameState,
+  type Monsters,
+  type Target,
+} from '../game/rules'
+import { foeName } from './battleLog'
+
+/** Ce qui est choisi sur la carte : une cible (camp, bande, gisement), ou une de tes armées. */
+export type Selection = { kind: 'target'; target: Target } | { kind: 'army'; id: number }
+
+export const STATUS_ICONS: Record<ArmyStatus, string> = {
+  marching: '🚩',
+  idle: '⛺',
+  fighting: '⚔️',
+  gathering: '⛏️',
+}
+
+/** L'icône d'un groupe de monstres : celle du premier monstre encore debout. */
+export function monstersIcon(monsters: Monsters): string {
+  const first = (Object.keys(monsters) as MonsterId[]).find((id) => (monsters[id] ?? 0) > 0)
+  return first ? getMonster(first).icon : '❔'
+}
+
+/** Le nom d'une cible : « Tanière de loups », « Meute de loups (niv. 2) », « Champs (niv. 1) »… */
+export function targetName(state: GameState, target: Target): string {
+  switch (target.type) {
+    case 'point':
+      return 'cet endroit'
+    case 'camp':
+      return getCamp(target.camp).name
+    case 'band': {
+      const band = getBand(state, target.band)
+      return band ? foeName({ type: 'band', kind: band.kind, level: band.level }) : 'une bande disparue'
+    }
+    case 'node': {
+      const node = getNode(state, target.node)
+      return node ? `${NODE_KINDS[node.resource].name} (niv. ${node.level})` : 'un gisement épuisé'
+    }
+    case 'city':
+      return 'la cité'
+  }
+}
+
+/** Un ordre, en quelques mots : « Attaquer Tanière de loups », « Récolter Champs (niv. 1) »… */
+export function orderText(state: GameState, target: Target): string {
+  switch (target.type) {
+    case 'point':
+      return 'Aller à cet endroit'
+    case 'camp':
+    case 'band':
+      return `Attaquer : ${targetName(state, target)}`
+    case 'node':
+      return `Récolter : ${targetName(state, target)}`
+    case 'city':
+      return 'Rentrer à la cité'
+  }
+}
+
+/** Ce que fait une armée en ce moment. */
+export function armyStatusText(state: GameState, army: FieldArmy): string {
+  const order = army.order
+  switch (army.status) {
+    case 'marching':
+      if (!order) return 'En marche'
+      if (order.type === 'city') return 'Rentre à la cité'
+      if (order.type === 'point') return 'En route'
+      return `En route pour : ${targetName(state, order)}`
+    case 'idle':
+      return 'Attend tes ordres'
+    case 'fighting': {
+      const battle = state.battles.find((b) => b.army === army.id)
+      return battle ? `Au combat contre : ${foeName(battle.foe)}` : 'Au combat'
+    }
+    case 'gathering':
+      return order ? `Récolte : ${targetName(state, order)}` : 'Récolte'
+  }
+}

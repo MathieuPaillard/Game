@@ -35,7 +35,8 @@ const emit = defineEmits<{
   upgrade: [building: BuildingId]
   research: [tech: TechId]
   train: [unit: UnitId, count: number]
-  attack: [target: Target, troops: Army]
+  march: [target: Target, troops: Army]
+  order: [army: number, target: Target]
   dismiss: [troops: Army]
   restart: []
   dismissAway: []
@@ -51,7 +52,7 @@ const tabs = computed(() => [
   { id: 'city' as const, label: 'Cité', busy: props.state.construction !== null },
   { id: 'army' as const, label: 'Armée', busy: props.state.trainings.length > 0 },
   { id: 'research' as const, label: 'Recherches', busy: props.state.research !== null },
-  { id: 'world' as const, label: 'Alentours', busy: props.state.expeditions.length > 0 },
+  { id: 'world' as const, label: 'Alentours', busy: props.state.armies.length > 0 },
 ])
 
 // Le bâtiment choisi sur la carte (ou dans la liste), dont on montre la fiche.
@@ -177,7 +178,8 @@ const confirmingRestart = ref(false)
       :state="state"
       :now="now"
       :city-name="`Cité des ${race.name}`"
-      @attack="(target, troops) => emit('attack', target, troops)"
+      @march="(target, troops) => emit('march', target, troops)"
+      @order="(army, target) => emit('order', army, target)"
     />
 
     <footer class="city-foot">

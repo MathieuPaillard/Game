@@ -3,7 +3,8 @@ import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import type { Point } from './maps'
 
 // Une carte qu'on fait glisser (doigt ou souris) et qu'on zoome (molette, pincement ou boutons).
-// Le dessin lui-même est fourni par le composant parent, en unités de la carte.
+// Le dessin lui-même est fourni par le composant parent, en unités de la carte. Toucher la carte
+// ailleurs que sur un repère donne l'endroit touché, en unités de la carte (événement `tap`).
 const props = defineProps<{
   /** Taille du monde dessiné, en unités de la carte. */
   width: number
@@ -15,6 +16,7 @@ const props = defineProps<{
   /** Nom de la carte, pour les lecteurs d'écran. */
   label: string
 }>()
+const emit = defineEmits<{ tap: [point: Point] }>()
 
 const MAX_SCALE = 2.5
 const host = ref<HTMLDivElement | null>(null)
@@ -66,7 +68,7 @@ const pointers = new Map<number, Point>()
 let start: Point = { x: 0, y: 0 }
 let dragged = false
 
-function local(e: PointerEvent | WheelEvent): Point {
+function local(e: MouseEvent): Point {
   const rect = host.value!.getBoundingClientRect()
   return { x: e.clientX - rect.left, y: e.clientY - rect.top }
 }
@@ -119,6 +121,13 @@ function onClickCapture(e: MouseEvent) {
   e.stopPropagation()
   e.preventDefault()
   dragged = false
+}
+
+/** Un simple toucher (sans glisser) sur le fond de la carte : on donne l'endroit touché. */
+function onClick(e: MouseEvent) {
+  if (e.target instanceof Element && e.target.closest('.map-controls')) return
+  const point = local(e)
+  emit('tap', { x: (point.x - view.x) / view.scale, y: (point.y - view.y) / view.scale })
 }
 
 function onWheel(e: WheelEvent) {
@@ -175,6 +184,7 @@ defineExpose({ centerOn })
     @pointerup="onPointerUp"
     @pointercancel="onPointerUp"
     @click.capture="onClickCapture"
+    @click="onClick"
     @wheel.prevent="onWheel"
     @keydown="onKeydown"
   >

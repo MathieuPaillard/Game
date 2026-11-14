@@ -23,7 +23,8 @@ const {
   upgrade,
   research,
   train,
-  attack,
+  march,
+  order,
   dismiss,
   restart,
   dismissAwayReport,
@@ -75,7 +76,8 @@ const {
     @upgrade="upgrade"
     @research="research"
     @train="train"
-    @attack="attack"
+    @march="march"
+    @order="order"
     @dismiss="dismiss"
     @restart="restart"
     @dismiss-away="dismissAwayReport"
