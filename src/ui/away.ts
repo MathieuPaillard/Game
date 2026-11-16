@@ -1,7 +1,17 @@
 // Le résumé « Bon retour » : ce qui s'est passé pendant que le joueur n'était pas là.
 
 import { RESOURCE_IDS, type Resources } from '../game/config'
-import { emptyResources, getBuilding, getHeroDef, getTech, getUnit, type GameState } from '../game/rules'
+import {
+  currentQuest,
+  emptyResources,
+  getBuilding,
+  getHeroDef,
+  getSpell,
+  getTech,
+  getUnit,
+  questDone,
+  type GameState,
+} from '../game/rules'
 import { OUTCOME_NAMES, foeName } from './battleLog'
 
 // En dessous d'une minute d'absence, pas de résumé.
@@ -49,6 +59,14 @@ export function makeAwayReport(before: GameState, after: GameState): AwayReport 
     if (was && hero.level > was.level) {
       events.push(`${getHeroDef(hero.id).name} atteint le niveau ${hero.level} : des points de compétence à placer.`)
     }
+  }
+  for (const active of before.spells) {
+    if (!after.spells.some((s) => s.spell === active.spell)) events.push(`Le sort ${getSpell(active.spell).name} a pris fin.`)
+  }
+  // Un objectif atteint pendant l'absence : sa récompense attend dans l'onglet Cité.
+  const quest = currentQuest(after)
+  if (quest && questDone(after, quest) && !questDone(before, quest)) {
+    events.push(`Objectif atteint : ${quest.name}. Ta récompense t’attend dans l’onglet Cité.`)
   }
   const newBands = after.bands.filter((band) => !before.bands.some((b) => b.id === band.id)).length
   if (newBands === 1) events.push('Une nouvelle bande de monstres rôde aux alentours.')

@@ -44,7 +44,7 @@ A Vue 3 + TypeScript + Vite single-page app with a French UI, plus a Node.js ser
 - `src/ui/` is the display layer. `useGame.ts` owns the reactive state and ticks once a second.
   - A game lives either online or on the device. Online, the session is kept in `localStorage` and the server decides. Without an account, `storage.ts` saves the game under a versioned key; bump `SAVE_VERSION` on incompatible format changes.
   - Online play: each order is applied locally right away with `performAction`, then sent to the server, whose answer replaces the state. Requests go through a queue one at a time, and only the last answer in line is applied. `api.ts` wraps `fetch` and estimates the server clock (`serverNow`), which drives the timers online. The client re-syncs every minute, when the tab becomes visible again, and every 10 seconds while the server is unreachable.
-  - `away.ts` builds the "Bon retour" summary: finished work, battles, armies back home, hero levels, new bands and nodes.
+  - `away.ts` builds the "Bon retour" summary: finished work, battles, armies back home, hero levels, spells that ended, an objective reached, new bands and nodes.
   - Screens:
     - `AccountView.vue`: log in, create an account, or "Jouer sans compte".
     - `RaceChoice.vue`: pick a race.
