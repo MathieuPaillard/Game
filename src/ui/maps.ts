@@ -34,7 +34,7 @@ export function mountainLight(m: Mountain): string {
 
 // --- La cité ---
 
-export const CITY_MAP = { width: 1400, height: 1000, center: { x: 700, y: 490 } }
+export const CITY_MAP = { width: 1400, height: 1000, center: { x: 700, y: 472 } }
 
 export const CITY_PLOTS: Record<BuildingId, Point> = {
   castle: { x: 700, y: 450 },
@@ -47,6 +47,12 @@ export const CITY_PLOTS: Record<BuildingId, Point> = {
   quarry: { x: 1060, y: 440 },
   // La Tour des mages se dresse sur l'enceinte, au nord, au-dessus du Château.
   mageTower: { x: 700, y: 245 },
+}
+
+/** Dans la cité, on peut aussi toucher la garnison (les troupes au repos) et le quartier des héros. */
+export const CITY_SPOTS = {
+  garrison: { x: 450, y: 480 },
+  heroes: { x: 810, y: 640 },
 }
 
 /** L'enceinte de la cité : la Scierie et la Carrière sont dehors, près de la forêt et des montagnes. */

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import AccountView from './ui/AccountView.vue'
-import CityView from './ui/CityView.vue'
+import GameScreen from './ui/GameScreen.vue'
 import RaceChoice from './ui/RaceChoice.vue'
 import { useGame } from './ui/useGame'
 
@@ -69,7 +69,7 @@ const {
     @go-online="showAccount"
     @dismiss-notice="dismissNotice"
   />
-  <CityView
+  <GameScreen
     v-else
     :state="state"
     :now="now"

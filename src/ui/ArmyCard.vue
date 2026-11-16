@@ -2,11 +2,8 @@
 import { computed } from 'vue'
 import { RESOURCES, RESOURCE_IDS, type MonsterId } from '../game/config'
 import {
-  bandsNearPath,
   battleSurvivors,
   carryCapacity,
-  checkOrder,
-  getBandKind,
   getHero,
   getHeroDef,
   getMonster,
@@ -18,11 +15,12 @@ import {
   type Target,
 } from '../game/rules'
 import { formatAmount, formatArmy, formatDuration } from './format'
-import { STATUS_ICONS, armyStatusText, orderText } from './world'
+import { STATUS_ICONS, armyStatusText } from './world'
 
-// La fiche d'une armée dehors : où elle en est, ce qu'elle porte, et ses ordres.
-const props = defineProps<{ state: GameState; now: number; army: FieldArmy; plan: Target | null }>()
-const emit = defineEmits<{ order: [target: Target]; clearPlan: []; close: [] }>()
+// La fiche d'une armée dehors : où elle en est, et ce qu'elle porte. Pour lui donner un ordre, on
+// touche la carte : elle part aussitôt.
+const props = defineProps<{ state: GameState; now: number; army: FieldArmy }>()
+const emit = defineEmits<{ order: [target: Target] }>()
 
 const CITY: Target = { type: 'city' }
 
@@ -62,30 +60,14 @@ const load = computed(() =>
     amount: props.army.load[id] ?? 0,
   })),
 )
-
-// Le prochain ordre envisagé : est-il possible, et passe-t-il près de bandes en patrouille ?
-const planCheck = computed(() => (props.plan ? checkOrder(props.state, props.army.id, props.plan) : null))
-const planText = computed(() => (props.plan ? orderText(props.state, props.plan) : ''))
-const planDuration = computed(() => {
-  const to = props.plan && targetPosition(props.state, props.plan, props.now)
-  return to ? marchDuration(props.state, props.army.position, to, props.army.hero) : null
-})
-const dangers = computed(() => {
-  const plan = props.plan
-  const to = plan && targetPosition(props.state, plan, props.now)
-  if (!plan || !to) return []
-  return bandsNearPath(props.state, props.army.position, to, plan).map(
-    (band) => `${getBandKind(band.kind).name} (niv. ${band.level})`,
-  )
-})
 </script>
 
 <template>
-  <article class="plaque working" aria-labelledby="army-title">
+  <article class="plaque" aria-labelledby="army-title">
     <header class="plaque-head">
       <span class="plaque-icon" aria-hidden="true">{{ STATUS_ICONS[army.status] }}</span>
       <div>
-        <h3 id="army-title" class="plaque-name">Ton armée</h3>
+        <h2 id="army-title" class="plaque-name">Ton armée</h2>
         <p class="plaque-level">{{ status }}</p>
       </div>
     </header>
@@ -115,38 +97,27 @@ const dangers = computed(() => {
       </template>
     </p>
 
-    <section v-if="plan" class="plan" aria-label="Nouvel ordre">
-      <p>
-        <strong>Nouvel ordre :</strong> {{ planText
-        }}<template v-if="planDuration !== null"> · {{ formatDuration(planDuration) }} de marche</template>
-      </p>
-      <p v-if="dangers.length" class="warning">
-        Attention : sur le chemin, des bandes patrouillent ({{ dangers.join(', ') }}). Elles attaqueront ton armée
-        si elle entre dans leur zone d’aggro.
-      </p>
-      <p v-if="planCheck && !planCheck.ok" class="reason">{{ planCheck.reason }}</p>
-      <div class="actions">
-        <button class="btn" type="button" :disabled="!planCheck?.ok" @click="emit('order', plan)">
-          Valider l’ordre
-        </button>
-        <button class="btn-quiet" type="button" @click="emit('clearPlan')">Annuler</button>
-      </div>
-    </section>
-    <p v-else class="muted">
-      Touche la carte pour l’envoyer ailleurs, ou un camp, une bande ou un gisement pour l’attaquer ou y récolter.
+    <p v-if="army.status === 'fighting'" class="muted">
+      Pendant la bataille, ton armée ne reçoit qu’un ordre : battre en retraite. Elle quitte alors le combat, sans
+      butin.
+    </p>
+    <p v-else class="hint">
+      Touche la carte : ton armée y va aussitôt. Touche un camp, une bande ou un gisement pour l’attaquer ou y
+      récolter. Tu peux aussi la faire glisser du doigt jusqu’à sa destination.
     </p>
 
     <div class="plaque-foot actions">
       <button
-        v-if="army.order?.type !== 'city' || army.status === 'fighting'"
-        class="btn"
-        :class="{ 'btn-danger': army.status === 'fighting' }"
+        v-if="army.status === 'fighting'"
+        class="btn btn-danger"
         type="button"
         @click="emit('order', CITY)"
       >
-        {{ army.status === 'fighting' ? 'Battre en retraite' : 'Rentrer à la cité' }}
+        Battre en retraite
       </button>
-      <button class="btn-quiet" type="button" @click="emit('close')">Fermer</button>
+      <button v-else-if="army.order?.type !== 'city'" class="btn" type="button" @click="emit('order', CITY)">
+        Rentrer à la cité
+      </button>
     </div>
   </article>
 </template>
@@ -167,17 +138,8 @@ const dangers = computed(() => {
   font-variant-numeric: tabular-nums;
 }
 
-.plan {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding-top: 0.6rem;
-  border-top: 1px solid var(--seam);
-}
-
-.warning {
-  font-size: 0.9rem;
-  color: var(--ember);
+.hint {
+  color: var(--gilt);
 }
 
 .actions {

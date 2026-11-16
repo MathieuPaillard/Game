@@ -1,13 +1,29 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { BUILDINGS, type BuildingId } from '../game/config'
-import { checkUpgrade, constructionOf, type GameState } from '../game/rules'
+import { computed, ref, watch } from 'vue'
+import { BUILDINGS } from '../game/config'
+import { armySize, checkUpgrade, constructionOf, skillPoints, type GameState } from '../game/rules'
 import MapViewport from './MapViewport.vue'
-import { CITY_DECOR, CITY_MAP, CITY_PLOTS, CITY_WALL, mountainLight, mountainPoints } from './maps'
+import { formatShort } from './format'
+import { CITY_DECOR, CITY_MAP, CITY_PLOTS, CITY_SPOTS, CITY_WALL, mountainLight, mountainPoints } from './maps'
+import type { CitySelection } from './screen'
 
-// La cité vue d'en haut : chaque bâtiment sur son emplacement. Toucher un bâtiment le sélectionne.
-const props = defineProps<{ state: GameState; now: number; selected: BuildingId }>()
-const emit = defineEmits<{ select: [building: BuildingId] }>()
+// La cité vue d'en haut : chaque bâtiment sur son emplacement, la garnison et les héros. Toucher
+// l'un d'eux le choisit ; toucher le fond de la carte ne choisit rien.
+const props = defineProps<{ state: GameState; now: number; selection: CitySelection | null }>()
+const emit = defineEmits<{ select: [selection: CitySelection]; tap: [] }>()
+
+const viewport = ref<InstanceType<typeof MapViewport> | null>(null)
+const selectedBuilding = computed(() => (props.selection?.kind === 'building' ? props.selection.id : null))
+
+// Ce qu'on vient de choisir vient au milieu de la carte (une fois le panneau ouvert à côté).
+watch(
+  () => props.selection,
+  (selection) => {
+    if (!selection) return
+    viewport.value?.centerOn(selection.kind === 'building' ? CITY_PLOTS[selection.id] : CITY_SPOTS[selection.kind])
+  },
+  { flush: 'post' },
+)
 
 // Les bâtiments du bas de la carte sont dessinés en dernier, pour passer devant ceux du haut.
 const plots = computed(() =>
@@ -36,6 +52,19 @@ const roads = BUILDINGS.filter((b) => b.id !== 'castle').map((b) => ({
   to: CITY_PLOTS[b.id],
 }))
 
+// Les troupes au repos dans la cité, et les héros à ton service.
+const garrison = computed(() => formatShort(armySize(props.state.troops)))
+const heroes = computed(() => ({
+  count: props.state.heroes.length,
+  // Un point de compétence attend d'être placé.
+  ready: props.state.heroes.some((hero) => skillPoints(hero) > 0),
+}))
+
+/** La largeur d'une étiquette de nombre, selon le nombre de chiffres. */
+function pill(text: string | number): number {
+  return 20 + 10 * String(text).length
+}
+
 function describe(plot: (typeof plots.value)[number]): string {
   const name = plot.building.name
   if (plot.locked) return `${name} : se débloque au Château niveau ${plot.building.unlockedAtCastleLevel}`
@@ -46,11 +75,14 @@ function describe(plot: (typeof plots.value)[number]): string {
 
 <template>
   <MapViewport
+    ref="viewport"
     :width="CITY_MAP.width"
     :height="CITY_MAP.height"
     :center="CITY_MAP.center"
     :span="800"
+    :span-height="600"
     label="Carte de la cité"
+    @tap="emit('tap')"
   >
     <defs>
       <pattern id="city-field" width="16" height="16" patternUnits="userSpaceOnUse" patternTransform="rotate(-14)">
@@ -105,15 +137,15 @@ function describe(plot: (typeof plots.value)[number]): string {
       v-for="plot in plots"
       :key="plot.building.id"
       class="spot"
-      :class="{ selected: plot.building.id === selected, locked: plot.locked, empty: plot.level === 0 }"
+      :class="{ selected: plot.building.id === selectedBuilding, locked: plot.locked, empty: plot.level === 0 }"
       :transform="`translate(${plot.x} ${plot.y}) scale(${plot.size})`"
       role="button"
       tabindex="0"
       :aria-label="describe(plot)"
-      :aria-pressed="plot.building.id === selected"
-      @click="emit('select', plot.building.id)"
-      @keydown.enter.prevent="emit('select', plot.building.id)"
-      @keydown.space.prevent="emit('select', plot.building.id)"
+      :aria-pressed="plot.building.id === selectedBuilding"
+      @click.stop="emit('select', { kind: 'building', id: plot.building.id })"
+      @keydown.enter.prevent="emit('select', { kind: 'building', id: plot.building.id })"
+      @keydown.space.prevent="emit('select', { kind: 'building', id: plot.building.id })"
     >
       <ellipse class="spot-base" rx="66" ry="26" cy="32" />
       <ellipse class="spot-ring" rx="78" ry="33" cy="32" />
@@ -132,6 +164,52 @@ function describe(plot: (typeof plots.value)[number]): string {
       <text v-else-if="plot.locked" class="map-sublabel" y="96">
         Château niv. {{ plot.building.unlockedAtCastleLevel }}
       </text>
+    </g>
+
+    <!-- La garnison : les troupes au repos dans la cité -->
+    <g
+      class="spot"
+      :class="{ selected: selection?.kind === 'garrison' }"
+      :transform="`translate(${CITY_SPOTS.garrison.x} ${CITY_SPOTS.garrison.y})`"
+      role="button"
+      tabindex="0"
+      :aria-label="`Garnison : ${garrison} troupes dans la cité`"
+      :aria-pressed="selection?.kind === 'garrison'"
+      @click.stop="emit('select', { kind: 'garrison' })"
+      @keydown.enter.prevent="emit('select', { kind: 'garrison' })"
+      @keydown.space.prevent="emit('select', { kind: 'garrison' })"
+    >
+      <ellipse class="spot-base" rx="44" ry="17" cy="24" />
+      <ellipse class="spot-ring" rx="54" ry="23" cy="24" />
+      <text class="emoji" font-size="46">🪖</text>
+      <g transform="translate(34 -26)">
+        <rect :x="-pill(garrison) / 2" y="-14" :width="pill(garrison)" height="28" rx="14" class="badge" />
+        <text class="badge-text">{{ garrison }}</text>
+      </g>
+      <text class="map-label" y="56">Garnison</text>
+    </g>
+
+    <!-- Les héros -->
+    <g
+      class="spot"
+      :class="{ selected: selection?.kind === 'heroes' }"
+      :transform="`translate(${CITY_SPOTS.heroes.x} ${CITY_SPOTS.heroes.y})`"
+      role="button"
+      tabindex="0"
+      :aria-label="`Héros : ${heroes.count} à ton service${heroes.ready ? ', un point de compétence à placer' : ''}`"
+      :aria-pressed="selection?.kind === 'heroes'"
+      @click.stop="emit('select', { kind: 'heroes' })"
+      @keydown.enter.prevent="emit('select', { kind: 'heroes' })"
+      @keydown.space.prevent="emit('select', { kind: 'heroes' })"
+    >
+      <ellipse class="spot-base" rx="44" ry="17" cy="24" />
+      <ellipse class="spot-ring" rx="54" ry="23" cy="24" />
+      <text class="emoji" font-size="46">👑</text>
+      <g transform="translate(34 -26)">
+        <circle r="16" class="badge" :class="{ ready: heroes.ready }" />
+        <text class="badge-text">{{ heroes.count }}</text>
+      </g>
+      <text class="map-label" y="56">Héros</text>
     </g>
   </MapViewport>
 </template>

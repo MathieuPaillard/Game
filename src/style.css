@@ -1,5 +1,6 @@
-/* Mise en page : une table de commandement, de nuit. Le registre des ressources reste
-   accroché en haut de l'écran ; dessous, chaque bâtiment est une plaque de pierre. */
+/* Mise en page : un écran de jeu, pensé pour le mode paysage. La carte remplit l'écran ; par-dessus,
+   le registre des ressources en haut, des boutons aux coins, et un panneau qui s'ouvre sur le côté
+   pour ce qu'on vient de toucher. */
 :root {
   color-scheme: dark;
 
@@ -36,6 +37,21 @@
   /* Les zones d'aggro des bandes de monstres. */
   --map-aggro: rgba(240, 139, 112, 0.22);
   --map-aggro-badge: #4a2a24;
+
+  /* Le fond des boutons posés sur la carte : presque opaque, pour rester lisible. */
+  --hud: rgba(35, 42, 61, 0.94);
+  --shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+
+  /* Sur téléphone, le jeu laisse libres les barres du système, en haut et en bas. */
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* L'écran de jeu occupe toute la hauteur ; les autres écrans (compte, choix de la race) défilent. */
+html,
+body,
+#app {
+  height: 100%;
 }
 
 *,
@@ -46,6 +62,7 @@
 
 body {
   margin: 0;
+  overscroll-behavior: none;
   background: var(--night);
   color: var(--parchment);
   font: 400 1rem/1.5 var(--font-body);
@@ -272,21 +289,16 @@ button:focus-visible {
   transition: width 1s linear;
 }
 
+/* Une liste de plaques : une colonne dans un panneau étroit, deux quand le panneau est large. */
 .grid {
   display: grid;
-  gap: 1rem;
+  gap: 0.8rem;
   grid-template-columns: 1fr;
 }
 
-@media (min-width: 38rem) {
+@container panel (min-width: 40rem) {
   .grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (min-width: 58rem) {
-  .grid.thirds {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 

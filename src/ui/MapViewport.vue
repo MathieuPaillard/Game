@@ -2,17 +2,19 @@
 import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import type { Point } from './maps'
 
-// Une carte qu'on fait glisser (doigt ou souris) et qu'on zoome (molette, pincement ou boutons).
-// Le dessin lui-même est fourni par le composant parent, en unités de la carte. Toucher la carte
-// ailleurs que sur un repère donne l'endroit touché, en unités de la carte (événement `tap`).
+// Une carte qui remplit tout son cadre. On la fait glisser (doigt ou souris) et on la zoome
+// (molette, pincement ou boutons). Le dessin lui-même est fourni par le composant parent, en
+// unités de la carte. Toucher la carte ailleurs que sur un repère donne l'endroit touché, en
+// unités de la carte (événement `tap`).
 const props = defineProps<{
   /** Taille du monde dessiné, en unités de la carte. */
   width: number
   height: number
   /** Le point montré au centre au départ, et quand on recentre. */
   center: Point
-  /** Largeur du monde visible au départ, en unités de la carte. */
+  /** Ce qu'on veut voir au départ autour de ce point : une largeur et une hauteur, en unités de la carte. */
   span: number
+  spanHeight: number
   /** Nom de la carte, pour les lecteurs d'écran. */
   label: string
 }>()
@@ -24,19 +26,29 @@ const view = reactive({ x: 0, y: 0, scale: 1 })
 const grabbing = ref(false)
 let box = { width: 1, height: 1 }
 
-/** On ne peut pas dézoomer au point de voir le bord du monde. */
+/** La taille du cadre, mesurée à l'instant : elle change quand un panneau s'ouvre à côté de la carte. */
+function measure() {
+  const el = host.value
+  if (el) box = { width: Math.max(1, el.clientWidth), height: Math.max(1, el.clientHeight) }
+}
+
+/** On peut dézoomer jusqu'à voir la carte entière, pas davantage. */
 function minScale() {
-  return Math.max(box.width / props.width, box.height / props.height)
+  return Math.min(box.width / props.width, box.height / props.height)
 }
 
 function clamp() {
   view.scale = Math.min(MAX_SCALE, Math.max(minScale(), view.scale))
-  view.x = Math.min(0, Math.max(box.width - props.width * view.scale, view.x))
-  view.y = Math.min(0, Math.max(box.height - props.height * view.scale, view.y))
+  const width = props.width * view.scale
+  const height = props.height * view.scale
+  // Plus petite que le cadre, la carte reste au milieu ; sinon, on ne voit jamais au-delà de son bord.
+  view.x = width <= box.width ? (box.width - width) / 2 : Math.min(0, Math.max(box.width - width, view.x))
+  view.y = height <= box.height ? (box.height - height) / 2 : Math.min(0, Math.max(box.height - height, view.y))
 }
 
 /** Montre un point du monde au milieu de la carte. */
 function centerOn(point: Point) {
+  measure()
   view.x = box.width / 2 - point.x * view.scale
   view.y = box.height / 2 - point.y * view.scale
   clamp()
@@ -58,8 +70,15 @@ function zoom(factor: number) {
 
 /** Revient à la vue de départ : jamais plus zoomée que la taille réelle du dessin. */
 function recenter() {
-  view.scale = Math.min(box.width / props.span, 1)
+  measure()
+  view.scale = Math.min(box.width / props.span, box.height / props.spanHeight, 1)
   centerOn(props.center)
+}
+
+/** L'endroit de la carte qui se trouve sous un point de l'écran. */
+function toWorld(clientX: number, clientY: number): Point {
+  const rect = host.value!.getBoundingClientRect()
+  return { x: (clientX - rect.left - view.x) / view.scale, y: (clientY - rect.top - view.y) / view.scale }
 }
 
 // --- Glisser et pincer, avec les « pointer events » (souris, doigt, stylet) ---
@@ -126,8 +145,7 @@ function onClickCapture(e: MouseEvent) {
 /** Un simple toucher (sans glisser) sur le fond de la carte : on donne l'endroit touché. */
 function onClick(e: MouseEvent) {
   if (e.target instanceof Element && e.target.closest('.map-controls')) return
-  const point = local(e)
-  emit('tap', { x: (point.x - view.x) / view.scale, y: (point.y - view.y) / view.scale })
+  emit('tap', toWorld(e.clientX, e.clientY))
 }
 
 function onWheel(e: WheelEvent) {
@@ -154,21 +172,25 @@ function onKeydown(e: KeyboardEvent) {
   e.preventDefault()
 }
 
+// La carte se cadre dès qu'elle a une vraie taille, puis garde sa vue (même quand on la range un moment
+// pour regarder l'autre carte).
+let framed = false
 let observer: ResizeObserver | null = null
 onMounted(() => {
   const el = host.value
   if (!el) return
-  box = { width: el.clientWidth, height: el.clientHeight }
-  recenter()
   observer = new ResizeObserver(() => {
-    box = { width: el.clientWidth, height: el.clientHeight }
-    clamp()
+    measure()
+    if (box.width <= 1 || box.height <= 1) return
+    if (framed) clamp()
+    else recenter()
+    framed = true
   })
   observer.observe(el)
 })
 onBeforeUnmount(() => observer?.disconnect())
 
-defineExpose({ centerOn })
+defineExpose({ centerOn, toWorld })
 </script>
 
 <template>
@@ -178,7 +200,7 @@ defineExpose({ centerOn })
     :class="{ grabbing }"
     tabindex="0"
     role="region"
-    :aria-label="`${label}. Glisse pour te déplacer, et utilise les boutons pour zoomer.`"
+    :aria-label="`${label}. Glisse pour te déplacer, pince ou utilise les boutons pour zoomer.`"
     @pointerdown="onPointerDown"
     @pointermove="onPointerMove"
     @pointerup="onPointerUp"
@@ -194,9 +216,9 @@ defineExpose({ centerOn })
       </g>
     </svg>
     <div class="map-controls">
-      <button type="button" aria-label="Zoomer" @click="zoom(1.3)">+</button>
-      <button type="button" aria-label="Dézoomer" @click="zoom(1 / 1.3)">−</button>
       <button type="button" aria-label="Recentrer la carte" @click="recenter">⌖</button>
+      <button type="button" class="zoom" aria-label="Zoomer" @click="zoom(1.3)">+</button>
+      <button type="button" class="zoom" aria-label="Dézoomer" @click="zoom(1 / 1.3)">−</button>
     </div>
   </div>
 </template>
@@ -204,11 +226,10 @@ defineExpose({ centerOn })
 <style scoped>
 .viewport {
   position: relative;
-  height: clamp(320px, 58vh, 540px);
+  width: 100%;
+  height: 100%;
   overflow: hidden;
   background: var(--map-ground);
-  border: 1px solid var(--seam);
-  border-radius: var(--radius);
   cursor: grab;
   /* Le navigateur ne doit ni faire défiler la page ni zoomer quand on glisse sur la carte. */
   touch-action: none;
@@ -222,19 +243,20 @@ defineExpose({ centerOn })
 
 .viewport:focus-visible {
   outline: 2px solid var(--parchment);
-  outline-offset: 2px;
+  outline-offset: -2px;
 }
 
 .map {
   display: block;
 }
 
+/* Les boutons de la carte : l'écran de jeu dit où les poser (voir GameScreen). */
 .map-controls {
   position: absolute;
-  right: 0.6rem;
-  bottom: 0.6rem;
+  left: var(--map-controls-left, auto);
+  right: var(--map-controls-right, auto);
+  bottom: var(--map-controls-bottom, 0.6rem);
   display: flex;
-  flex-direction: column;
   gap: 0.35rem;
 }
 
@@ -242,8 +264,8 @@ defineExpose({ centerOn })
   width: 2.5rem;
   height: 2.5rem;
   border: 1px solid var(--seam);
-  border-radius: 6px;
-  background: var(--stone-raised);
+  border-radius: 50%;
+  background: var(--hud);
   color: var(--parchment);
   font: 700 1.2rem/1 var(--font-body);
   cursor: pointer;
@@ -251,5 +273,12 @@ defineExpose({ centerOn })
 
 .map-controls button:hover {
   border-color: var(--gilt);
+}
+
+/* Au doigt, on zoome en pinçant : les boutons + et − ne servent qu'à la souris. */
+@media (pointer: coarse) {
+  .map-controls .zoom {
+    display: none;
+  }
 }
 </style>

@@ -10,6 +10,7 @@ import {
   trainingDuration,
   type GameState,
 } from '../game/rules'
+import CountPicker from './CountPicker.vue'
 import { formatAmount, formatDuration } from './format'
 
 const props = defineProps<{ unit: UnitDef; state: GameState; now: number }>()
@@ -66,17 +67,13 @@ const duration = computed(() => trainingDuration(props.state, props.unit, amount
       </div>
 
       <template v-else>
-        <label class="field" :for="`train-${unit.id}`">
-          <span>Nombre à entraîner</span>
-          <input
-            :id="`train-${unit.id}`"
-            v-model.number="count"
-            type="number"
-            min="1"
-            :max="maxTrainingBatch(state)"
-            inputmode="numeric"
-          />
-        </label>
+        <CountPicker
+          :id="`train-${unit.id}`"
+          v-model="count"
+          :min="1"
+          :max="maxTrainingBatch(state)"
+          :label="`${unit.name} à entraîner`"
+        />
         <ul class="cost" aria-label="Coût">
           <li v-for="item in cost" :key="item.id" :class="{ short: state.resources[item.id] < item.amount }">
             <span aria-hidden="true">{{ RESOURCES[item.id].icon }}</span>
