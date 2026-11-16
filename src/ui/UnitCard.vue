@@ -1,7 +1,15 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { RESOURCES, RESOURCE_IDS, type UnitDef } from '../game/config'
-import { checkTraining, getUnit, maxTrainingBatch, trainingCost, trainingDuration, type GameState } from '../game/rules'
+import {
+  checkTraining,
+  getRace,
+  getUnit,
+  maxTrainingBatch,
+  trainingCost,
+  trainingDuration,
+  type GameState,
+} from '../game/rules'
 import { formatAmount, formatDuration } from './format'
 
 const props = defineProps<{ unit: UnitDef; state: GameState; now: number }>()
@@ -40,6 +48,9 @@ const duration = computed(() => trainingDuration(props.state, props.unit, amount
     </header>
 
     <p class="muted">{{ unit.description }}</p>
+    <p v-if="unit.race" class="race-unit">
+      Troupe propre aux {{ getRace(unit.race).name }} · se bat comme les {{ getUnit(unit.family).name }}
+    </p>
 
     <ul class="stats">
       <li>Attaque <strong>{{ unit.attack }}</strong></li>
@@ -82,6 +93,11 @@ const duration = computed(() => trainingDuration(props.state, props.unit, amount
 </template>
 
 <style scoped>
+.race-unit {
+  color: var(--gilt);
+  font-weight: 700;
+}
+
 .stats {
   list-style: none;
   margin: 0;

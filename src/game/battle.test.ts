@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { fight, type Stack } from './battle.ts'
-import { MAX_BATTLE_ROUNDS, UNITS, type UnitId } from './config.ts'
+import { MAX_BATTLE_ROUNDS, UNITS, type Family } from './config.ts'
 
 /** Un groupe aux caractéristiques fixes, pour tester le combat sans dépendre de l'équilibrage. */
-function stack(family: UnitId, count: number, attack = 10, health = 50): Stack {
+function stack(family: Family, count: number, attack = 10, health = 50): Stack {
   return { family, count, attack, health }
 }
 
@@ -18,8 +18,8 @@ describe('bataille', () => {
   it('les forces et faiblesses font la différence', () => {
     for (const unit of UNITS) {
       // Deux groupes identiques, sauf la famille : celui qui a l'avantage gagne.
-      expect(fight([stack(unit.id, 20)], [stack(unit.strongAgainst, 20)]).winner).toBe('attacker')
-      expect(fight([stack(unit.strongAgainst, 20)], [stack(unit.id, 20)]).winner).toBe('defender')
+      expect(fight([stack(unit.family, 20)], [stack(unit.strongAgainst, 20)]).winner).toBe('attacker')
+      expect(fight([stack(unit.strongAgainst, 20)], [stack(unit.family, 20)]).winner).toBe('defender')
     }
   })
 

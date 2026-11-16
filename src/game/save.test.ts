@@ -109,6 +109,35 @@ describe('restoreState', () => {
     expect(state).not.toHaveProperty('construction')
   })
 
+  it('une bataille d’avant les troupes de race continue, sans troupe de race', () => {
+    const four = { warrior: 30, archer: 0, rider: 0, mage: 0 }
+    const game = newGame('humans', T0)
+    const battle = {
+      id: 9,
+      army: 5,
+      band: null,
+      foe: { type: 'camp', camp: 'wolfDen' },
+      ambush: false,
+      startedAt: T0,
+      sent: four,
+      enemies: { wolf: 8 },
+      armyHealth: { warrior: 1500, archer: 0, rider: 0, mage: 0 },
+      foeHealth: { wolf: 320 },
+      healthFactor: 1,
+      starving: false,
+      rounds: [],
+    }
+    const army = { id: 5, troops: four, position: { x: 560, y: 470 }, order: null, status: 'fighting', load: {}, fought: [] }
+    const state = restoreState({ ...game, armies: [army], battles: [battle] })!
+    expect(state.armies[0].troops).toEqual({ ...emptyArmy(), warrior: 30 })
+    expect(state.battles[0].armyHealth).toEqual({ ...emptyArmy(), warrior: 1500 })
+    // La bataille se joue jusqu'au bout, sans valeur absurde.
+    const later = advance(state, T0 + 10 * 60_000)
+    expect(later.battles).toEqual([])
+    expect(later.reports[0].outcome).toBe('victory')
+    expect(Object.values(later.reports[0].lost).every(Number.isFinite)).toBe(true)
+  })
+
   it('les armées d’avant les héros partent sans héros', () => {
     const army = {
       id: 5,

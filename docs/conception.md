@@ -44,14 +44,15 @@ Boucle de jeu : récolter des ressources → construire et améliorer → entra�
 - **[Décidé]** Plusieurs races jouables, chacune avec ses avantages.
 - **[Décidé]** Quatre races pour commencer. D'autres pourront s'ajouter, et on pourra leur donner des noms propres à notre univers.
 
-| Race    | Style                 | Bonus (chiffres à équilibrer)                   |
-|---------|-----------------------|-------------------------------------------------|
-| Humains | polyvalents           | constructions 10 % plus rapides                 |
-| Elfes   | magie et archerie     | +10 % de bois et de mana                        |
-| Nains   | défense et artisanat  | +10 % de pierre et d'or                         |
-| Orcs    | force brute et nombre | +10 % de nourriture, entraînement plus rapide   |
+| Race    | Style                 | Bonus (chiffres à équilibrer)                   | Troupe propre                     |
+|---------|-----------------------|-------------------------------------------------|-----------------------------------|
+| Humains | polyvalents           | constructions 10 % plus rapides                 | Paladins (famille des Guerriers)  |
+| Elfes   | magie et archerie     | +10 % de bois et de mana                        | Druides (famille des Mages)       |
+| Nains   | défense et artisanat  | +10 % de pierre et d'or                         | Arbalétriers nains (des Archers)  |
+| Orcs    | force brute et nombre | +10 % de nourriture, entraînement plus rapide   | Chevaucheurs de loups (Cavaliers) |
 
-Plus tard, chaque race aura aussi une unité qui lui est propre.
+- **[Décidé]** Chaque race a aussi une troupe qui lui est propre.
+- **[Proposition]** Chaque troupe propre appartient à l'une des quatre familles (une famille différente pour chaque race) : elle en a les forces et les faiblesses, et profite des compétences de héros qui renforcent cette famille. Elle est plus forte que la troupe de base de sa famille, mais plus chère, et s'entraîne à partir de la Caserne niveau 4. Les autres races ne peuvent pas l'entraîner.
 
 ## 5. La cité
 

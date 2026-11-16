@@ -18,6 +18,9 @@ import { formatAmount } from './format'
 const props = defineProps<{ state: GameState; now: number }>()
 const emit = defineEmits<{ train: [unit: UnitId, count: number]; dismiss: [troops: Army] }>()
 
+// Les troupes de la Caserne : celles des quatre familles, et celle qui est propre à ta race.
+const units = computed(() => UNITS.filter((unit) => !unit.race || unit.race === props.state.race))
+
 // Les troupes dehors : toutes les troupes, moins celles de la cité.
 const away = computed(() => armySize(allTroops(props.state)) - armySize(props.state.troops))
 const upkeep = computed(() => upkeepPerHour(props.state))
@@ -103,7 +106,7 @@ function confirmDismiss() {
 
       <div class="grid">
         <UnitCard
-          v-for="unit in UNITS"
+          v-for="unit in units"
           :key="unit.id"
           :unit="unit"
           :state="state"

@@ -3,12 +3,12 @@
 // Dans le jeu, une manche se joue toutes les quelques secondes (voir BATTLE_ROUND_SECONDS) :
 // une bataille dure donc un moment, et on peut battre en retraite avant la fin.
 
-import { COUNTER_BONUS, MAX_BATTLE_ROUNDS, UNITS, type UnitId } from './config.ts'
+import { COUNTER_BONUS, MAX_BATTLE_ROUNDS, UNITS, type Family } from './config.ts'
 
 /** Un groupe de combattants identiques. */
 export interface Stack {
   /** Famille de troupe, pour les forces et faiblesses. */
-  family: UnitId
+  family: Family
   attack: number
   health: number
   count: number
@@ -34,8 +34,9 @@ export interface BattleOutcome {
   log: RoundLog[]
 }
 
-export function isStrongAgainst(family: UnitId, target: UnitId): boolean {
-  return UNITS.some((unit) => unit.id === family && unit.strongAgainst === target)
+/** Une famille domine-t-elle l'autre ? (Toutes les troupes d'une famille ont les mêmes forces.) */
+export function isStrongAgainst(family: Family, target: Family): boolean {
+  return UNITS.some((unit) => unit.family === family && unit.strongAgainst === target)
 }
 
 /** Les points de vie de départ de chaque groupe : un combattant blessé continue de se battre. */

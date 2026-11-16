@@ -4,6 +4,7 @@ import {
   BAND_SPAWN_SECONDS,
   BAND_SPOTS,
   BATTLE_ROUND_SECONDS,
+  COUNTER_BONUS,
   HEROES,
   HERO_MAX_LEVEL,
   MAX_BAND_LEVEL,
@@ -15,6 +16,7 @@ import {
   PATROL_RADIUS,
   PATROL_SPEED,
   QUESTS,
+  RACES,
   RESOURCE_IDS,
   SECOND_CONSTRUCTION_CASTLE_LEVEL,
   SKILL_MAX_LEVEL,
@@ -23,6 +25,7 @@ import {
   START_LEVELS,
   START_NODES,
   START_RESOURCES,
+  UNITS,
   UNIT_IDS,
   WORLD,
   type Army,
@@ -421,6 +424,33 @@ describe('entraînement', () => {
     expect(checkTraining(richGame({ barracks: 0 }), 'warrior', 1).ok).toBe(false)
     expect(checkTraining(richGame({ barracks: mage.barracksLevel - 1 }), 'mage', 1).ok).toBe(false)
     expect(checkTraining(richGame({ barracks: mage.barracksLevel }), 'mage', 1).ok).toBe(true)
+  })
+
+  it('chaque race a sa propre troupe, que les autres races ne peuvent pas entraîner', () => {
+    for (const race of RACES) expect(UNITS.filter((unit) => unit.race === race.id)).toHaveLength(1)
+    const paladin = getUnit('paladin')
+    const humans = richGame({ castle: 5, barracks: paladin.barracksLevel })
+    expect(checkTraining(humans, 'paladin', 1).ok).toBe(true)
+    expect(checkTraining({ ...humans, race: 'elves' }, 'paladin', 1)).toEqual({
+      ok: false,
+      reason: 'Réservés aux Humains',
+    })
+    expect(checkTraining(richGame({ castle: 5, barracks: paladin.barracksLevel - 1 }), 'paladin', 1)).toEqual({
+      ok: false,
+      reason: `Nécessite la Caserne niveau ${paladin.barracksLevel}`,
+    })
+  })
+
+  it('une troupe de race se bat avec les forces de sa famille', () => {
+    // Des Paladins (de la famille des Guerriers) dominent les loups, qui se battent comme des Cavaliers.
+    expect(getUnit('paladin').family).toBe('warrior')
+    const firstRound = (monsters: Monsters) => {
+      const { game, id } = withBand(richGame({}, { paladin: 10 }), nearCity(300), monsters)
+      const start = startMarch(game, toBand(id), army({ paladin: 10 }), T0)
+      // Face à mille monstres, la bataille ne dure qu'une manche : son rapport la raconte.
+      return runUntil(start, (s) => s.reports.length > 0).reports[0].rounds[0]
+    }
+    expect(firstRound({ wolf: 1000 }).dealt / firstRound({ goblin: 1000 }).dealt).toBeCloseTo(COUNTER_BONUS)
   })
 
   it('limite le nombre de troupes par entraînement', () => {

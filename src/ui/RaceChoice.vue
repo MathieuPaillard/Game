@@ -1,10 +1,15 @@
 <script setup lang="ts">
-import { RACES, type RaceId } from '../game/config'
+import { RACES, UNITS, type RaceId } from '../game/config'
 import AccountLine from './AccountLine.vue'
 import NoticeBar from './NoticeBar.vue'
 
 defineProps<{ busy: boolean; notice: string | null; offline: boolean; player: string | null }>()
 const emit = defineEmits<{ choose: [race: RaceId]; logout: []; goOnline: []; dismissNotice: [] }>()
+
+/** La troupe propre à une race. */
+function raceUnit(race: RaceId) {
+  return UNITS.find((unit) => unit.race === race)
+}
 </script>
 
 <template>
@@ -24,6 +29,9 @@ const emit = defineEmits<{ choose: [race: RaceId]; logout: []; goOnline: []; dis
         <p class="muted">{{ race.description }}</p>
         <ul class="race-bonuses">
           <li v-for="bonus in race.bonuses" :key="bonus">{{ bonus }}</li>
+          <li v-if="raceUnit(race.id)">
+            Troupe propre : <span aria-hidden="true">{{ raceUnit(race.id)?.icon }}</span> {{ raceUnit(race.id)?.name }}
+          </li>
         </ul>
         <button class="btn" type="button" :disabled="busy" @click="emit('choose', race.id)">
           Jouer les {{ race.name }}

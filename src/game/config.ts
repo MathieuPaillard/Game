@@ -426,21 +426,28 @@ export const TECHS: TechDef[] = [
 
 // --- Troupes ---
 
-export type UnitId = 'warrior' | 'archer' | 'rider' | 'mage'
-/** Un nombre de troupes pour chaque famille. */
+/** Les quatre familles de troupes, chacune avec ses forces et ses faiblesses. */
+export type Family = 'warrior' | 'archer' | 'rider' | 'mage'
+/** Les troupes : une par famille, plus une troupe propre à chaque race. */
+export type UnitId = Family | 'paladin' | 'crossbowman' | 'wolfRider' | 'druid'
+/** Un nombre de troupes pour chaque type de troupe. */
 export type Army = Record<UnitId, number>
 
-export const UNIT_IDS: UnitId[] = ['warrior', 'archer', 'rider', 'mage']
+export const UNIT_IDS: UnitId[] = ['warrior', 'archer', 'rider', 'mage', 'paladin', 'crossbowman', 'wolfRider', 'druid']
 
 export interface UnitDef {
   id: UnitId
   name: string
   icon: string
   description: string
+  /** La famille dont elle a les forces et les faiblesses. */
+  family: Family
+  /** Une troupe propre à une race : elle seule peut l'entraîner. */
+  race?: RaceId
   attack: number
   health: number
   /** Famille à laquelle cette troupe inflige COUNTER_BONUS fois plus de dégâts. */
-  strongAgainst: UnitId
+  strongAgainst: Family
   /** Coût d'une seule troupe. */
   cost: Partial<Resources>
   /** Durée d'entraînement d'une seule troupe, en secondes. */
@@ -461,6 +468,7 @@ export const UNITS: UnitDef[] = [
     name: 'Guerriers',
     icon: '🛡️',
     description: 'Solides et bon marché. Leurs lances brisent les charges.',
+    family: 'warrior',
     attack: 10,
     health: 50,
     strongAgainst: 'rider',
@@ -475,6 +483,7 @@ export const UNITS: UnitDef[] = [
     name: 'Archers',
     icon: '🏹',
     description: 'Ils tirent de loin et abattent les mages avant qu’ils n’incantent.',
+    family: 'archer',
     attack: 14,
     health: 30,
     strongAgainst: 'mage',
@@ -489,6 +498,7 @@ export const UNITS: UnitDef[] = [
     name: 'Cavaliers',
     icon: '🐎',
     description: 'Rapides et puissants, ils balaient les lignes d’archers.',
+    family: 'rider',
     attack: 16,
     health: 60,
     strongAgainst: 'archer',
@@ -503,6 +513,7 @@ export const UNITS: UnitDef[] = [
     name: 'Mages',
     icon: '🧙',
     description: 'Fragiles, mais leurs sorts traversent les armures.',
+    family: 'mage',
     attack: 24,
     health: 25,
     strongAgainst: 'warrior',
@@ -510,6 +521,71 @@ export const UNITS: UnitDef[] = [
     trainingSeconds: 6,
     barracksLevel: 3,
     upkeepPerHour: 6,
+    load: 10,
+  },
+  // Les troupes propres à chaque race : plus fortes que celles de leur famille, mais plus chères.
+  {
+    id: 'paladin',
+    name: 'Paladins',
+    icon: '⚜️',
+    description: 'Les chevaliers sacrés des Humains : lourdement armés, ils tiennent la ligne comme personne.',
+    family: 'warrior',
+    race: 'humans',
+    attack: 16,
+    health: 90,
+    strongAgainst: 'rider',
+    cost: { food: 60, wood: 20, gold: 20, mana: 5 },
+    trainingSeconds: 6,
+    barracksLevel: 4,
+    upkeepPerHour: 7,
+    load: 25,
+  },
+  {
+    id: 'crossbowman',
+    name: 'Arbalétriers nains',
+    icon: '⚙️',
+    description: 'Leurs arbalètes à manivelle percent les armures et abattent les mages de très loin.',
+    family: 'archer',
+    race: 'dwarves',
+    attack: 22,
+    health: 50,
+    strongAgainst: 'mage',
+    cost: { food: 40, wood: 40, stone: 20, gold: 10 },
+    trainingSeconds: 6,
+    barracksLevel: 4,
+    upkeepPerHour: 6,
+    load: 25,
+  },
+  {
+    id: 'wolfRider',
+    name: 'Chevaucheurs de loups',
+    icon: '🐾',
+    description: 'Des orcs juchés sur des loups géants : ils fondent sur les archers avant qu’ils ne tirent.',
+    family: 'rider',
+    race: 'orcs',
+    attack: 26,
+    health: 95,
+    strongAgainst: 'archer',
+    cost: { food: 90, wood: 15, gold: 30 },
+    trainingSeconds: 8,
+    barracksLevel: 4,
+    upkeepPerHour: 12,
+    load: 30,
+  },
+  {
+    id: 'druid',
+    name: 'Druides',
+    icon: '🌿',
+    description: 'Les gardiens de la forêt elfique : leurs ronces et leur foudre brisent les rangs des guerriers.',
+    family: 'mage',
+    race: 'elves',
+    attack: 36,
+    health: 45,
+    strongAgainst: 'warrior',
+    cost: { food: 45, wood: 20, gold: 15, mana: 35 },
+    trainingSeconds: 9,
+    barracksLevel: 4,
+    upkeepPerHour: 8,
     load: 10,
   },
 ]
@@ -540,7 +616,7 @@ export type SkillEffect =
   /** Vie de toute l'armée. */
   | { kind: 'health'; perLevel: number }
   /** Attaque d'une seule famille de troupes. */
-  | { kind: 'familyAttack'; family: UnitId; perLevel: number }
+  | { kind: 'familyAttack'; family: Family; perLevel: number }
   /** Temps de marche en moins, comme la Marche forcée. */
   | { kind: 'marchSpeed'; perLevel: number }
   /** Vitesse de récolte sur les gisements. */
@@ -591,7 +667,7 @@ export const HEROES: HeroDef[] = [
         id: 'spears',
         name: 'Lances dressées',
         icon: '🔱',
-        description: '+6 % d’attaque des Guerriers, par niveau',
+        description: '+6 % d’attaque de la famille des Guerriers, par niveau',
         effect: { kind: 'familyAttack', family: 'warrior', perLevel: 0.06 },
       },
       {
@@ -648,7 +724,7 @@ export const HEROES: HeroDef[] = [
         id: 'volley',
         name: 'Pluie de flèches',
         icon: '🏹',
-        description: '+6 % d’attaque des Archers, par niveau',
+        description: '+6 % d’attaque de la famille des Archers, par niveau',
         effect: { kind: 'familyAttack', family: 'archer', perLevel: 0.06 },
       },
       {
@@ -680,7 +756,7 @@ export const HEROES: HeroDef[] = [
         id: 'charge',
         name: 'Charge sauvage',
         icon: '🐎',
-        description: '+6 % d’attaque des Cavaliers, par niveau',
+        description: '+6 % d’attaque de la famille des Cavaliers, par niveau',
         effect: { kind: 'familyAttack', family: 'rider', perLevel: 0.06 },
       },
       {
@@ -712,7 +788,7 @@ export const HEROES: HeroDef[] = [
         id: 'lightning',
         name: 'Foudre',
         icon: '⚡',
-        description: '+6 % d’attaque des Mages, par niveau',
+        description: '+6 % d’attaque de la famille des Mages, par niveau',
         effect: { kind: 'familyAttack', family: 'mage', perLevel: 0.06 },
       },
       {
@@ -770,7 +846,7 @@ export interface MonsterDef {
   name: string
   icon: string
   /** Famille de troupe dont le monstre a les forces et les faiblesses. */
-  family: UnitId
+  family: Family
   attack: number
   health: number
   /** L'expérience que gagne le héros d'une armée pour chacun de ces monstres vaincus. */

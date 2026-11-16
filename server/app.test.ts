@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { RESOURCE_IDS, type BuildingId } from '../src/game/config.ts'
-import { emptyResources, getBuilding, newGame, upgradeDuration, type GameState } from '../src/game/rules.ts'
+import { emptyArmy, emptyResources, getBuilding, newGame, upgradeDuration, type GameState } from '../src/game/rules.ts'
 import { createApp, LOGIN_LOCK_MS, LOGIN_MAX_FAILURES, SESSION_IDLE_MS } from './app.ts'
 import { nameKey } from './auth.ts'
 import { openStore } from './db.ts'
@@ -211,7 +211,7 @@ describe('la partie', () => {
   it('envoie une armée attaquer une bande de monstres', async () => {
     const server = testServer()
     const token = await server.register()
-    const game = { ...richGame(), troops: { warrior: 50, archer: 0, rider: 0, mage: 0 } }
+    const game = { ...richGame(), troops: { ...emptyArmy(), warrior: 50 } }
     const band = game.bands[0]
     server.giveGame('Arthur', game)
     const attack = { type: 'march', target: { type: 'band', band: band.id }, troops: { warrior: 20 } }
@@ -237,7 +237,7 @@ describe('la partie', () => {
     const game = richGame({ castle: 5 })
     // Deux armées possibles : la seconde est refusée à cause du héros, pas faute de place.
     const techs = { ...game.techs, command: 1 }
-    server.giveGame('Arthur', { ...game, techs, troops: { warrior: 30, archer: 0, rider: 0, mage: 0 } })
+    server.giveGame('Arthur', { ...game, techs, troops: { ...emptyArmy(), warrior: 30 } })
     const act = (body: unknown) => server.call('POST', '/api/game/actions', { token, body })
 
     expect((await act({ type: 'recruit', hero: 'ysolde' })).data.game.heroes).toEqual([

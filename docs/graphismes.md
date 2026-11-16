@@ -61,6 +61,10 @@ Pour chaque image : le nom du fichier à utiliser, puis ce qu'il faut écrire ap
 | `troupe-archers.png` | Personnage en pied : un archer en cape à capuche, arc long bandé. |
 | `troupe-cavaliers.png` | Personnage en pied : un cavalier en armure sur un cheval de guerre caparaçonné. |
 | `troupe-mages.png` | Personnage en pied : un mage en robe bleu nuit, bâton surmonté d'un cristal violet. |
+| `troupe-paladins.png` | Personnage en pied : un chevalier humain en armure dorée, grand bouclier frappé d'un soleil, épée levée. |
+| `troupe-arbaletriers.png` | Personnage en pied : un nain trapu en armure de fer, une lourde arbalète à manivelle à l'épaule. |
+| `troupe-chevaucheurs.png` | Personnage en pied : un orc en armure de cuir, monté sur un grand loup gris aux crocs découverts. |
+| `troupe-druides.png` | Personnage en pied : une druide elfe en robe vert forêt, bâton noueux couvert de feuilles et d'étincelles. |
 
 ### Héros
 

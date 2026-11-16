@@ -33,8 +33,9 @@ export function describeBattle(report: BattleReport): BattleStory {
   for (const unit of units) {
     for (const id of monsters) {
       const monster = getMonster(id)
-      if (isStrongAgainst(unit, monster.family)) edges.push(`tes ${getUnit(unit).name} dominent les ${monster.name}`)
-      if (isStrongAgainst(monster.family, unit)) edges.push(`les ${monster.name} dominent tes ${getUnit(unit).name}`)
+      const family = getUnit(unit).family
+      if (isStrongAgainst(family, monster.family)) edges.push(`tes ${getUnit(unit).name} dominent les ${monster.name}`)
+      if (isStrongAgainst(monster.family, family)) edges.push(`les ${monster.name} dominent tes ${getUnit(unit).name}`)
     }
   }
   const bonus = Math.round((COUNTER_BONUS - 1) * 100)

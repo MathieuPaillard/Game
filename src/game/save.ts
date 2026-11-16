@@ -81,9 +81,18 @@ export function restoreState(saved: unknown): GameState | null {
       troops,
       trainings: state.trainings ?? (state.training ? [state.training] : []),
       heroes: state.heroes ?? [],
-      // Avant les héros, les armées partaient sans héros.
-      armies: (state.armies ?? []).map((army) => ({ ...army, hero: army.hero ?? null })),
-      battles: state.battles ?? [],
+      // Avant les héros, les armées partaient sans héros. Et avant les troupes propres à chaque race,
+      // une armée ne comptait que quatre types de troupes : les autres valent zéro.
+      armies: (state.armies ?? []).map((army) => ({
+        ...army,
+        troops: { ...emptyArmy(), ...army.troops },
+        hero: army.hero ?? null,
+      })),
+      battles: (state.battles ?? []).map((battle) => ({
+        ...battle,
+        sent: { ...emptyArmy(), ...battle.sent },
+        armyHealth: { ...emptyArmy(), ...battle.armyHealth },
+      })),
       reports: (state.reports ?? []).filter((report) => report.foe || report.camp).map(upgradeReport),
       // Avant les quêtes, rien n'était compté : les compteurs partent de zéro.
       stats: { ...emptyStats(), ...state.stats },

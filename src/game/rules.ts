@@ -63,6 +63,7 @@ import {
   type BuildingId,
   type CampDef,
   type CampId,
+  type Family,
   type HeroDef,
   type HeroId,
   type MonsterDef,
@@ -654,6 +655,7 @@ export function trainingDuration(state: GameState, unit: UnitDef, count: number)
 export function checkTraining(state: GameState, unitId: UnitId, count: number): Check {
   const unit = getUnit(unitId)
   const barracks = state.levels.barracks
+  if (unit.race && unit.race !== state.race) return { ok: false, reason: `Réservés aux ${getRace(unit.race).name}` }
   if (barracks === 0) return { ok: false, reason: 'Construis d’abord la Caserne' }
   if (barracks < unit.barracksLevel) {
     return { ok: false, reason: `Nécessite la Caserne niveau ${unit.barracksLevel}` }
@@ -834,7 +836,7 @@ export function heroBonus(
   state: GameState,
   heroId: HeroId | null,
   kind: SkillEffect['kind'],
-  family?: UnitId,
+  family?: Family,
 ): number {
   const hero = heroId === null ? undefined : getHero(state, heroId)
   if (!hero) return 0
@@ -1270,8 +1272,8 @@ function battleStacks(state: GameState, battle: Battle): { attackers: Stack[]; d
   const attackBonus = techBonus(state, 'attack') + heroBonus(state, hero, 'attack') + spellBonus(state, 'attack')
   const attackers: Stack[] = UNIT_IDS.map((id) => {
     const unit = getUnit(id)
-    const factor = (1 + attackBonus + heroBonus(state, hero, 'familyAttack', id)) * hunger
-    return { family: id, attack: unit.attack * factor, health: unit.health * battle.healthFactor, count: 0 }
+    const factor = (1 + attackBonus + heroBonus(state, hero, 'familyAttack', unit.family)) * hunger
+    return { family: unit.family, attack: unit.attack * factor, health: unit.health * battle.healthFactor, count: 0 }
   })
   const monsterIds = Object.keys(battle.enemies) as MonsterId[]
   const defenders: Stack[] = monsterIds.map((id) => {
