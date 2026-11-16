@@ -46,6 +46,7 @@ describe('restoreState', () => {
       quests: [],
       constructions: [],
       research: null,
+      spells: [],
     })
     expect(state?.reports[0]).toMatchObject({
       foe: { type: 'camp', camp: 'wolfDen' },

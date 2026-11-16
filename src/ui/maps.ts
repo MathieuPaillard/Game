@@ -45,6 +45,8 @@ export const CITY_PLOTS: Record<BuildingId, Point> = {
   goldMine: { x: 905, y: 585 },
   sawmill: { x: 340, y: 420 },
   quarry: { x: 1060, y: 440 },
+  // La Tour des mages se dresse sur l'enceinte, au nord, au-dessus du Château.
+  mageTower: { x: 700, y: 245 },
 }
 
 /** L'enceinte de la cité : la Scierie et la Carrière sont dehors, près de la forêt et des montagnes. */

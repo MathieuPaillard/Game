@@ -5,7 +5,7 @@
 
 import { onMounted, onUnmounted, shallowRef } from 'vue'
 import { performAction, type Action } from '../game/actions'
-import type { Army, BuildingId, HeroId, RaceId, TechId, UnitId } from '../game/config'
+import type { Army, BuildingId, HeroId, RaceId, SpellId, TechId, UnitId } from '../game/config'
 import { advance, newGame, type GameState, type Target } from '../game/rules'
 import { ONLINE_AVAILABLE, server, ServerError, serverNow, type Session } from './api'
 import { makeAwayReport, type AwayReport } from './away'
@@ -239,6 +239,7 @@ export function useGame() {
     recruit: (hero: HeroId) => perform({ type: 'recruit', hero }),
     learn: (hero: HeroId, skill: string) => perform({ type: 'skill', hero, skill }),
     claim: (quest: string) => perform({ type: 'claim', quest }),
+    cast: (spell: SpellId) => perform({ type: 'cast', spell }),
     /** Une armée sort de la cité ; sans héros, l'ordre ne parle pas de héros. */
     march: (target: Target, troops: Army, hero: HeroId | null) =>
       perform(hero ? { type: 'march', target, troops, hero } : { type: 'march', target, troops }),

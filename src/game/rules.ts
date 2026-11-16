@@ -44,6 +44,7 @@ import {
   RESOURCE_IDS,
   SECOND_CONSTRUCTION_CASTLE_LEVEL,
   SKILL_MAX_LEVEL,
+  SPELLS,
   START_BANDS,
   START_LEVELS,
   START_NODES,
@@ -73,6 +74,9 @@ import {
   type ResourceId,
   type Resources,
   type SkillEffect,
+  type SpellDef,
+  type SpellEffect,
+  type SpellId,
   type TechDef,
   type TechEffect,
   type TechId,
@@ -103,6 +107,12 @@ export interface Research {
   tech: TechId
   targetLevel: number
   startedAt: number
+  endsAt: number
+}
+
+/** Un sort lancé : il agit jusqu'à `endsAt`. */
+export interface ActiveSpell {
+  spell: SpellId
   endsAt: number
 }
 
@@ -264,6 +274,8 @@ export interface GameState {
   /** Niveau atteint dans chaque recherche. */
   techs: Record<TechId, number>
   research: Research | null
+  /** Les sorts qui agissent en ce moment : un seul exemplaire de chaque. */
+  spells: ActiveSpell[]
   /** Troupes présentes dans la cité. Celles qui sont sorties sont dans `armies`. */
   troops: Army
   /** Entraînements en cours à la Caserne : au plus un par type de troupe. */
@@ -315,6 +327,7 @@ export function newGame(race: RaceId, now: number, seed = now): GameState {
     constructions: [],
     techs: emptyTechs(),
     research: null,
+    spells: [],
     troops: emptyArmy(),
     trainings: [],
     heroes: [],
@@ -425,7 +438,8 @@ export function buildingOutput(state: GameState, building: BuildingDef, level: n
   if (!building.produces || !building.baseProductionPerHour || level <= 0) return 0
   const raceBonus = getRace(state.race).productionBonus[building.produces] ?? 0
   const researchBonus = techBonus(state, 'production', building.produces)
-  return building.baseProductionPerHour * PRODUCTION_GROWTH ** (level - 1) * (1 + raceBonus + researchBonus)
+  const magic = spellBonus(state, 'production', building.produces)
+  return building.baseProductionPerHour * PRODUCTION_GROWTH ** (level - 1) * (1 + raceBonus + researchBonus + magic)
 }
 
 /** Production totale de la cité, par heure et par ressource. */
@@ -675,6 +689,47 @@ export function startTraining(state: GameState, unitId: UnitId, count: number, n
   }
 }
 
+// --- Les sorts de la Tour des mages ---
+
+export function getSpell(id: SpellId): SpellDef {
+  return byId(SPELLS, id)
+}
+
+/** Ce que les sorts en cours apportent, pour un type d'effet (et une ressource, pour la production). */
+export function spellBonus(state: GameState, kind: SpellEffect['kind'], resource?: ResourceId): number {
+  let total = 0
+  for (const active of state.spells) {
+    const effect = getSpell(active.spell).effect
+    if (effect.kind !== kind) continue
+    if (effect.kind === 'production' && (!resource || !effect.resources.includes(resource))) continue
+    total += effect.amount
+  }
+  return total
+}
+
+export function checkCast(state: GameState, spellId: SpellId): Check {
+  const spell = getSpell(spellId)
+  const tower = state.levels.mageTower
+  if (tower === 0) return { ok: false, reason: 'Construis d’abord la Tour des mages' }
+  if (tower < spell.towerLevel) return { ok: false, reason: `Nécessite la Tour des mages niveau ${spell.towerLevel}` }
+  if (state.spells.some((active) => active.spell === spellId)) return { ok: false, reason: 'Ce sort agit déjà' }
+  if (!canAfford(state.resources, spell.cost)) return { ok: false, reason: 'Ressources insuffisantes' }
+  return { ok: true }
+}
+
+/** Lance un sort : il coûte du mana, et agit tout de suite, pour sa durée. */
+export function castSpell(state: GameState, spellId: SpellId, now: number): GameState {
+  const current = advance(state, now)
+  const check = checkCast(current, spellId)
+  if (!check.ok) throw new Error(check.reason)
+  const spell = getSpell(spellId)
+  return {
+    ...current,
+    resources: addResources(current.resources, spell.cost, -1),
+    spells: [...current.spells, { spell: spellId, endsAt: now + spell.durationSeconds * SECOND }],
+  }
+}
+
 // --- Les quêtes : une suite d'objectifs, chacun avec sa récompense ---
 
 export function getQuest(id: string): QuestDef {
@@ -845,9 +900,10 @@ export function maxArmies(state: GameState): number {
   return 1 + techBonus(state, 'armies')
 }
 
-/** Vitesse de marche d'une armée, en unités de carte par seconde : la Marche forcée et son héros l'augmentent. */
+/** Vitesse de marche d'une armée, en unités de carte par seconde : la Marche forcée, son héros et les sorts l'augmentent. */
 export function marchSpeed(state: GameState, hero: HeroId | null = null): number {
-  return MARCH_SPEED / (1 - techBonus(state, 'marchSpeed') - heroBonus(state, hero, 'marchSpeed'))
+  const bonus = techBonus(state, 'marchSpeed') + heroBonus(state, hero, 'marchSpeed') + spellBonus(state, 'marchSpeed')
+  return MARCH_SPEED / (1 - bonus)
 }
 
 /** Durée (en millisecondes) d'une marche en ligne droite de `from` à `to`, avec ce héros à sa tête. */
@@ -1175,7 +1231,8 @@ function startBattle(
   const monsters = Object.fromEntries(
     Object.entries(band ? band.monsters : (campDefenders ?? {})).filter(([, count]) => (count ?? 0) > 0),
   ) as Monsters
-  const healthFactor = 1 + techBonus(state, 'health') + heroBonus(state, army.hero, 'health')
+  const healthFactor =
+    1 + techBonus(state, 'health') + heroBonus(state, army.hero, 'health') + spellBonus(state, 'health')
   const armyHealth = emptyArmy()
   for (const id of UNIT_IDS) armyHealth[id] = army.troops[id] * getUnit(id).health * healthFactor
   const foeHealth: Monsters = {}
@@ -1210,7 +1267,7 @@ function startBattle(
 function battleStacks(state: GameState, battle: Battle): { attackers: Stack[]; defenders: Stack[]; monsterIds: MonsterId[] } {
   const hero = getArmy(state, battle.army)?.hero ?? null
   const hunger = isStarving(state) ? 1 - STARVATION_ATTACK_MALUS : 1
-  const attackBonus = techBonus(state, 'attack') + heroBonus(state, hero, 'attack')
+  const attackBonus = techBonus(state, 'attack') + heroBonus(state, hero, 'attack') + spellBonus(state, 'attack')
   const attackers: Stack[] = UNIT_IDS.map((id) => {
     const unit = getUnit(id)
     const factor = (1 + attackBonus + heroBonus(state, hero, 'familyAttack', id)) * hunger
@@ -1594,10 +1651,19 @@ interface PendingEvent {
   apply: (state: GameState) => GameState
 }
 
-/** Le prochain événement prévu : fin de chantier, de recherche ou d'entraînement, apparition d'une bande ou d'un gisement. */
+/**
+ * Le prochain événement prévu : fin de chantier, de recherche, d'entraînement ou d'un sort,
+ * apparition d'une bande ou d'un gisement.
+ */
 function nextEvent(state: GameState): PendingEvent | null {
-  const { constructions, research, trainings, nextBandAt, nextNodeAt } = state
+  const { constructions, research, spells, trainings, nextBandAt, nextNodeAt } = state
   const events: PendingEvent[] = []
+  for (const active of spells) {
+    events.push({
+      at: active.endsAt,
+      apply: (s) => ({ ...s, spells: s.spells.filter((other) => other.spell !== active.spell) }),
+    })
+  }
   for (const construction of constructions) {
     events.push({
       at: construction.endsAt,

@@ -81,7 +81,16 @@ export const RACES: RaceDef[] = [
 
 // --- Bâtiments ---
 
-export type BuildingId = 'castle' | 'farm' | 'sawmill' | 'quarry' | 'goldMine' | 'manaWell' | 'barracks' | 'academy'
+export type BuildingId =
+  | 'castle'
+  | 'farm'
+  | 'sawmill'
+  | 'quarry'
+  | 'goldMine'
+  | 'manaWell'
+  | 'barracks'
+  | 'academy'
+  | 'mageTower'
 
 export interface BuildingDef {
   id: BuildingId
@@ -183,6 +192,15 @@ export const BUILDINGS: BuildingDef[] = [
     baseCost: { food: 250, wood: 300, stone: 250, gold: 120, mana: 40 },
     baseDurationSeconds: 25,
   },
+  {
+    id: 'mageTower',
+    name: 'Tour des mages',
+    icon: '🪄',
+    description: 'Tes mages y lancent des sorts : contre du mana, un bienfait de quelques minutes. Chaque niveau en débloque un nouveau.',
+    unlockedAtCastleLevel: 4,
+    baseCost: { wood: 300, stone: 400, gold: 200, mana: 150 },
+    baseDurationSeconds: 30,
+  },
 ]
 
 /** Niveau maximum des bâtiments, pour l'instant. */
@@ -195,6 +213,87 @@ export const COST_GROWTH = 1.6
 export const DURATION_GROWTH = 1.6
 /** Chaque niveau produit 1,35 fois plus que le précédent. */
 export const PRODUCTION_GROWTH = 1.35
+
+// --- Sorts ---
+// La Tour des mages lance des sorts : contre du mana, un bienfait pour toute la cité, ou pour
+// toutes les armées, pendant quelques minutes. Un même sort ne se lance pas deux fois à la fois.
+
+export type SpellId = 'harvest' | 'growth' | 'fury' | 'tailwind' | 'stoneskin'
+
+/** Ce que fait un sort tant qu'il agit : 0.25 veut dire +25 %. */
+export type SpellEffect =
+  | { kind: 'production'; resources: ResourceId[]; amount: number }
+  | { kind: 'attack'; amount: number }
+  /** La vie des troupes, pour les batailles qui commencent pendant le sort. */
+  | { kind: 'health'; amount: number }
+  /** Temps de marche en moins. */
+  | { kind: 'marchSpeed'; amount: number }
+
+export interface SpellDef {
+  id: SpellId
+  name: string
+  icon: string
+  /** Son effet, tel qu'il est affiché au joueur. */
+  description: string
+  effect: SpellEffect
+  /** Niveau de la Tour des mages nécessaire pour le lancer. */
+  towerLevel: number
+  cost: Partial<Resources>
+  durationSeconds: number
+}
+
+export const SPELLS: SpellDef[] = [
+  {
+    id: 'harvest',
+    name: 'Moisson abondante',
+    icon: '🌾',
+    description: '+25 % de nourriture',
+    effect: { kind: 'production', resources: ['food'], amount: 0.25 },
+    towerLevel: 1,
+    cost: { mana: 60 },
+    durationSeconds: 600,
+  },
+  {
+    id: 'growth',
+    name: 'Sève vive',
+    icon: '🌳',
+    description: '+25 % de bois et de pierre',
+    effect: { kind: 'production', resources: ['wood', 'stone'], amount: 0.25 },
+    towerLevel: 2,
+    cost: { mana: 100 },
+    durationSeconds: 600,
+  },
+  {
+    id: 'fury',
+    name: 'Fureur guerrière',
+    icon: '🗡️',
+    description: '+15 % d’attaque pour toutes tes armées',
+    effect: { kind: 'attack', amount: 0.15 },
+    towerLevel: 3,
+    cost: { mana: 150 },
+    durationSeconds: 300,
+  },
+  {
+    id: 'tailwind',
+    name: 'Vent porteur',
+    icon: '🌬️',
+    description: '−20 % de temps de marche pour toutes tes armées',
+    effect: { kind: 'marchSpeed', amount: 0.2 },
+    towerLevel: 4,
+    cost: { mana: 150 },
+    durationSeconds: 300,
+  },
+  {
+    id: 'stoneskin',
+    name: 'Peau de pierre',
+    icon: '🗿',
+    description: '+15 % de vie pour tes troupes, dans les batailles qui commencent',
+    effect: { kind: 'health', amount: 0.15 },
+    towerLevel: 5,
+    cost: { mana: 200 },
+    durationSeconds: 300,
+  },
+]
 
 // --- Recherches ---
 
@@ -1034,4 +1133,5 @@ export const START_LEVELS: Record<BuildingId, number> = {
   manaWell: 0,
   barracks: 0,
   academy: 0,
+  mageTower: 0,
 }

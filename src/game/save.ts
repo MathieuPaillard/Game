@@ -77,6 +77,7 @@ export function restoreState(saved: unknown): GameState | null {
       constructions: state.constructions ?? (state.construction ? [state.construction] : []),
       techs: { ...emptyTechs(), ...state.techs },
       research: state.research ?? null,
+      spells: state.spells ?? [],
       troops,
       trainings: state.trainings ?? (state.training ? [state.training] : []),
       heroes: state.heroes ?? [],

@@ -18,6 +18,7 @@ import {
   RESOURCE_IDS,
   SECOND_CONSTRUCTION_CASTLE_LEVEL,
   SKILL_MAX_LEVEL,
+  SPELLS,
   START_BANDS,
   START_LEVELS,
   START_NODES,
@@ -44,6 +45,8 @@ import {
   bandPosition,
   bandsNearPath,
   carryCapacity,
+  castSpell,
+  checkCast,
   checkClaim,
   checkDismiss,
   checkMarch,
@@ -68,6 +71,7 @@ import {
   getHeroDef,
   getMonster,
   getRace,
+  getSpell,
   getTech,
   getUnit,
   heroArmy,
@@ -234,13 +238,15 @@ describe('production', () => {
     const game: GameState = {
       ...base,
       resources: { food: 9000, wood: 9000, stone: 9000, gold: 3000, mana: 900 },
-      levels: { ...START_LEVELS, castle: 5, barracks: 1, academy: 1 },
+      levels: { ...START_LEVELS, castle: 5, barracks: 1, academy: 1, mageTower: 1 },
       techs: { ...base.techs, command: 2 },
       troops: army({ warrior: 95 }),
     }
     let start = startUpgrade(game, 'farm', T0)
     start = startResearch(start, 'agriculture', T0)
     start = startTraining(start, 'warrior', 5, T0)
+    // Un sort, qui s'arrête en cours de route.
+    start = castSpell(start, 'harvest', T0)
     // Deux héros, avec une compétence chacun.
     start = learnSkill(recruitHero(start, 'ysolde', T0), 'ysolde', 'rally', T0)
     start = learnSkill(recruitHero(start, 'durgan', T0), 'durgan', 'pickaxes', T0)
@@ -266,6 +272,7 @@ describe('production', () => {
     expect(stepped.nodes).toEqual(oneShot.nodes)
     expect(stepped.heroes).toEqual(oneShot.heroes)
     expect(stepped.stats).toEqual(oneShot.stats)
+    expect(oneShot.spells).toEqual([])
     expect(oneShot.stats.victories).toBeGreaterThanOrEqual(1)
     expect(oneShot.heroes.find((hero) => hero.id === 'ysolde')?.xp).toBeGreaterThan(0)
     for (const id of RESOURCE_IDS) expect(stepped.resources[id]).toBeCloseTo(oneShot.resources[id], 6)
@@ -1012,6 +1019,65 @@ describe('les quêtes', () => {
     const { game: withWood, id: node } = withNode(richGame({}, troops), nearCity(200), 'wood', 1e6)
     const full = runUntil(startMarch(withWood, toNode(node), troops, T0), (s) => s.armies[0]?.order?.type === 'city')
     expect(full.stats.gathered).toBeCloseTo(carryCapacity(withWood, troops))
+  })
+})
+
+describe('les sorts', () => {
+  it('il faut la Tour des mages, au niveau du sort, et assez de mana', () => {
+    const fury = getSpell('fury')
+    expect(checkCast(richGame({ castle: 5 }), 'harvest')).toEqual({
+      ok: false,
+      reason: 'Construis d’abord la Tour des mages',
+    })
+    expect(checkCast(richGame({ castle: 5, mageTower: fury.towerLevel - 1 }), 'fury')).toEqual({
+      ok: false,
+      reason: `Nécessite la Tour des mages niveau ${fury.towerLevel}`,
+    })
+    const poor = { ...richGame({ castle: 5, mageTower: 5 }), resources: emptyResources() }
+    expect(checkCast(poor, 'harvest')).toEqual({ ok: false, reason: 'Ressources insuffisantes' })
+  })
+
+  it('un sort coûte son prix, agit pour sa durée, puis s’arrête à l’heure exacte', () => {
+    const game = richGame({ castle: 5, mageTower: 1 })
+    const harvest = getSpell('harvest')
+    const duration = harvest.durationSeconds * 1000
+    const cast = castSpell(game, 'harvest', T0)
+    expect(cast.resources.mana).toBe(game.resources.mana - (harvest.cost.mana ?? 0))
+    expect(cast.spells).toEqual([{ spell: 'harvest', endsAt: T0 + duration }])
+    expect(checkCast(cast, 'harvest')).toEqual({ ok: false, reason: 'Ce sort agit déjà' })
+    // Pendant le sort, les fermes produisent 25 % de plus.
+    const base = productionPerHour(game).food
+    expect(productionPerHour(cast).food).toBeCloseTo(base * 1.25)
+    // Après, le sort a disparu, et la production d'avant est revenue.
+    const later = advance(cast, T0 + 2 * duration)
+    expect(later.spells).toEqual([])
+    expect(productionPerHour(later).food).toBeCloseTo(base)
+    const gained = later.resources.food - cast.resources.food
+    expect(gained).toBeCloseTo(base * 1.25 * (duration / HOUR) + base * (duration / HOUR))
+    expect(checkCast(later, 'harvest').ok).toBe(true)
+  })
+
+  it('les sorts de guerre renforcent toutes les armées', () => {
+    const troops = army({ warrior: 200 })
+    const game = richGame({ castle: 5, mageTower: 5 }, troops)
+    const firstRound = (state: GameState) => {
+      const start = startMarch(state, toCamp('trollLair'), troops, T0)
+      return runUntil(start, (s) => (s.battles[0]?.rounds.length ?? 0) > 0).battles[0]
+    }
+    const plain = firstRound(game)
+    const furious = firstRound(castSpell(game, 'fury', T0))
+    expect(furious.rounds[0].dealt / plain.rounds[0].dealt).toBeCloseTo(1.15, 1)
+    const stone = firstRound(castSpell(game, 'stoneskin', T0))
+    expect(stone.healthFactor).toBeCloseTo(plain.healthFactor + 0.15)
+    expect(marchSpeed(castSpell(game, 'tailwind', T0))).toBeCloseTo(marchSpeed(game) / (1 - 0.2))
+  })
+
+  it('chaque sort a un niveau de Tour, un coût et une durée', () => {
+    for (const spell of SPELLS) {
+      expect(spell.towerLevel).toBeGreaterThanOrEqual(1)
+      expect(spell.durationSeconds).toBeGreaterThan(0)
+      expect(Object.keys(spell.cost).length).toBeGreaterThan(0)
+    }
   })
 })
 

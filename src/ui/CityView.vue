@@ -9,6 +9,7 @@ import {
   type Army,
   type BuildingId,
   type HeroId,
+  type SpellId,
   type TechId,
   type UnitId,
 } from '../game/config'
@@ -17,6 +18,7 @@ import {
   currentQuest,
   getBuilding,
   getRace,
+  getSpell,
   maxConstructions,
   netPerHour,
   questDone,
@@ -35,6 +37,7 @@ import NoticeBar from './NoticeBar.vue'
 import QuestBanner from './QuestBanner.vue'
 import ResearchPanel from './ResearchPanel.vue'
 import ResourceBar from './ResourceBar.vue'
+import SpellList from './SpellList.vue'
 import WorldPanel from './WorldPanel.vue'
 import { formatAmount, formatDuration, formatRate } from './format'
 
@@ -54,6 +57,7 @@ const emit = defineEmits<{
   recruit: [hero: HeroId]
   learn: [hero: HeroId, skill: string]
   claim: [quest: string]
+  cast: [spell: SpellId]
   march: [target: Target, troops: Army, hero: HeroId | null]
   order: [army: number, target: Target]
   dismiss: [troops: Army]
@@ -101,6 +105,13 @@ const buildingChips = computed(() =>
 )
 
 const race = computed(() => getRace(props.state.race))
+// Les sorts en cours, et le temps qu'il leur reste.
+const activeSpells = computed(() =>
+  props.state.spells.map((active) => {
+    const spell = getSpell(active.spell)
+    return { spell, left: Math.min(spell.durationSeconds * 1000, Math.max(0, active.endsAt - props.now)) }
+  }),
+)
 const rates = computed(() => netPerHour(props.state))
 const famineIn = computed(() => timeUntilFamine(props.state))
 const malusPercent = Math.round(STARVATION_ATTACK_MALUS * 100)
@@ -136,6 +147,13 @@ const confirmingRestart = ref(false)
     <header class="city-head">
       <h1>Cité des {{ race.name }}</h1>
       <p class="muted">{{ race.bonuses.join(' · ') }}</p>
+      <p v-if="activeSpells.length" class="spells-line">
+        Sorts en cours :
+        <span v-for="item in activeSpells" :key="item.spell.id" class="spell-chip">
+          <span aria-hidden="true">{{ item.spell.icon }}</span> {{ item.spell.name }}
+          <span class="muted">({{ formatDuration(item.left) }})</span>
+        </span>
+      </p>
     </header>
 
     <NoticeBar :notice="notice" :offline="offline" @dismiss="emit('dismissNotice')" />
@@ -200,6 +218,7 @@ const confirmingRestart = ref(false)
         :now="now"
         @upgrade="emit('upgrade', selected)"
       />
+      <SpellList v-if="selected === 'mageTower'" :state="state" :now="now" @cast="(spell) => emit('cast', spell)" />
     </section>
     <ArmyPanel
       v-else-if="tab === 'army'"
@@ -333,6 +352,18 @@ const confirmingRestart = ref(false)
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
+}
+
+.spells-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.9rem;
+  color: var(--gilt);
+  font-variant-numeric: tabular-nums;
+}
+
+.spell-chip {
+  white-space: nowrap;
 }
 
 .famine {

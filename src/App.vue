@@ -26,6 +26,7 @@ const {
   recruit,
   learn,
   claim,
+  cast,
   march,
   order,
   dismiss,
@@ -82,6 +83,7 @@ const {
     @recruit="recruit"
     @learn="learn"
     @claim="claim"
+    @cast="cast"
     @march="march"
     @order="order"
     @dismiss="dismiss"
