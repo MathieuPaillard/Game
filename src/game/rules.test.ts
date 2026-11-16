@@ -4,6 +4,7 @@ import {
   BAND_SPAWN_SECONDS,
   BAND_SPOTS,
   BATTLE_ROUND_SECONDS,
+  HEROES,
   HERO_MAX_LEVEL,
   MAX_BAND_LEVEL,
   MAX_BANDS,
@@ -13,6 +14,7 @@ import {
   NODE_SPOTS,
   PATROL_RADIUS,
   PATROL_SPEED,
+  QUESTS,
   RESOURCE_IDS,
   SECOND_CONSTRUCTION_CASTLE_LEVEL,
   SKILL_MAX_LEVEL,
@@ -29,6 +31,7 @@ import {
   type HeroId,
   type MonsterId,
   type Point,
+  type QuestDef,
   type ResourceId,
   type TechId,
 } from './config.ts'
@@ -41,6 +44,7 @@ import {
   bandPosition,
   bandsNearPath,
   carryCapacity,
+  checkClaim,
   checkDismiss,
   checkMarch,
   checkOrder,
@@ -49,6 +53,8 @@ import {
   checkSkill,
   checkTraining,
   checkUpgrade,
+  claimQuest,
+  currentQuest,
   dismissTroops,
   distance,
   emptyArmy,
@@ -80,6 +86,8 @@ import {
   patrolDistance,
   patrolLoop,
   productionPerHour,
+  questDone,
+  questProgress,
   recruitHero,
   researchCost,
   skillPoints,
@@ -257,6 +265,8 @@ describe('production', () => {
     expect(stepped.bands).toEqual(oneShot.bands)
     expect(stepped.nodes).toEqual(oneShot.nodes)
     expect(stepped.heroes).toEqual(oneShot.heroes)
+    expect(stepped.stats).toEqual(oneShot.stats)
+    expect(oneShot.stats.victories).toBeGreaterThanOrEqual(1)
     expect(oneShot.heroes.find((hero) => hero.id === 'ysolde')?.xp).toBeGreaterThan(0)
     for (const id of RESOURCE_IDS) expect(stepped.resources[id]).toBeCloseTo(oneShot.resources[id], 6)
   })
@@ -930,6 +940,78 @@ describe('les héros', () => {
     const led = withHero(withWood, 'durgan', { baskets: 5 })
     const full = runUntil(startMarch(led, toNode(id), troops, T0, 'durgan'), (s) => s.armies[0]?.order?.type === 'city')
     expect(loadSize(full.armies[0].load)).toBeCloseTo(carryCapacity(led, troops) * 1.5)
+  })
+})
+
+/** Une partie où l'objectif de cette quête est tout juste atteint, quel qu'il soit. */
+function reach(game: GameState, quest: QuestDef): GameState {
+  const goal = quest.goal
+  switch (goal.kind) {
+    case 'building':
+      return { ...game, levels: { ...game.levels, [goal.building]: goal.level } }
+    case 'troops':
+      return { ...game, troops: { ...game.troops, [goal.unit]: goal.count } }
+    case 'heroes':
+      return { ...game, heroes: HEROES.slice(0, goal.count).map((hero) => ({ id: hero.id, level: 1, xp: 0, skills: {} })) }
+    case 'heroLevel':
+      return { ...game, heroes: [{ id: 'ysolde', level: goal.level, xp: 0, skills: {} }] }
+    case 'research':
+      return { ...game, techs: { ...game.techs, agriculture: goal.levels } }
+    case 'victories':
+      return { ...game, stats: { ...game.stats, victories: goal.count } }
+    case 'bands':
+      return { ...game, stats: { ...game.stats, bandsDefeated: goal.count } }
+    case 'gathered':
+      return { ...game, stats: { ...game.stats, gathered: goal.amount } }
+  }
+}
+
+describe('les quêtes', () => {
+  it('chaque objectif mesure ce qu’il demande, et aucun n’est atteint au début de la partie', () => {
+    const game = newGame('humans', T0)
+    for (const quest of QUESTS) {
+      expect(questDone(game, quest), quest.id).toBe(false)
+      expect(questDone(reach(game, quest), quest), quest.id).toBe(true)
+      expect(questProgress(reach(game, quest), quest).current, quest.id).toBe(questProgress(game, quest).target)
+    }
+  })
+
+  it('les objectifs se suivent, un à la fois, dans l’ordre de la liste', () => {
+    const game = newGame('humans', T0)
+    expect(currentQuest(game)).toEqual(QUESTS[0])
+    const later = reach(game, QUESTS[1])
+    expect(checkClaim(later, QUESTS[1].id)).toEqual({ ok: false, reason: 'Termine d’abord l’objectif en cours' })
+    expect(checkClaim(game, QUESTS[0].id)).toEqual({ ok: false, reason: 'Objectif pas encore atteint' })
+  })
+
+  it('un objectif atteint rapporte sa récompense, une seule fois, puis le suivant prend sa place', () => {
+    const [first, second] = QUESTS
+    const game = reach(newGame('humans', T0), first)
+    const claimed = claimQuest(game, first.id, T0)
+    for (const id of RESOURCE_IDS) expect(claimed.resources[id]).toBe(game.resources[id] + (first.reward[id] ?? 0))
+    expect(claimed.quests).toEqual([first.id])
+    expect(currentQuest(claimed)).toEqual(second)
+    expect(checkClaim(claimed, first.id)).toEqual({ ok: false, reason: 'Récompense déjà reçue' })
+    // Tout réclamer, dans l'ordre : il ne reste plus d'objectif.
+    let all = claimed
+    for (const quest of QUESTS.slice(1)) all = claimQuest(reach(all, quest), quest.id, T0)
+    expect(currentQuest(all)).toBeNull()
+  })
+
+  it('les victoires, les bandes vaincues et les récoltes sont comptées', () => {
+    const { game, id } = withBand(richGame({}, { warrior: 500 }), nearCity(400), { goblin: 3 }, 2, 'goblins')
+    const won = runUntil(startMarch(game, toBand(id), army({ warrior: 500 }), T0), (s) => s.reports.length > 0)
+    expect(won.stats).toMatchObject({ victories: 1, bandsDefeated: 1 })
+    const home = runUntil(orderArmy(won, won.armies[0].id, CITY_TARGET, won.updatedAt), (s) => s.armies.length === 0)
+    const camp = runUntil(startMarch(home, toCamp('wolfDen'), army({ warrior: 500 }), home.updatedAt), (s) =>
+      s.reports.length > 1,
+    )
+    expect(camp.stats).toMatchObject({ victories: 2, bandsDefeated: 1 })
+
+    const troops = army({ warrior: 10 })
+    const { game: withWood, id: node } = withNode(richGame({}, troops), nearCity(200), 'wood', 1e6)
+    const full = runUntil(startMarch(withWood, toNode(node), troops, T0), (s) => s.armies[0]?.order?.type === 'city')
+    expect(full.stats.gathered).toBeCloseTo(carryCapacity(withWood, troops))
   })
 })
 

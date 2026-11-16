@@ -39,6 +39,7 @@ import {
   PATROL_RADIUS,
   PATROL_SPEED,
   PRODUCTION_GROWTH,
+  QUESTS,
   RACES,
   RESOURCE_IDS,
   SECOND_CONSTRUCTION_CASTLE_LEVEL,
@@ -66,6 +67,7 @@ import {
   type MonsterDef,
   type MonsterId,
   type Point,
+  type QuestDef,
   type RaceDef,
   type RaceId,
   type ResourceId,
@@ -242,6 +244,16 @@ export interface BattleReport {
   hero: HeroGain | null
 }
 
+/** Ce que le joueur a accompli depuis le début de la partie : les quêtes en tiennent compte. */
+export interface Stats {
+  /** Batailles remportées. */
+  victories: number
+  /** Bandes de monstres vaincues. */
+  bandsDefeated: number
+  /** Ressources récoltées sur les gisements. */
+  gathered: number
+}
+
 /** Tout ce qu'il faut savoir sur une partie. Les heures sont en millisecondes (comme Date.now()). */
 export interface GameState {
   race: RaceId
@@ -264,6 +276,10 @@ export interface GameState {
   battles: Battle[]
   /** Derniers rapports de bataille, du plus récent au plus ancien. */
   reports: BattleReport[]
+  /** Ce que le joueur a accompli, pour les quêtes. */
+  stats: Stats
+  /** Les quêtes dont la récompense a été reçue, dans l'ordre. */
+  quests: string[]
   /** Les bandes de monstres sur la carte des alentours. */
   bands: Band[]
   /** Quand la prochaine bande apparaîtra, ou null si la carte est pleine. */
@@ -305,6 +321,8 @@ export function newGame(race: RaceId, now: number, seed = now): GameState {
     armies: [],
     battles: [],
     reports: [],
+    stats: emptyStats(),
+    quests: [],
     bands: [],
     nextBandAt: null,
     nodes: [],
@@ -322,6 +340,10 @@ export function newGame(race: RaceId, now: number, seed = now): GameState {
 
 export function emptyResources(): Resources {
   return Object.fromEntries(RESOURCE_IDS.map((id) => [id, 0])) as Resources
+}
+
+export function emptyStats(): Stats {
+  return { victories: 0, bandsDefeated: 0, gathered: 0 }
 }
 
 export function emptyArmy(): Army {
@@ -650,6 +672,64 @@ export function startTraining(state: GameState, unitId: UnitId, count: number, n
       ...current.trainings,
       { unit: unitId, count, startedAt: now, endsAt: now + trainingDuration(current, unit, count) },
     ],
+  }
+}
+
+// --- Les quêtes : une suite d'objectifs, chacun avec sa récompense ---
+
+export function getQuest(id: string): QuestDef {
+  return byId(QUESTS, id)
+}
+
+/** Où en est un objectif : la valeur atteinte, et celle à atteindre. */
+export function questProgress(state: GameState, quest: QuestDef): { current: number; target: number } {
+  const goal = quest.goal
+  switch (goal.kind) {
+    case 'building':
+      return { current: state.levels[goal.building], target: goal.level }
+    case 'troops':
+      return { current: allTroops(state)[goal.unit], target: goal.count }
+    case 'heroes':
+      return { current: state.heroes.length, target: goal.count }
+    case 'heroLevel':
+      return { current: Math.max(0, ...state.heroes.map((hero) => hero.level)), target: goal.level }
+    case 'research':
+      return { current: Object.values(state.techs).reduce((sum, level) => sum + level, 0), target: goal.levels }
+    case 'victories':
+      return { current: state.stats.victories, target: goal.count }
+    case 'bands':
+      return { current: state.stats.bandsDefeated, target: goal.count }
+    case 'gathered':
+      return { current: Math.floor(state.stats.gathered), target: goal.amount }
+  }
+}
+
+export function questDone(state: GameState, quest: QuestDef): boolean {
+  const { current, target } = questProgress(state, quest)
+  return current >= target
+}
+
+/** L'objectif du moment : le premier de la liste dont la récompense n'a pas été reçue (null : tout est fait). */
+export function currentQuest(state: GameState): QuestDef | null {
+  return QUESTS.find((quest) => !state.quests.includes(quest.id)) ?? null
+}
+
+export function checkClaim(state: GameState, questId: string): Check {
+  if (state.quests.includes(questId)) return { ok: false, reason: 'Récompense déjà reçue' }
+  if (currentQuest(state)?.id !== questId) return { ok: false, reason: 'Termine d’abord l’objectif en cours' }
+  if (!questDone(state, getQuest(questId))) return { ok: false, reason: 'Objectif pas encore atteint' }
+  return { ok: true }
+}
+
+/** Reçoit la récompense de l'objectif atteint : l'objectif suivant devient l'objectif du moment. */
+export function claimQuest(state: GameState, questId: string, now: number): GameState {
+  const current = advance(state, now)
+  const check = checkClaim(current, questId)
+  if (!check.ok) throw new Error(check.reason)
+  return {
+    ...current,
+    resources: addResources(current.resources, getQuest(questId).reward),
+    quests: [...current.quests, questId],
   }
 }
 
@@ -1053,7 +1133,8 @@ function gather(state: GameState, army: FieldArmy, at: number): GameState {
   const remaining = node.remaining - amount
   const load = { ...army.load, [node.resource]: (army.load[node.resource] ?? 0) + amount }
   const exhausted = remaining <= 1e-9
-  const next = exhausted ? removeNode(state, node.id, at) : updateNode(state, { ...node, remaining })
+  const counted = { ...state, stats: { ...state.stats, gathered: state.stats.gathered + amount } }
+  const next = exhausted ? removeNode(counted, node.id, at) : updateNode(counted, { ...node, remaining })
   const done = exhausted || room - amount <= 1e-9
   return updateArmy(next, done ? { ...army, load, order: { type: 'city' }, status: 'marching' } : { ...army, load })
 }
@@ -1217,6 +1298,17 @@ function endBattle(state: GameState, battle: Battle, at: number, outcome: Outcom
   const loot =
     outcome !== 'victory' ? {} : foe.type === 'camp' ? { ...getCamp(foe.camp).loot } : bandLoot(foe.kind, foe.level)
   let next: GameState = { ...state, battles: state.battles.filter((b) => b.id !== battle.id) }
+  if (outcome === 'victory') {
+    const stats = next.stats
+    next = {
+      ...next,
+      stats: {
+        ...stats,
+        victories: stats.victories + 1,
+        bandsDefeated: stats.bandsDefeated + (battle.band === null ? 0 : 1),
+      },
+    }
+  }
 
   // Le héros de l'armée gagne de l'expérience pour chaque monstre vaincu, quelle que soit l'issue.
   const heroId = getArmy(state, battle.army)?.hero ?? null

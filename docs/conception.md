@@ -108,7 +108,13 @@ Plus tard, chaque race aura aussi une unité qui lui est propre.
 - **[Proposition]** Pour diriger une armée, on la touche (sur la carte, ou sa pastille), puis on touche un endroit de la carte, une cible (camp, bande, gisement) ou la cité. Sa fiche montre alors le nouvel ordre, avec la durée de la marche et les bandes qui patrouillent près du chemin ; « Valider l'ordre » l'envoie. La fiche de l'armée propose aussi « Rentrer à la cité », ou « Battre en retraite » pendant une bataille.
 - **[Proposition]** Sur la carte des alentours, chaque zone d'aggro est un cercle rouge autour de sa bande, et chaque ronde est tracée en pointillés. La route vers la cible choisie, ou vers le prochain ordre de l'armée choisie, est tracée en pointillés dorés, et les bandes qui patrouillent près de cette route ressortent davantage. Une bataille en cours se voit sur la carte, avec le numéro de sa manche.
 
-## 9. Les comptes et le serveur
+## 9. Les quêtes
+
+- **[Proposition]** Une suite d'objectifs guide le joueur, du premier chantier aux grandes batailles : un objectif à la fois, dans l'ordre, comme une histoire. Chaque objectif atteint donne une récompense en ressources, à recevoir d'un geste. L'objectif du moment s'affiche en haut de l'onglet Cité, et un point doré sur l'onglet signale une récompense à recevoir.
+- **[Proposition]** Quinze objectifs pour commencer : construire la Mine d'or, monter le Château au niveau 2, la Ferme au niveau 2, construire la Caserne, rassembler 20 guerriers, recruter un héros, remporter une bataille, récolter 500 ressources sur les gisements, Château niveau 3, construire l'Académie, terminer une recherche, vaincre 3 bandes de monstres, monter un héros au niveau 3, Château niveau 5, et remporter 10 batailles.
+- **[À trancher]** La suite : des quêtes qui racontent l'histoire du royaume (avec des personnages), des quêtes quotidiennes, et les créatures légendaires, à gagner par des quêtes.
+
+## 10. Les comptes et le serveur
 
 - **[Décidé]** Le serveur garde les parties et applique lui-même les règles du jeu. Le navigateur n'envoie que des ordres (« améliorer la Ferme », « entraîner 20 archers »…) : impossible de tricher en modifiant le jeu dans son navigateur.
 - **[Proposition]** Un compte, c'est un nom de joueur (unique, et visible des autres joueurs) et un mot de passe. Pas d'adresse e-mail pour l'instant : le serveur ne garde rien de personnel, mais un mot de passe oublié ne peut pas être récupéré.
@@ -116,7 +122,7 @@ Plus tard, chaque race aura aussi une unité qui lui est propre.
 - **[Décidé]** Pour l'instant, le jeu se développe avec un serveur local, sur l'ordinateur. La mise en ligne chez un hébergeur (payant) viendra plus tard.
 - **[À trancher]** Quel hébergeur, le moment venu.
 
-## 10. Feuille de route
+## 11. Feuille de route
 
 Chaque étape donne un jeu jouable.
 
@@ -124,6 +130,6 @@ Chaque étape donne un jeu jouable.
 2. **Armées** : troupes, recherches, combats contre des monstres. *En place* : Caserne, quatre troupes, Académie et recherches, cartes de la cité et des alentours, plusieurs armées qu'on dirige sur la carte, camps de monstres, bandes de monstres qui patrouillent (avec leurs niveaux et leurs zones d'aggro), batailles qui durent et leurs rapports, gisements de ressources à récolter, et des héros qui mènent les armées.
 3. **Serveur et comptes joueurs** : sauvegarde en ligne ; le serveur décide de tout. *En cours* : comptes (nom et mot de passe), parties gardées sur le serveur, qui applique les règles, et partie sans compte toujours possible. Reste à mettre le jeu en ligne chez un hébergeur, plus tard.
 4. **Monde partagé** : la carte, les attaques entre joueurs, les alliances.
-5. **Contenu et mobile** : quêtes, livre de sorts, créatures légendaires, puis l'appli Android.
+5. **Contenu et mobile** : quêtes, livre de sorts, créatures légendaires, puis l'appli Android. *Commencé* : une première suite de quinze objectifs, avec leurs récompenses.
 
 Les chiffres du jeu (coûts, durées, production, bonus des races) sont regroupés dans `src/game/config.ts`, pour pouvoir équilibrer le jeu sans toucher au reste du code.

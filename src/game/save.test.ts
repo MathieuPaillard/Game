@@ -42,6 +42,8 @@ describe('restoreState', () => {
       heroes: [],
       armies: [],
       battles: [],
+      stats: { victories: 0, bandsDefeated: 0, gathered: 0 },
+      quests: [],
       constructions: [],
       research: null,
     })

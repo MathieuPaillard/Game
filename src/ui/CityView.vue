@@ -14,10 +14,12 @@ import {
 } from '../game/config'
 import {
   constructionOf,
+  currentQuest,
   getBuilding,
   getRace,
   maxConstructions,
   netPerHour,
+  questDone,
   skillPoints,
   timeUntilFamine,
   type GameState,
@@ -30,6 +32,7 @@ import BuildingCard from './BuildingCard.vue'
 import CityMap from './CityMap.vue'
 import HeroPanel from './HeroPanel.vue'
 import NoticeBar from './NoticeBar.vue'
+import QuestBanner from './QuestBanner.vue'
 import ResearchPanel from './ResearchPanel.vue'
 import ResourceBar from './ResourceBar.vue'
 import WorldPanel from './WorldPanel.vue'
@@ -50,6 +53,7 @@ const emit = defineEmits<{
   train: [unit: UnitId, count: number]
   recruit: [hero: HeroId]
   learn: [hero: HeroId, skill: string]
+  claim: [quest: string]
   march: [target: Target, troops: Army, hero: HeroId | null]
   order: [army: number, target: Target]
   dismiss: [troops: Army]
@@ -64,8 +68,17 @@ type Tab = 'city' | 'army' | 'heroes' | 'research' | 'world'
 const tab = ref<Tab>('city')
 // Un point doré signale l'onglet où quelque chose est en cours, ou attend le joueur.
 const IN_PROGRESS = '(en cours)'
+const questReady = computed(() => {
+  const quest = currentQuest(props.state)
+  return quest !== null && questDone(props.state, quest)
+})
 const tabs = computed(() => [
-  { id: 'city' as const, label: 'Cité', dot: props.state.constructions.length > 0 ? IN_PROGRESS : null },
+  {
+    id: 'city' as const,
+    label: 'Cité',
+    dot:
+      props.state.constructions.length > 0 ? IN_PROGRESS : questReady.value ? '(récompense à recevoir)' : null,
+  },
   { id: 'army' as const, label: 'Armée', dot: props.state.trainings.length > 0 ? IN_PROGRESS : null },
   {
     id: 'heroes' as const,
@@ -159,6 +172,7 @@ const confirmingRestart = ref(false)
 
     <section v-if="tab === 'city'" class="tab-city" aria-labelledby="city-title">
       <h2 id="city-title" class="sr-only">Ta cité</h2>
+      <QuestBanner :state="state" @claim="(quest) => emit('claim', quest)" />
       <CityMap :state="state" :now="now" :selected="selected" @select="selected = $event" />
       <p class="muted">
         Chantiers en cours : <strong>{{ state.constructions.length }} / {{ maxConstructions(state) }}</strong

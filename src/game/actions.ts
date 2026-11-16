@@ -5,6 +5,7 @@ import {
   BUILDINGS,
   CAMPS,
   HEROES,
+  QUESTS,
   TECHS,
   UNIT_IDS,
   WORLD,
@@ -16,6 +17,7 @@ import {
 } from './config.ts'
 import {
   advance,
+  checkClaim,
   checkDismiss,
   checkMarch,
   checkOrder,
@@ -24,6 +26,7 @@ import {
   checkSkill,
   checkTraining,
   checkUpgrade,
+  claimQuest,
   dismissTroops,
   emptyArmy,
   getHeroDef,
@@ -48,6 +51,8 @@ export type Action =
   | { type: 'recruit'; hero: HeroId }
   /** Placer un point de compétence d'un héros. */
   | { type: 'skill'; hero: HeroId; skill: string }
+  /** Recevoir la récompense d'un objectif atteint. */
+  | { type: 'claim'; quest: string }
   /** Une armée sort de la cité, avec un premier ordre, et peut-être un héros à sa tête. */
   | { type: 'march'; target: Target; troops: Army; hero?: HeroId | null }
   /** Un nouvel ordre pour une armée déjà dehors : aller ailleurs, attaquer, récolter, rentrer. */
@@ -71,6 +76,8 @@ export function checkAction(state: GameState, action: Action): Check {
       return checkRecruit(state, action.hero)
     case 'skill':
       return checkSkill(state, action.hero, action.skill)
+    case 'claim':
+      return checkClaim(state, action.quest)
     case 'march':
       return checkMarch(state, action.target, action.troops, action.hero ?? null)
     case 'order':
@@ -100,6 +107,8 @@ function run(state: GameState, action: Action, now: number): GameState {
       return recruitHero(state, action.hero, now)
     case 'skill':
       return learnSkill(state, action.hero, action.skill, now)
+    case 'claim':
+      return claimQuest(state, action.quest, now)
     case 'march':
       return startMarch(state, action.target, action.troops, now, action.hero ?? null)
     case 'order':
@@ -113,6 +122,7 @@ const BUILDING_IDS = BUILDINGS.map((building) => building.id)
 const TECH_IDS = TECHS.map((tech) => tech.id)
 const CAMP_IDS = CAMPS.map((camp) => camp.id)
 const HERO_IDS = HEROES.map((hero) => hero.id)
+const QUEST_IDS = QUESTS.map((quest) => quest.id)
 /** Bien plus que ce qu'une armée peut compter : écarte seulement les nombres absurdes. */
 const MAX_COUNT = 1_000_000_000
 
@@ -138,6 +148,8 @@ export function parseAction(input: unknown): Action | null {
     }
     case 'recruit':
       return isOneOf(input.hero, HERO_IDS) ? { type: 'recruit', hero: input.hero } : null
+    case 'claim':
+      return isOneOf(input.quest, QUEST_IDS) ? { type: 'claim', quest: input.quest } : null
     case 'skill': {
       if (!isOneOf(input.hero, HERO_IDS)) return null
       const skills = getHeroDef(input.hero).skills.map((skill) => skill.id)

@@ -25,6 +25,7 @@ const {
   train,
   recruit,
   learn,
+  claim,
   march,
   order,
   dismiss,
@@ -80,6 +81,7 @@ const {
     @train="train"
     @recruit="recruit"
     @learn="learn"
+    @claim="claim"
     @march="march"
     @order="order"
     @dismiss="dismiss"

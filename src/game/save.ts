@@ -7,6 +7,7 @@ import {
   armySize,
   emptyArmy,
   emptyResources,
+  emptyStats,
   emptyTechs,
   type Band,
   type BattleReport,
@@ -83,6 +84,9 @@ export function restoreState(saved: unknown): GameState | null {
       armies: (state.armies ?? []).map((army) => ({ ...army, hero: army.hero ?? null })),
       battles: state.battles ?? [],
       reports: (state.reports ?? []).filter((report) => report.foe || report.camp).map(upgradeReport),
+      // Avant les quêtes, rien n'était compté : les compteurs partent de zéro.
+      stats: { ...emptyStats(), ...state.stats },
+      quests: state.quests ?? [],
       bands: (state.bands ?? []).map((band) => upgradeBand(band, state.updatedAt)),
       // Avant les bandes et les gisements, la carte était vide : ils arrivent peu à peu.
       nextBandAt: state.nextBandAt === undefined ? state.updatedAt : state.nextBandAt,

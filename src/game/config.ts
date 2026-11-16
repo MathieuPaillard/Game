@@ -882,6 +882,145 @@ export const NODE_SPOTS: Point[] = [
 /** Nombre de rapports de bataille conservés. */
 export const MAX_REPORTS = 8
 
+// --- Quêtes ---
+// Une suite d'objectifs qui guide le joueur, du premier chantier aux grandes batailles : un
+// objectif à la fois, dans l'ordre de la liste. Chaque objectif atteint rapporte une récompense.
+
+export type QuestGoal =
+  /** Un bâtiment atteint ce niveau. */
+  | { kind: 'building'; building: BuildingId; level: number }
+  /** Autant de troupes de cette famille, dans la cité et dehors. */
+  | { kind: 'troops'; unit: UnitId; count: number }
+  /** Autant de héros recrutés. */
+  | { kind: 'heroes'; count: number }
+  /** Un héros atteint ce niveau. */
+  | { kind: 'heroLevel'; level: number }
+  /** Autant de niveaux de recherche, toutes recherches confondues. */
+  | { kind: 'research'; levels: number }
+  /** Autant de batailles remportées. */
+  | { kind: 'victories'; count: number }
+  /** Autant de bandes de monstres vaincues. */
+  | { kind: 'bands'; count: number }
+  /** Autant de ressources récoltées sur les gisements. */
+  | { kind: 'gathered'; amount: number }
+
+export interface QuestDef {
+  id: string
+  name: string
+  /** Ce qu'il faut faire, tel qu'il est affiché au joueur. */
+  description: string
+  goal: QuestGoal
+  reward: Partial<Resources>
+}
+
+export const QUESTS: QuestDef[] = [
+  {
+    id: 'goldMine',
+    name: 'De l’or sous la colline',
+    description: 'Construis la Mine d’or.',
+    goal: { kind: 'building', building: 'goldMine', level: 1 },
+    reward: { food: 150, wood: 150, gold: 60 },
+  },
+  {
+    id: 'castle2',
+    name: 'Un château qui grandit',
+    description: 'Améliore le Château au niveau 2.',
+    goal: { kind: 'building', building: 'castle', level: 2 },
+    reward: { food: 250, wood: 250, stone: 150 },
+  },
+  {
+    id: 'farm2',
+    name: 'Des greniers pleins',
+    description: 'Améliore la Ferme au niveau 2.',
+    goal: { kind: 'building', building: 'farm', level: 2 },
+    reward: { wood: 200, stone: 150 },
+  },
+  {
+    id: 'barracks',
+    name: 'Une caserne pour la garde',
+    description: 'Construis la Caserne.',
+    goal: { kind: 'building', building: 'barracks', level: 1 },
+    reward: { food: 400, wood: 200 },
+  },
+  {
+    id: 'warriors',
+    name: 'Lever une garde',
+    description: 'Rassemble 20 Guerriers.',
+    goal: { kind: 'troops', unit: 'warrior', count: 20 },
+    reward: { food: 500, wood: 100 },
+  },
+  {
+    id: 'hero',
+    name: 'Un chef pour tes troupes',
+    description: 'Recrute un héros, dans l’onglet Héros.',
+    goal: { kind: 'heroes', count: 1 },
+    reward: { gold: 150 },
+  },
+  {
+    id: 'victory',
+    name: 'Premier sang',
+    description: 'Remporte une bataille aux alentours.',
+    goal: { kind: 'victories', count: 1 },
+    reward: { food: 300, wood: 300, stone: 200 },
+  },
+  {
+    id: 'gather',
+    name: 'Les richesses des alentours',
+    description: 'Récolte 500 ressources sur les gisements.',
+    goal: { kind: 'gathered', amount: 500 },
+    reward: { gold: 200 },
+  },
+  {
+    id: 'castle3',
+    name: 'La cité s’étend',
+    description: 'Améliore le Château au niveau 3.',
+    goal: { kind: 'building', building: 'castle', level: 3 },
+    reward: { stone: 500, gold: 200 },
+  },
+  {
+    id: 'academy',
+    name: 'La maison des savants',
+    description: 'Construis l’Académie.',
+    goal: { kind: 'building', building: 'academy', level: 1 },
+    reward: { gold: 250, mana: 50 },
+  },
+  {
+    id: 'research',
+    name: 'Première découverte',
+    description: 'Termine une recherche.',
+    goal: { kind: 'research', levels: 1 },
+    reward: { food: 500, wood: 500 },
+  },
+  {
+    id: 'bands',
+    name: 'Chasseurs de monstres',
+    description: 'Vaincs 3 bandes de monstres.',
+    goal: { kind: 'bands', count: 3 },
+    reward: { gold: 400, mana: 100 },
+  },
+  {
+    id: 'heroLevel',
+    name: 'Un héros aguerri',
+    description: 'Fais monter un héros au niveau 3.',
+    goal: { kind: 'heroLevel', level: 3 },
+    reward: { gold: 500 },
+  },
+  {
+    id: 'castle5',
+    name: 'Une cité florissante',
+    description: 'Améliore le Château au niveau 5 : un second chantier s’ouvrira.',
+    goal: { kind: 'building', building: 'castle', level: 5 },
+    reward: { food: 1500, wood: 1500, stone: 1500, gold: 600, mana: 200 },
+  },
+  {
+    id: 'victories',
+    name: 'Seigneur de guerre',
+    description: 'Remporte 10 batailles.',
+    goal: { kind: 'victories', count: 10 },
+    reward: { gold: 1000, mana: 300 },
+  },
+]
+
 // --- Départ ---
 
 export const START_RESOURCES: Resources = { food: 500, wood: 500, stone: 400, gold: 150, mana: 60 }

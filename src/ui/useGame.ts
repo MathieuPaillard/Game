@@ -238,6 +238,7 @@ export function useGame() {
     train: (unit: UnitId, count: number) => perform({ type: 'train', unit, count }),
     recruit: (hero: HeroId) => perform({ type: 'recruit', hero }),
     learn: (hero: HeroId, skill: string) => perform({ type: 'skill', hero, skill }),
+    claim: (quest: string) => perform({ type: 'claim', quest }),
     /** Une armée sort de la cité ; sans héros, l'ordre ne parle pas de héros. */
     march: (target: Target, troops: Army, hero: HeroId | null) =>
       perform(hero ? { type: 'march', target, troops, hero } : { type: 'march', target, troops }),

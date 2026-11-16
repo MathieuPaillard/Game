@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { parseAction, performAction, type Action } from './actions.ts'
 import { RESOURCE_IDS, type Army, type BuildingId } from './config.ts'
 import {
+  claimQuest,
   emptyArmy,
   emptyResources,
   getBuilding,
@@ -44,6 +45,7 @@ describe('parseAction', () => {
       { type: 'march', target: { type: 'camp', camp: 'wolfDen' }, troops: army({ warrior: 5 }), hero: 'ysolde' },
       { type: 'recruit', hero: 'durgan' },
       { type: 'skill', hero: 'thalia', skill: 'lightning' },
+      { type: 'claim', quest: 'castle2' },
       { type: 'order', army: 7, target: { type: 'city' } },
       { type: 'order', army: 7, target: { type: 'band', band: 2 } },
       { type: 'dismiss', troops: army({ mage: 2 }) },
@@ -101,6 +103,8 @@ describe('parseAction', () => {
       { type: 'skill', hero: 'ysolde', skill: 'lightning' },
       { type: 'skill', hero: 'ysolde', skill: 'toString' },
       { type: 'skill', hero: 'nobody', skill: 'rally' },
+      { type: 'claim', quest: 'treasure' },
+      { type: 'claim' },
       { type: 'order', army: -2, target: { type: 'city' } },
       { type: 'order', army: 3 },
       { type: 'order', army: 3, target: { type: 'node' } },
@@ -153,6 +157,12 @@ describe('performAction', () => {
     expect(performAction(recruited, { type: 'march', target, troops, hero: 'ysolde' }, t)).toEqual({
       ok: true,
       state: startMarch(recruited, target, troops, t, 'ysolde'),
+    })
+    // Le premier objectif (la Mine d'or) est atteint : sa récompense peut être reçue.
+    const mined = { ...game, levels: { ...game.levels, goldMine: 1 } }
+    expect(performAction(mined, { type: 'claim', quest: 'goldMine' }, t)).toEqual({
+      ok: true,
+      state: claimQuest(mined, 'goldMine', t),
     })
   })
 
