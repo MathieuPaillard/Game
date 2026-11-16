@@ -182,7 +182,7 @@ function describe(plot: (typeof plots.value)[number]): string {
       <ellipse class="spot-base" rx="44" ry="17" cy="24" />
       <ellipse class="spot-ring" rx="54" ry="23" cy="24" />
       <text class="emoji" font-size="46">🪖</text>
-      <g transform="translate(34 -26)">
+      <g transform="translate(-34 -26)">
         <rect :x="-pill(garrison) / 2" y="-14" :width="pill(garrison)" height="28" rx="14" class="badge" />
         <text class="badge-text">{{ garrison }}</text>
       </g>

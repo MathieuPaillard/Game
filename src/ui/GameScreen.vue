@@ -516,24 +516,32 @@ onBeforeUnmount(() => {
             <button
               type="button"
               class="hud-btn"
+              :aria-label="heroesWaiting ? 'Héros (points de compétence à placer)' : 'Héros'"
               :aria-pressed="panel?.kind === 'heroes'"
               @click="toggle('heroes')"
             >
               <span class="icon" aria-hidden="true">👑</span>
               <span>Héros</span>
-              <span v-if="heroesWaiting" class="dot"><span class="sr-only">(points de compétence à placer)</span></span>
+              <span v-if="heroesWaiting" class="dot"></span>
             </button>
             <button
               type="button"
               class="hud-btn"
+              :aria-label="newReport ? 'Rapports (nouveau rapport)' : 'Rapports'"
               :aria-pressed="panel?.kind === 'reports'"
               @click="toggle('reports')"
             >
               <span class="icon" aria-hidden="true">📜</span>
               <span>Rapports</span>
-              <span v-if="newReport" class="dot"><span class="sr-only">(nouveau rapport)</span></span>
+              <span v-if="newReport" class="dot"></span>
             </button>
-            <button type="button" class="hud-btn" :aria-pressed="panel?.kind === 'menu'" @click="toggle('menu')">
+            <button
+              type="button"
+              class="hud-btn"
+              aria-label="Menu"
+              :aria-pressed="panel?.kind === 'menu'"
+              @click="toggle('menu')"
+            >
               <span class="icon" aria-hidden="true">☰</span>
               <span>Menu</span>
             </button>
