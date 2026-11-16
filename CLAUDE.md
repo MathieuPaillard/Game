@@ -10,7 +10,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `npm start`: production server, with the API plus the built game from `dist/` (run `npm run build` first). Environment variables: `PORT`, `DATABASE_FILE`, `STATIC_DIR`.
 - `npm test`: run the tests once (Vitest), covering the game rules and the server. `npm run test:watch` re-runs them on save.
 - `npx vitest run server/app.test.ts -t "<test name>"`: run a single test.
-- `npm run build`: type-check (`npm run typecheck`: `vue-tsc` for the client, `tsc -p tsconfig.server.json` for the server and the rules), then build the game into `dist/`. There is no linter yet.
+- `npm run simulation` (or `npm run simulation -- orcs 7` for another race and seed): a virtual player (`scripts/simulation.ts`) follows the objective chain from a new game and prints the game time each objective takes, or where it gets stuck. Run it after balancing changes in `config.ts`; it depends on balancing values, so it is not a test.
+- `npm run build`: type-check (`npm run typecheck`: `vue-tsc` for the client, `tsc -p tsconfig.server.json` for the server, the rules and `scripts/`), then build the game into `dist/`. There is no linter yet.
 
 npm 10 can crash with `Cannot read properties of null (reading 'edgesOut')` when it resolves the dev dependencies from scratch (vitest's optional peers), for example when adding a package. `npm install --legacy-peer-deps` works around it. Installing from the existing `package-lock.json` is unaffected.
 

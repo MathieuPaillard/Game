@@ -18,5 +18,7 @@ Pour jouer avec un compte, il faut aussi le serveur du jeu : dans un second term
 
 Pour lancer les tests (règles du jeu et serveur) : `npm test`.
 
+Pour voir le rythme du début de partie, par exemple après avoir changé des chiffres dans `src/game/config.ts` : `npm run simulation`. Un joueur virtuel suit les objectifs et affiche le temps qu'il lui faut pour chacun.
+
 Version finale, telle qu'un hébergeur la lancera : `npm run build`, puis `npm start` (le jeu et le serveur ensemble, sur http://localhost:3000).
 

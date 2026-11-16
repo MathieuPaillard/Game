@@ -1,5 +1,5 @@
 {
-  // Vérification des types du serveur et des règles du jeu, que Node.js exécute directement.
+  // Vérification des types du serveur, des règles du jeu et des scripts, que Node.js exécute directement.
   // Node.js efface les types sans rien traduire : les imports gardent leur extension .ts,
   // et seules les écritures TypeScript « effaçables » sont permises (pas d'enum, par exemple).
   "compilerOptions": {
@@ -15,5 +15,5 @@
     "strict": true,
     "skipLibCheck": true
   },
-  "include": ["server/**/*.ts", "src/game/**/*.ts"]
+  "include": ["server/**/*.ts", "src/game/**/*.ts", "scripts/**/*.ts"]
 }
