@@ -7,6 +7,8 @@ import {
   carryCapacity,
   checkOrder,
   getBandKind,
+  getHero,
+  getHeroDef,
   getMonster,
   loadSize,
   marchDuration,
@@ -25,6 +27,12 @@ const emit = defineEmits<{ order: [target: Target]; clearPlan: []; close: [] }>(
 const CITY: Target = { type: 'city' }
 
 const status = computed(() => armyStatusText(props.state, props.army))
+// Le héros qui la mène, s'il y en a un.
+const hero = computed(() => {
+  const id = props.army.hero
+  const recruited = id === null ? undefined : getHero(props.state, id)
+  return recruited ? { def: getHeroDef(recruited.id), level: recruited.level } : null
+})
 const battle = computed(() => props.state.battles.find((b) => b.army === props.army.id))
 
 // Le temps qu'il lui reste à marcher.
@@ -32,7 +40,7 @@ const eta = computed(() => {
   const order = props.army.order
   if (props.army.status !== 'marching' || !order) return null
   const to = targetPosition(props.state, order, props.now)
-  return to ? marchDuration(props.state, props.army.position, to) : null
+  return to ? marchDuration(props.state, props.army.position, to, props.army.hero) : null
 })
 
 // Au combat : ce qui reste de chaque côté.
@@ -46,7 +54,7 @@ const fight = computed(() => {
   return { round: battle.value.rounds.length, troops: formatArmy(troops), foes }
 })
 
-const capacity = computed(() => carryCapacity(props.army.troops))
+const capacity = computed(() => carryCapacity(props.state, props.army.troops, props.army.hero))
 const carried = computed(() => loadSize(props.army.load))
 const load = computed(() =>
   RESOURCE_IDS.filter((id) => (props.army.load[id] ?? 0) >= 1).map((id) => ({
@@ -60,7 +68,7 @@ const planCheck = computed(() => (props.plan ? checkOrder(props.state, props.arm
 const planText = computed(() => (props.plan ? orderText(props.state, props.plan) : ''))
 const planDuration = computed(() => {
   const to = props.plan && targetPosition(props.state, props.plan, props.now)
-  return to ? marchDuration(props.state, props.army.position, to) : null
+  return to ? marchDuration(props.state, props.army.position, to, props.army.hero) : null
 })
 const dangers = computed(() => {
   const plan = props.plan
@@ -82,6 +90,10 @@ const dangers = computed(() => {
       </div>
     </header>
 
+    <p v-if="hero">
+      Menée par <span aria-hidden="true">{{ hero.def.icon }}</span> <strong>{{ hero.def.name }}</strong>
+      (niveau {{ hero.level }})
+    </p>
     <p v-if="eta !== null">Arrivée dans {{ formatDuration(eta) }}.</p>
     <div v-if="fight" class="fight" role="status">
       <p>

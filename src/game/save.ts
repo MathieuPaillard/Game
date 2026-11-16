@@ -75,7 +75,9 @@ export function restoreState(saved: unknown): GameState | null {
       research: state.research ?? null,
       troops,
       trainings: state.trainings ?? (state.training ? [state.training] : []),
-      armies: state.armies ?? [],
+      heroes: state.heroes ?? [],
+      // Avant les héros, les armées partaient sans héros.
+      armies: (state.armies ?? []).map((army) => ({ ...army, hero: army.hero ?? null })),
       battles: state.battles ?? [],
       reports: (state.reports ?? []).filter((report) => report.foe || report.camp).map(upgradeReport),
       bands: (state.bands ?? []).map((band) => upgradeBand(band, state.updatedAt)),
@@ -129,5 +131,6 @@ function upgradeReport(report: SavedReport): BattleReport {
     loot: report.loot ?? {},
     starving: report.starving ?? false,
     rounds: report.rounds ?? [],
+    hero: report.hero ?? null,
   } as BattleReport
 }

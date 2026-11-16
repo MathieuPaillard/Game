@@ -4,11 +4,13 @@
 import {
   BUILDINGS,
   CAMPS,
+  HEROES,
   TECHS,
   UNIT_IDS,
   WORLD,
   type Army,
   type BuildingId,
+  type HeroId,
   type TechId,
   type UnitId,
 } from './config.ts'
@@ -17,12 +19,17 @@ import {
   checkDismiss,
   checkMarch,
   checkOrder,
+  checkRecruit,
   checkResearch,
+  checkSkill,
   checkTraining,
   checkUpgrade,
   dismissTroops,
   emptyArmy,
+  getHeroDef,
+  learnSkill,
   orderArmy,
+  recruitHero,
   startMarch,
   startResearch,
   startTraining,
@@ -37,8 +44,12 @@ export type Action =
   | { type: 'research'; tech: TechId }
   | { type: 'train'; unit: UnitId; count: number }
   | { type: 'dismiss'; troops: Army }
-  /** Une armée sort de la cité, avec un premier ordre. */
-  | { type: 'march'; target: Target; troops: Army }
+  /** Recruter un héros. */
+  | { type: 'recruit'; hero: HeroId }
+  /** Placer un point de compétence d'un héros. */
+  | { type: 'skill'; hero: HeroId; skill: string }
+  /** Une armée sort de la cité, avec un premier ordre, et peut-être un héros à sa tête. */
+  | { type: 'march'; target: Target; troops: Army; hero?: HeroId | null }
   /** Un nouvel ordre pour une armée déjà dehors : aller ailleurs, attaquer, récolter, rentrer. */
   | { type: 'order'; army: number; target: Target }
 
@@ -56,8 +67,12 @@ export function checkAction(state: GameState, action: Action): Check {
       return checkTraining(state, action.unit, action.count)
     case 'dismiss':
       return checkDismiss(state, action.troops)
+    case 'recruit':
+      return checkRecruit(state, action.hero)
+    case 'skill':
+      return checkSkill(state, action.hero, action.skill)
     case 'march':
-      return checkMarch(state, action.target, action.troops)
+      return checkMarch(state, action.target, action.troops, action.hero ?? null)
     case 'order':
       return checkOrder(state, action.army, action.target)
   }
@@ -81,8 +96,12 @@ function run(state: GameState, action: Action, now: number): GameState {
       return startTraining(state, action.unit, action.count, now)
     case 'dismiss':
       return dismissTroops(state, action.troops, now)
+    case 'recruit':
+      return recruitHero(state, action.hero, now)
+    case 'skill':
+      return learnSkill(state, action.hero, action.skill, now)
     case 'march':
-      return startMarch(state, action.target, action.troops, now)
+      return startMarch(state, action.target, action.troops, now, action.hero ?? null)
     case 'order':
       return orderArmy(state, action.army, action.target, now)
   }
@@ -93,6 +112,7 @@ function run(state: GameState, action: Action, now: number): GameState {
 const BUILDING_IDS = BUILDINGS.map((building) => building.id)
 const TECH_IDS = TECHS.map((tech) => tech.id)
 const CAMP_IDS = CAMPS.map((camp) => camp.id)
+const HERO_IDS = HEROES.map((hero) => hero.id)
 /** Bien plus que ce qu'une armée peut compter : écarte seulement les nombres absurdes. */
 const MAX_COUNT = 1_000_000_000
 
@@ -116,10 +136,20 @@ export function parseAction(input: unknown): Action | null {
       const troops = parseArmy(input.troops)
       return troops ? { type: 'dismiss', troops } : null
     }
+    case 'recruit':
+      return isOneOf(input.hero, HERO_IDS) ? { type: 'recruit', hero: input.hero } : null
+    case 'skill': {
+      if (!isOneOf(input.hero, HERO_IDS)) return null
+      const skills = getHeroDef(input.hero).skills.map((skill) => skill.id)
+      return isOneOf(input.skill, skills) ? { type: 'skill', hero: input.hero, skill: input.skill } : null
+    }
     case 'march': {
       const target = parseTarget(input.target)
       const troops = parseArmy(input.troops)
-      return target && troops ? { type: 'march', target, troops } : null
+      if (!target || !troops) return null
+      // Le héros est facultatif : absent ou null, l'armée part sans héros.
+      if (input.hero === undefined || input.hero === null) return { type: 'march', target, troops }
+      return isOneOf(input.hero, HERO_IDS) ? { type: 'march', target, troops, hero: input.hero } : null
     }
     case 'order': {
       const target = parseTarget(input.target)

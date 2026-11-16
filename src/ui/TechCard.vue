@@ -31,7 +31,7 @@ const duration = computed(() => researchDuration(props.tech, target.value))
 const effectNow = computed(() => {
   const effect = props.tech.effect
   const total = effect.perLevel * level.value
-  if (effect.kind === 'armies') return `+${total} armée${total > 1 ? 's' : ''} en campagne`
+  if (effect.kind === 'armies') return `+${total} armée${total > 1 ? 's' : ''} dehors`
   const percent = Math.round(total * 100)
   return effect.kind === 'marchSpeed' || effect.kind === 'constructionSpeed' ? `−${percent} %` : `+${percent} %`
 })

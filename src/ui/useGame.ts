@@ -5,7 +5,7 @@
 
 import { onMounted, onUnmounted, shallowRef } from 'vue'
 import { performAction, type Action } from '../game/actions'
-import type { Army, BuildingId, RaceId, TechId, UnitId } from '../game/config'
+import type { Army, BuildingId, HeroId, RaceId, TechId, UnitId } from '../game/config'
 import { advance, newGame, type GameState, type Target } from '../game/rules'
 import { ONLINE_AVAILABLE, server, ServerError, serverNow, type Session } from './api'
 import { makeAwayReport, type AwayReport } from './away'
@@ -236,7 +236,11 @@ export function useGame() {
     upgrade: (building: BuildingId) => perform({ type: 'upgrade', building }),
     research: (tech: TechId) => perform({ type: 'research', tech }),
     train: (unit: UnitId, count: number) => perform({ type: 'train', unit, count }),
-    march: (target: Target, troops: Army) => perform({ type: 'march', target, troops }),
+    recruit: (hero: HeroId) => perform({ type: 'recruit', hero }),
+    learn: (hero: HeroId, skill: string) => perform({ type: 'skill', hero, skill }),
+    /** Une armée sort de la cité ; sans héros, l'ordre ne parle pas de héros. */
+    march: (target: Target, troops: Army, hero: HeroId | null) =>
+      perform(hero ? { type: 'march', target, troops, hero } : { type: 'march', target, troops }),
     order: (army: number, target: Target) => perform({ type: 'order', army, target }),
     dismiss: (troops: Army) => perform({ type: 'dismiss', troops }),
     async restart() {

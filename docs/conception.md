@@ -75,6 +75,10 @@ Plus tard, chaque race aura aussi une unité qui lui est propre.
 - **[Décidé]** Si les réserves de nourriture sont vides et que les fermes ne suffisent plus, c'est la famine. Personne ne déserte, mais les troupes ont faim et se battent moins bien.
 - **[Proposition]** Des troupes affamées perdent 30 % de leur attaque au combat. Pour sortir de la famine, on améliore sa Ferme ou on renvoie des troupes : les troupes renvoyées ne mangent plus, mais elles quittent l'armée.
 - **[Décidé]** Des **héros** mènent les armées ; ils gagnent de l'expérience et débloquent des compétences.
+- **[Proposition]** Cinq héros pour commencer, recrutés avec de l'or (et un peu de mana pour deux d'entre eux), chacun à partir d'un niveau du Château : Ysolde de Valcourt (capitaine de la garde, pour les guerriers, Château 2), Durgan Barbe-de-Granite (maître des mines, pour la récolte, Château 2), Faëlan Flèche-d'Argent (maître archer, Château 3), Garrok aux Deux Haches (chef de guerre, pour les cavaliers, Château 4) et Thalia des Brumes (archimage, pour les mages, Château 5).
+- **[Proposition]** Un héros mène une seule armée à la fois. On le choisit au moment d'envoyer l'armée, ou on n'en prend aucun. Il ne meurt jamais : si son armée tombe, il revient à la cité.
+- **[Proposition]** Un héros gagne de l'expérience pour chaque monstre vaincu (de 4 pour un gobelin à 30 pour un troll), quelle que soit l'issue de la bataille. Il faut 100 points d'expérience pour passer au niveau 2, puis 1,5 fois plus à chaque niveau, jusqu'au niveau 10.
+- **[Proposition]** Chaque niveau donne un point de compétence. Chaque héros a trois compétences de 5 niveaux : avec 10 points pour 15 niveaux, il faut choisir. Les effets, pour l'armée qu'il mène : attaque ou vie de toute l'armée (+3 % par niveau), attaque d'une famille de troupes (+6 %), temps de marche (−6 %), vitesse de récolte ou charge (+10 %).
 - **[Décidé]** Des **créatures légendaires** (dragons…) : rares, très puissantes, obtenues par des quêtes.
 
 ## 7. Le monde
@@ -116,7 +120,7 @@ Plus tard, chaque race aura aussi une unité qui lui est propre.
 Chaque étape donne un jeu jouable.
 
 1. **Prototype solo dans le navigateur** : la cité, les ressources, les bâtiments et leurs durées de construction. *En place* : choix de la race, cinq ressources, six bâtiments, un chantier à la fois, production hors connexion.
-2. **Armées** : troupes, recherches, combats contre des monstres. *En place* : Caserne, quatre troupes, Académie et recherches, cartes de la cité et des alentours, plusieurs armées qu'on dirige sur la carte, camps de monstres, bandes de monstres qui patrouillent (avec leurs niveaux et leurs zones d'aggro), batailles qui durent et leurs rapports, gisements de ressources à récolter.
+2. **Armées** : troupes, recherches, combats contre des monstres. *En place* : Caserne, quatre troupes, Académie et recherches, cartes de la cité et des alentours, plusieurs armées qu'on dirige sur la carte, camps de monstres, bandes de monstres qui patrouillent (avec leurs niveaux et leurs zones d'aggro), batailles qui durent et leurs rapports, gisements de ressources à récolter, et des héros qui mènent les armées.
 3. **Serveur et comptes joueurs** : sauvegarde en ligne ; le serveur décide de tout. *En cours* : comptes (nom et mot de passe), parties gardées sur le serveur, qui applique les règles, et partie sans compte toujours possible. Reste à mettre le jeu en ligne chez un hébergeur, plus tard.
 4. **Monde partagé** : la carte, les attaques entre joueurs, les alliances.
 5. **Contenu et mobile** : quêtes, livre de sorts, créatures légendaires, puis l'appli Android.

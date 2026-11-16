@@ -7,15 +7,25 @@ import {
   STARVATION_ATTACK_MALUS,
   type Army,
   type BuildingId,
+  type HeroId,
   type TechId,
   type UnitId,
 } from '../game/config'
-import { getBuilding, getRace, netPerHour, timeUntilFamine, type GameState, type Target } from '../game/rules'
+import {
+  getBuilding,
+  getRace,
+  netPerHour,
+  skillPoints,
+  timeUntilFamine,
+  type GameState,
+  type Target,
+} from '../game/rules'
 import AccountLine from './AccountLine.vue'
 import ArmyPanel from './ArmyPanel.vue'
 import type { AwayReport } from './away'
 import BuildingCard from './BuildingCard.vue'
 import CityMap from './CityMap.vue'
+import HeroPanel from './HeroPanel.vue'
 import NoticeBar from './NoticeBar.vue'
 import ResearchPanel from './ResearchPanel.vue'
 import ResourceBar from './ResourceBar.vue'
@@ -35,7 +45,9 @@ const emit = defineEmits<{
   upgrade: [building: BuildingId]
   research: [tech: TechId]
   train: [unit: UnitId, count: number]
-  march: [target: Target, troops: Army]
+  recruit: [hero: HeroId]
+  learn: [hero: HeroId, skill: string]
+  march: [target: Target, troops: Army, hero: HeroId | null]
   order: [army: number, target: Target]
   dismiss: [troops: Army]
   restart: []
@@ -45,14 +57,20 @@ const emit = defineEmits<{
   goOnline: []
 }>()
 
-type Tab = 'city' | 'army' | 'research' | 'world'
+type Tab = 'city' | 'army' | 'heroes' | 'research' | 'world'
 const tab = ref<Tab>('city')
-// Un point doré signale l'onglet où quelque chose est en cours.
+// Un point doré signale l'onglet où quelque chose est en cours, ou attend le joueur.
+const IN_PROGRESS = '(en cours)'
 const tabs = computed(() => [
-  { id: 'city' as const, label: 'Cité', busy: props.state.construction !== null },
-  { id: 'army' as const, label: 'Armée', busy: props.state.trainings.length > 0 },
-  { id: 'research' as const, label: 'Recherches', busy: props.state.research !== null },
-  { id: 'world' as const, label: 'Alentours', busy: props.state.armies.length > 0 },
+  { id: 'city' as const, label: 'Cité', dot: props.state.construction !== null ? IN_PROGRESS : null },
+  { id: 'army' as const, label: 'Armée', dot: props.state.trainings.length > 0 ? IN_PROGRESS : null },
+  {
+    id: 'heroes' as const,
+    label: 'Héros',
+    dot: props.state.heroes.some((hero) => skillPoints(hero) > 0) ? '(points de compétence à placer)' : null,
+  },
+  { id: 'research' as const, label: 'Recherches', dot: props.state.research !== null ? IN_PROGRESS : null },
+  { id: 'world' as const, label: 'Alentours', dot: props.state.armies.length > 0 ? IN_PROGRESS : null },
 ])
 
 // Le bâtiment choisi sur la carte (ou dans la liste), dont on montre la fiche.
@@ -93,7 +111,7 @@ const confirmingRestart = ref(false)
         @click="tab = t.id"
       >
         {{ t.label }}
-        <span v-if="t.busy" class="tab-dot"><span class="sr-only">(en cours)</span></span>
+        <span v-if="t.dot" class="tab-dot"><span class="sr-only">{{ t.dot }}</span></span>
       </button>
     </nav>
   </div>
@@ -167,6 +185,12 @@ const confirmingRestart = ref(false)
       @train="(unit, count) => emit('train', unit, count)"
       @dismiss="(troops) => emit('dismiss', troops)"
     />
+    <HeroPanel
+      v-else-if="tab === 'heroes'"
+      :state="state"
+      @recruit="(hero) => emit('recruit', hero)"
+      @learn="(hero, skill) => emit('learn', hero, skill)"
+    />
     <ResearchPanel
       v-else-if="tab === 'research'"
       :state="state"
@@ -178,7 +202,7 @@ const confirmingRestart = ref(false)
       :state="state"
       :now="now"
       :city-name="`Cité des ${race.name}`"
-      @march="(target, troops) => emit('march', target, troops)"
+      @march="(target, troops, hero) => emit('march', target, troops, hero)"
       @order="(army, target) => emit('order', army, target)"
     />
 
@@ -246,15 +270,26 @@ const confirmingRestart = ref(false)
   background: var(--gilt);
 }
 
-/* Quatre onglets sur un petit téléphone : on resserre un peu. */
-@media (max-width: 26rem) {
+/* Cinq onglets sur un petit téléphone : on resserre un peu. */
+@media (max-width: 30rem) {
   .tabs {
     gap: 0;
   }
 
   .tab {
-    gap: 0.25rem;
+    gap: 0.2rem;
     font-size: 0.85rem;
+  }
+}
+
+@media (max-width: 22rem) {
+  .tab {
+    font-size: 0.78rem;
+  }
+
+  .tab-dot {
+    width: 0.35rem;
+    height: 0.35rem;
   }
 }
 

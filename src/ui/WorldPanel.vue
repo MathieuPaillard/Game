@@ -8,6 +8,7 @@ import {
   RESOURCE_IDS,
   STARVATION_ATTACK_MALUS,
   type Army,
+  type HeroId,
   type MonsterId,
   type Resources,
 } from '../game/config'
@@ -16,12 +17,14 @@ import {
   getArmy,
   getBand,
   getBandKind,
+  getHeroDef,
   getMonster,
   getNode,
   maxArmies,
   nodeGatherer,
   sameTarget,
   type GameState,
+  type HeroGain,
   type Target,
 } from '../game/rules'
 import ArmyCard from './ArmyCard.vue'
@@ -32,7 +35,10 @@ import { formatAgo, formatAmount, formatArmy, formatDuration } from './format'
 import { STATUS_ICONS, armyStatusText, monstersIcon, type Selection } from './world'
 
 const props = defineProps<{ state: GameState; now: number; cityName: string }>()
-const emit = defineEmits<{ march: [target: Target, troops: Army]; order: [army: number, target: Target] }>()
+const emit = defineEmits<{
+  march: [target: Target, troops: Army, hero: HeroId | null]
+  order: [army: number, target: Target]
+}>()
 
 const FIRST_CAMP: Selection = { kind: 'target', target: { type: 'camp', camp: 'wolfDen' } }
 
@@ -99,9 +105,9 @@ function closeArmy() {
   plan.value = null
 }
 
-function march(troops: Army) {
+function march(troops: Army, hero: HeroId | null) {
   const target = selectedTarget.value
-  if (target) emit('march', target, troops)
+  if (target) emit('march', target, troops, hero)
 }
 
 // Les pastilles : tes armées, les camps, les bandes (des plus faibles aux plus fortes) et les gisements.
@@ -109,6 +115,7 @@ const armyChips = computed(() =>
   props.state.armies.map((army) => ({
     id: army.id,
     icon: STATUS_ICONS[army.status],
+    hero: army.hero === null ? null : getHeroDef(army.hero).icon,
     size: armySize(army.troops),
     status: armyStatusText(props.state, army),
   })),
@@ -144,6 +151,13 @@ function monstersText(monsters: Partial<Record<MonsterId, number>>): string {
     .filter(([, count]) => count > 0)
     .map(([id, count]) => `${getMonster(id).icon} ${getMonster(id).name} ${count}`)
     .join(' · ')
+}
+
+/** Ce qu'a gagné le héros : « Ysolde de Valcourt gagne 40 XP et passe au niveau 3 ! » */
+function heroText(gain: HeroGain): string {
+  const hero = getHeroDef(gain.hero)
+  const levelUp = gain.levelsGained > 0 ? ` et passe au niveau ${gain.level} !` : '.'
+  return `${hero.icon} ${hero.name} gagne ${formatAmount(gain.xp)} XP${levelUp}`
 }
 
 function lootText(loot: Partial<Resources>): string {
@@ -183,6 +197,7 @@ function lootText(loot: Partial<Resources>): string {
             @click="choose({ kind: 'army', id: chip.id })"
           >
             <span aria-hidden="true">{{ chip.icon }}</span>
+            <span v-if="chip.hero" aria-hidden="true">{{ chip.hero }}</span>
             {{ chip.size }}
             <span class="chip-tag busy">{{ chip.status }}</span>
           </button>
@@ -275,6 +290,7 @@ function lootText(loot: Partial<Resources>): string {
           <p>Pertes : {{ formatArmy(report.lost) || 'aucune' }}</p>
           <p>Monstres vaincus : {{ monstersText(report.enemyLost) || 'aucun' }}</p>
           <p v-if="report.outcome === 'victory'">Butin : {{ lootText(report.loot) }}</p>
+          <p v-if="report.hero" :class="{ won: report.hero.levelsGained > 0 }">{{ heroText(report.hero) }}</p>
           <p v-if="report.starving" class="lost">Tes troupes avaient faim : {{ malusPercent }} % d’attaque en moins.</p>
           <details v-if="report.rounds.length" class="journal">
             <summary>Journal du combat</summary>

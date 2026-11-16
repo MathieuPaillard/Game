@@ -39,6 +39,7 @@ describe('restoreState', () => {
       techs: emptyTechs(),
       troops: { ...emptyArmy(), archer: 3 },
       trainings: [training],
+      heroes: [],
       armies: [],
       battles: [],
       construction: null,
@@ -54,6 +55,7 @@ describe('restoreState', () => {
       loot: {},
       starving: false,
       rounds: [],
+      hero: null,
     })
     // Avant les bandes et les gisements, la carte était vide : ils arrivent peu à peu.
     expect(state).toMatchObject({ bands: [], nextBandAt: T0, nodes: [], nextNodeAt: T0, nextId: 1 })
@@ -95,6 +97,21 @@ describe('restoreState', () => {
     expect(state?.armies).toEqual([])
     expect(state?.troops).toEqual({ ...emptyArmy(), warrior: 9, archer: 3 })
     expect(state?.resources).toMatchObject({ gold: 180, wood: 150, food: 100 })
+  })
+
+  it('les armées d’avant les héros partent sans héros', () => {
+    const army = {
+      id: 5,
+      troops: { ...emptyArmy(), warrior: 4 },
+      position: { x: 700, y: 600 },
+      order: null,
+      status: 'idle',
+      load: {},
+      fought: [],
+    }
+    const state = restoreState({ ...newGame('orcs', T0), heroes: undefined, armies: [army] })!
+    expect(state.heroes).toEqual([])
+    expect(state.armies).toEqual([{ ...army, hero: null }])
   })
 
   it('fait patrouiller les bandes d’avant les rondes autour de l’endroit où elles étaient', () => {

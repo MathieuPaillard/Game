@@ -8,6 +8,7 @@ import {
   bandsNearPath,
   getArmy,
   getBand,
+  getHeroDef,
   getBandKind,
   nodeGatherer,
   patrolLoop,
@@ -150,6 +151,7 @@ const armies = computed(() =>
     key: army.id,
     ...army.position,
     icon: STATUS_ICONS[army.status],
+    hero: army.hero === null ? null : getHeroDef(army.hero),
     size: armySize(army.troops),
     selected: props.selection.kind === 'army' && props.selection.id === army.id,
   })),
@@ -332,7 +334,7 @@ const pointPlan = computed(() => (props.plan?.type === 'point' ? props.plan : nu
       :style="{ transform: `translate(${army.x}px, ${army.y}px)` }"
       role="button"
       tabindex="0"
-      :aria-label="`Ton armée de ${army.size} troupes`"
+      :aria-label="`Ton armée de ${army.size} troupes${army.hero ? `, menée par ${army.hero.name}` : ''}`"
       :aria-pressed="army.selected"
       @click.stop="emit('select', { kind: 'army', id: army.key })"
       @keydown.enter.prevent="emit('select', { kind: 'army', id: army.key })"
@@ -341,6 +343,10 @@ const pointPlan = computed(() => (props.plan?.type === 'point' ? props.plan : nu
       <circle r="34" class="spot-ring army-ring" />
       <circle r="26" class="army-dot" />
       <text class="emoji" font-size="28">{{ army.icon }}</text>
+      <g v-if="army.hero" transform="translate(28 -24)">
+        <circle r="17" class="badge" />
+        <text class="emoji" font-size="20">{{ army.hero.icon }}</text>
+      </g>
       <text class="map-label" y="-44">{{ army.size }}</text>
     </g>
 

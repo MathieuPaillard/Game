@@ -1,7 +1,7 @@
 // Le résumé « Bon retour » : ce qui s'est passé pendant que le joueur n'était pas là.
 
 import { RESOURCE_IDS, type Resources } from '../game/config'
-import { emptyResources, getBuilding, getTech, getUnit, type GameState } from '../game/rules'
+import { emptyResources, getBuilding, getHeroDef, getTech, getUnit, type GameState } from '../game/rules'
 import { OUTCOME_NAMES, foeName } from './battleLog'
 
 // En dessous d'une minute d'absence, pas de résumé.
@@ -43,6 +43,12 @@ export function makeAwayReport(before: GameState, after: GameState): AwayReport 
     // Anéantie, l'armée n'est pas rentrée : son rapport le dit.
     const wiped = after.reports.some((r) => r.army === army.id && r.outcome === 'defeat')
     if (!wiped) events.push('Une de tes armées est rentrée à la cité, avec ce qu’elle portait.')
+  }
+  for (const hero of after.heroes) {
+    const was = before.heroes.find((h) => h.id === hero.id)
+    if (was && hero.level > was.level) {
+      events.push(`${getHeroDef(hero.id).name} atteint le niveau ${hero.level} : des points de compétence à placer.`)
+    }
   }
   const newBands = after.bands.filter((band) => !before.bands.some((b) => b.id === band.id)).length
   if (newBands === 1) events.push('Une nouvelle bande de monstres rôde aux alentours.')

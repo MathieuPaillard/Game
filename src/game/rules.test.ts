@@ -4,6 +4,7 @@ import {
   BAND_SPAWN_SECONDS,
   BAND_SPOTS,
   BATTLE_ROUND_SECONDS,
+  HERO_MAX_LEVEL,
   MAX_BAND_LEVEL,
   MAX_BANDS,
   MAX_LEVEL,
@@ -13,6 +14,7 @@ import {
   PATROL_RADIUS,
   PATROL_SPEED,
   RESOURCE_IDS,
+  SKILL_MAX_LEVEL,
   START_BANDS,
   START_LEVELS,
   START_NODES,
@@ -23,6 +25,8 @@ import {
   type BandKindId,
   type BuildingId,
   type CampId,
+  type HeroId,
+  type MonsterId,
   type Point,
   type ResourceId,
   type TechId,
@@ -39,20 +43,29 @@ import {
   checkDismiss,
   checkMarch,
   checkOrder,
+  checkRecruit,
   checkResearch,
+  checkSkill,
   checkTraining,
   checkUpgrade,
   dismissTroops,
   distance,
   emptyArmy,
   emptyResources,
+  gainXp,
+  gatherRate,
   getBandKind,
   getBuilding,
   getCamp,
+  getHero,
+  getHeroDef,
+  getMonster,
   getRace,
   getTech,
   getUnit,
+  heroArmy,
   isStarving,
+  learnSkill,
   levelAt,
   loadSize,
   marchDuration,
@@ -65,7 +78,9 @@ import {
   patrolDistance,
   patrolLoop,
   productionPerHour,
+  recruitHero,
   researchCost,
+  skillPoints,
   startMarch,
   startResearch,
   startTraining,
@@ -75,8 +90,10 @@ import {
   upgradeCost,
   upgradeDuration,
   upkeepPerHour,
+  xpToNextLevel,
   type Band,
   type GameState,
+  type Hero,
   type Monsters,
   type ResourceNode,
   type Target,
@@ -146,6 +163,12 @@ function withBand(
   return { game: { ...game, bands: [...game.bands, band], nextId: game.nextId + 1 }, id: band.id }
 }
 
+/** Recrute un héros, avec ses compétences déjà apprises (sans dépendre de son expérience). */
+function withHero(game: GameState, id: HeroId, skills: Record<string, number> = {}): GameState {
+  const hero: Hero = { id, level: HERO_MAX_LEVEL, xp: 0, skills }
+  return { ...game, heroes: [...game.heroes.filter((h) => h.id !== id), hero] }
+}
+
 /** Installe un gisement. */
 function withNode(
   game: GameState,
@@ -208,9 +231,12 @@ describe('production', () => {
     let start = startUpgrade(game, 'farm', T0)
     start = startResearch(start, 'agriculture', T0)
     start = startTraining(start, 'warrior', 5, T0)
+    // Deux héros, avec une compétence chacun.
+    start = learnSkill(recruitHero(start, 'ysolde', T0), 'ysolde', 'rally', T0)
+    start = learnSkill(recruitHero(start, 'durgan', T0), 'durgan', 'pickaxes', T0)
     // Trois armées dehors : vers un camp, vers un gisement, et contre une bande.
-    start = startMarch(start, toCamp('wolfDen'), army({ warrior: 30 }), T0)
-    start = startMarch(start, toNode(start.nodes[0].id), army({ warrior: 30 }), T0)
+    start = startMarch(start, toCamp('wolfDen'), army({ warrior: 30 }), T0, 'ysolde')
+    start = startMarch(start, toNode(start.nodes[0].id), army({ warrior: 30 }), T0, 'durgan')
     start = startMarch(start, toBand(start.bands[0].id), army({ warrior: 35 }), T0)
     const end = T0 + 3 * HOUR
 
@@ -228,6 +254,8 @@ describe('production', () => {
     expect(stepped.armies).toEqual(oneShot.armies)
     expect(stepped.bands).toEqual(oneShot.bands)
     expect(stepped.nodes).toEqual(oneShot.nodes)
+    expect(stepped.heroes).toEqual(oneShot.heroes)
+    expect(oneShot.heroes.find((hero) => hero.id === 'ysolde')?.xp).toBeGreaterThan(0)
     for (const id of RESOURCE_IDS) expect(stepped.resources[id]).toBeCloseTo(oneShot.resources[id], 6)
   })
 })
@@ -703,12 +731,12 @@ describe('les gisements de ressources', () => {
     const start = startMarch(game, toNode(id), troops, T0)
     const gathering = runUntil(start, (s) => s.armies[0]?.status === 'gathering')
     const full = runUntil(gathering, (s) => s.armies[0]?.order?.type === 'city')
-    expect(loadSize(full.armies[0].load)).toBeCloseTo(carryCapacity(troops))
+    expect(loadSize(full.armies[0].load)).toBeCloseTo(carryCapacity(game, troops))
 
     const home = runUntil(full, (s) => s.armies.length === 0)
     const produced = productionPerHour(start).wood * ((home.updatedAt - start.updatedAt) / HOUR)
-    expect(home.resources.wood - start.resources.wood - produced).toBeCloseTo(carryCapacity(troops))
-    expect(home.nodes[0].remaining).toBeCloseTo(1e6 - carryCapacity(troops))
+    expect(home.resources.wood - start.resources.wood - produced).toBeCloseTo(carryCapacity(game, troops))
+    expect(home.nodes[0].remaining).toBeCloseTo(1e6 - carryCapacity(game, troops))
   })
 
   it('rappelée en pleine récolte, l’armée rapporte ce qu’elle a déjà ramassé', () => {
@@ -718,7 +746,7 @@ describe('les gisements de ressources', () => {
     const busy = advance(gathering, gathering.updatedAt + 10_000)
     const picked = loadSize(busy.armies[0].load)
     expect(picked).toBeGreaterThan(0)
-    expect(picked).toBeLessThan(carryCapacity(troops))
+    expect(picked).toBeLessThan(carryCapacity(game, troops))
     const home = runUntil(orderArmy(busy, busy.armies[0].id, CITY_TARGET, busy.updatedAt), (s) => s.armies.length === 0)
     const produced = productionPerHour(busy).stone * ((home.updatedAt - busy.updatedAt) / HOUR)
     expect(home.resources.stone - busy.resources.stone - produced).toBeCloseTo(picked)
@@ -743,6 +771,133 @@ describe('les gisements de ressources', () => {
       ok: false,
       reason: 'Ce gisement est épuisé',
     })
+  })
+})
+
+describe('les héros', () => {
+  it('on recrute un héros avec ses ressources, à partir d’un niveau du Château', () => {
+    const ysolde = getHeroDef('ysolde')
+    expect(checkRecruit(richGame({ castle: ysolde.castleLevel - 1 }), 'ysolde')).toEqual({
+      ok: false,
+      reason: `Nécessite le Château niveau ${ysolde.castleLevel}`,
+    })
+    const poor = { ...richGame({ castle: ysolde.castleLevel }), resources: emptyResources() }
+    expect(checkRecruit(poor, 'ysolde')).toEqual({ ok: false, reason: 'Ressources insuffisantes' })
+
+    const game = richGame({ castle: ysolde.castleLevel })
+    const recruited = recruitHero(game, 'ysolde', T0)
+    expect(recruited.heroes).toEqual([{ id: 'ysolde', level: 1, xp: 0, skills: {} }])
+    expect(recruited.resources.gold).toBe(game.resources.gold - (ysolde.cost.gold ?? 0))
+    expect(checkRecruit(recruited, 'ysolde')).toEqual({ ok: false, reason: 'Ce héros est déjà à ton service' })
+  })
+
+  it('l’expérience fait monter un héros de niveau, jusqu’au niveau maximum', () => {
+    const hero: Hero = { id: 'ysolde', level: 1, xp: 0, skills: {} }
+    expect(gainXp(hero, xpToNextLevel(1) - 1)).toMatchObject({ level: 1, xp: xpToNextLevel(1) - 1 })
+    expect(gainXp(hero, xpToNextLevel(1) + xpToNextLevel(2) + 5)).toMatchObject({ level: 3, xp: 5 })
+    expect(xpToNextLevel(2)).toBeGreaterThan(xpToNextLevel(1))
+    expect(gainXp(hero, 1e9)).toMatchObject({ level: HERO_MAX_LEVEL, xp: 0 })
+  })
+
+  it('chaque niveau donne un point de compétence, et une compétence a un niveau maximum', () => {
+    let game = recruitHero(richGame({ castle: 5 }), 'ysolde', T0)
+    expect(skillPoints(getHero(game, 'ysolde')!)).toBe(1)
+    game = learnSkill(game, 'ysolde', 'rally', T0)
+    expect(getHero(game, 'ysolde')!.skills).toEqual({ rally: 1 })
+    expect(checkSkill(game, 'ysolde', 'rally')).toEqual({
+      ok: false,
+      reason: 'Aucun point de compétence : le héros doit gagner un niveau',
+    })
+    // Un niveau de plus : un point de plus.
+    const leveled = { ...game, heroes: [gainXp(getHero(game, 'ysolde')!, xpToNextLevel(1))] }
+    expect(skillPoints(leveled.heroes[0])).toBe(1)
+    expect(checkSkill(leveled, 'ysolde', 'spears').ok).toBe(true)
+
+    const maxed = withHero(game, 'ysolde', { rally: SKILL_MAX_LEVEL })
+    expect(checkSkill(maxed, 'ysolde', 'rally')).toEqual({ ok: false, reason: 'Niveau maximum atteint' })
+    expect(checkSkill(maxed, 'ysolde', 'lightning').ok).toBe(false)
+    expect(checkSkill(game, 'thalia', 'lightning')).toEqual({ ok: false, reason: 'Recrute d’abord ce héros' })
+  })
+
+  it('un héros mène une seule armée à la fois, et revient avec elle à la cité', () => {
+    const game = withHero(withTechs(richGame({}, { warrior: 20 }), { command: 1 }), 'ysolde')
+    const sent = startMarch(game, toPoint(nearCity(200)), army({ warrior: 10 }), T0, 'ysolde')
+    expect(sent.armies[0].hero).toBe('ysolde')
+    expect(heroArmy(sent, 'ysolde')?.id).toBe(sent.armies[0].id)
+    expect(checkMarch(sent, toCamp('wolfDen'), army({ warrior: 10 }), 'ysolde')).toEqual({
+      ok: false,
+      reason: 'Ysolde de Valcourt mène déjà une armée',
+    })
+    expect(checkMarch(sent, toCamp('wolfDen'), army({ warrior: 10 }), 'thalia')).toEqual({
+      ok: false,
+      reason: 'Recrute d’abord ce héros',
+    })
+    const back = runUntil(orderArmy(sent, sent.armies[0].id, CITY_TARGET, T0), (s) => s.armies.length === 0)
+    expect(heroArmy(back, 'ysolde')).toBeUndefined()
+    expect(checkMarch(back, toCamp('wolfDen'), army({ warrior: 10 }), 'ysolde').ok).toBe(true)
+  })
+
+  it('le héros gagne de l’expérience pour chaque monstre vaincu', () => {
+    const game = recruitHero(richGame({ castle: 5 }, { warrior: 1000 }), 'ysolde', T0)
+    const den = getCamp('wolfDen')
+    const won = runUntil(startMarch(game, toCamp('wolfDen'), army({ warrior: 1000 }), T0, 'ysolde'), (s) =>
+      s.reports.length > 0,
+    )
+    const xp = (Object.entries(den.defenders) as [MonsterId, number][]).reduce(
+      (sum, [id, count]) => sum + count * getMonster(id).xp,
+      0,
+    )
+    const after = gainXp({ id: 'ysolde', level: 1, xp: 0, skills: {} }, xp)
+    expect(won.reports[0].hero).toEqual({
+      hero: 'ysolde',
+      xp,
+      level: after.level,
+      levelsGained: after.level - 1,
+    })
+    expect(getHero(won, 'ysolde')).toMatchObject({ level: after.level, xp: after.xp })
+  })
+
+  it('une armée anéantie rend son héros à la cité, avec l’expérience gagnée', () => {
+    const game = withHero(richGame({}, { archer: 3 }), 'ysolde')
+    const lost = runUntil(startMarch(game, toCamp('trollLair'), army({ archer: 3 }), T0, 'ysolde'), (s) =>
+      s.reports.length > 0,
+    )
+    expect(lost.reports[0].outcome).toBe('defeat')
+    expect(lost.armies).toEqual([])
+    expect(heroArmy(lost, 'ysolde')).toBeUndefined()
+    expect(lost.reports[0].hero?.hero).toBe('ysolde')
+  })
+
+  it('les compétences du héros renforcent son armée', () => {
+    const troops = army({ warrior: 200 })
+    const base = withHero(richGame({}, troops), 'ysolde')
+    const strong = withHero(base, 'ysolde', { rally: 5, spears: 5, shieldWall: 5 })
+    const firstRound = (game: GameState) => {
+      const start = startMarch(game, toCamp('trollLair'), troops, T0, 'ysolde')
+      const fighting = runUntil(start, (s) => (s.battles[0]?.rounds.length ?? 0) > 0)
+      return fighting.battles[0]
+    }
+    const plain = firstRound(base)
+    const boosted = firstRound(strong)
+    // +15 % d'attaque pour tous, et +30 % pour les guerriers : 45 % de dégâts en plus.
+    expect(boosted.rounds[0].dealt / plain.rounds[0].dealt).toBeCloseTo(1.45, 1)
+    expect(boosted.healthFactor).toBeCloseTo(plain.healthFactor + 0.15)
+  })
+
+  it('un héros peut faire marcher plus vite, récolter plus vite et porter davantage', () => {
+    const game = withHero(withHero(richGame(), 'faelan', { trails: 5 }), 'durgan', { pickaxes: 5, baskets: 5 })
+    expect(marchSpeed(game, 'faelan')).toBeCloseTo(marchSpeed(game) / (1 - 0.3))
+    expect(marchDuration(game, WORLD.city, nearCity(300), 'faelan')).toBeLessThan(
+      marchDuration(game, WORLD.city, nearCity(300)),
+    )
+    const troops = army({ warrior: 10 })
+    expect(carryCapacity(game, troops, 'durgan')).toBeCloseTo(carryCapacity(game, troops) * 1.5)
+    expect(gatherRate(game, troops, 'stone', 'durgan')).toBeCloseTo(gatherRate(game, troops, 'stone') * 1.5)
+    // Sur le terrain : l'armée de Durgan rapporte davantage.
+    const { game: withWood, id } = withNode(richGame({}, troops), nearCity(200), 'wood', 1e6)
+    const led = withHero(withWood, 'durgan', { baskets: 5 })
+    const full = runUntil(startMarch(led, toNode(id), troops, T0, 'durgan'), (s) => s.armies[0]?.order?.type === 'city')
+    expect(loadSize(full.armies[0].load)).toBeCloseTo(carryCapacity(led, troops) * 1.5)
   })
 })
 

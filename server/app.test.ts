@@ -231,6 +231,27 @@ describe('la partie', () => {
     expect(refused.data).toMatchObject({ ok: false, reason: 'Cette bande n’est plus là' })
   })
 
+  it('recrute un héros, lui fait apprendre une compétence, puis l’envoie mener une armée', async () => {
+    const server = testServer()
+    const token = await server.register()
+    const game = richGame({ castle: 5 })
+    // Deux armées possibles : la seconde est refusée à cause du héros, pas faute de place.
+    const techs = { ...game.techs, command: 1 }
+    server.giveGame('Arthur', { ...game, techs, troops: { warrior: 30, archer: 0, rider: 0, mage: 0 } })
+    const act = (body: unknown) => server.call('POST', '/api/game/actions', { token, body })
+
+    expect((await act({ type: 'recruit', hero: 'ysolde' })).data.game.heroes).toEqual([
+      { id: 'ysolde', level: 1, xp: 0, skills: {} },
+    ])
+    expect((await act({ type: 'skill', hero: 'ysolde', skill: 'rally' })).data.game.heroes[0].skills).toEqual({ rally: 1 })
+    const march = { type: 'march', target: { type: 'camp', camp: 'wolfDen' }, troops: { warrior: 10 }, hero: 'ysolde' }
+    const sent = await act(march)
+    expect(sent.data.ok).toBe(true)
+    expect(sent.data.game.armies[0].hero).toBe('ysolde')
+    // Le même héros ne peut pas mener deux armées.
+    expect((await act(march)).data).toMatchObject({ ok: false, reason: 'Ysolde de Valcourt mène déjà une armée' })
+  })
+
   it('refuse les ordres mal formés', async () => {
     const server = testServer()
     const token = await server.register()

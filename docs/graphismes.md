@@ -62,6 +62,16 @@ Pour chaque image : le nom du fichier à utiliser, puis ce qu'il faut écrire ap
 | `troupe-cavaliers.png` | Personnage en pied : un cavalier en armure sur un cheval de guerre caparaçonné. |
 | `troupe-mages.png` | Personnage en pied : un mage en robe bleu nuit, bâton surmonté d'un cristal violet. |
 
+### Héros
+
+| Fichier | Description |
+|---|---|
+| `heros-ysolde.png` | Portrait en buste : une capitaine humaine aux cheveux tressés, armure d'acier et cape bleu nuit, un bouclier frappé d'une tour. |
+| `heros-durgan.png` | Portrait en buste : un vieux nain à la barbe grise tressée, casque de mineur à lanterne, une pioche sur l'épaule. |
+| `heros-faelan.png` | Portrait en buste : un archer elfe aux cheveux argentés, capuche vert forêt, une flèche à pointe d'argent à la main. |
+| `heros-garrok.png` | Portrait en buste : un orc colossal à la peau verte, peintures de guerre rouges, deux haches croisées dans le dos. |
+| `heros-thalia.png` | Portrait en buste : une magicienne aux yeux lumineux, robe bleu nuit brodée d'argent, une brume violette autour des mains. |
+
 ### Carte des alentours
 
 | Fichier | Description |

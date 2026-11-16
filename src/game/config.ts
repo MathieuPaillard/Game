@@ -270,7 +270,7 @@ export const TECHS: TechDef[] = [
     id: 'command',
     name: 'Commandement',
     icon: '🚩',
-    description: '+1 armée en campagne en même temps, par niveau',
+    description: '+1 armée dehors en même temps, par niveau',
     effect: { kind: 'armies', perLevel: 1 },
     maxLevel: 2,
     unlockedAtAcademyLevel: 1,
@@ -346,7 +346,7 @@ export interface UnitDef {
   trainingSeconds: number
   /** Niveau de Caserne nécessaire pour l'entraîner. */
   barracksLevel: number
-  /** Entretien : nourriture mangée par heure par une troupe, dans la cité comme en campagne. */
+  /** Entretien : nourriture mangée par heure par une troupe, dans la cité comme sur la carte. */
   upkeepPerHour: number
   /** Ressources qu'une troupe peut porter : le butin et la récolte rapportés à la cité. */
   load: number
@@ -426,6 +426,220 @@ export const TRAINING_BATCH_PER_LEVEL = 20
 /** Chaque niveau de Caserne au-delà du premier réduit de 10 % la durée d'entraînement. */
 export const BARRACKS_SPEED_PER_LEVEL = 0.1
 
+// --- Héros ---
+// Un héros se recrute avec de l'or, puis mène une armée. Il gagne de l'expérience pour chaque
+// monstre vaincu, et chaque niveau lui donne un point à placer dans l'une de ses compétences.
+
+export type HeroId = 'ysolde' | 'durgan' | 'faelan' | 'garrok' | 'thalia'
+
+/** Ce que rapporte chaque niveau d'une compétence, à l'armée que mène le héros. */
+export type SkillEffect =
+  /** Attaque de toute l'armée. */
+  | { kind: 'attack'; perLevel: number }
+  /** Vie de toute l'armée. */
+  | { kind: 'health'; perLevel: number }
+  /** Attaque d'une seule famille de troupes. */
+  | { kind: 'familyAttack'; family: UnitId; perLevel: number }
+  /** Temps de marche en moins, comme la Marche forcée. */
+  | { kind: 'marchSpeed'; perLevel: number }
+  /** Vitesse de récolte sur les gisements. */
+  | { kind: 'gatherSpeed'; perLevel: number }
+  /** Ce que l'armée peut porter. */
+  | { kind: 'load'; perLevel: number }
+
+export interface SkillDef {
+  id: string
+  name: string
+  icon: string
+  /** L'effet d'un niveau, tel qu'il est affiché au joueur. */
+  description: string
+  effect: SkillEffect
+}
+
+export interface HeroDef {
+  id: HeroId
+  name: string
+  title: string
+  icon: string
+  description: string
+  /** Niveau du Château nécessaire pour le recruter. */
+  castleLevel: number
+  /** Ce que coûte son recrutement. */
+  cost: Partial<Resources>
+  skills: SkillDef[]
+}
+
+export const HEROES: HeroDef[] = [
+  {
+    id: 'ysolde',
+    name: 'Ysolde de Valcourt',
+    title: 'Capitaine de la garde',
+    icon: '🤺',
+    description: 'Elle a tenu seule la porte d’un fort assiégé. Ses guerriers la suivraient n’importe où.',
+    castleLevel: 2,
+    cost: { gold: 150 },
+    skills: [
+      {
+        id: 'shieldWall',
+        name: 'Mur de boucliers',
+        icon: '🛡️',
+        description: '+3 % de vie pour toute l’armée, par niveau',
+        effect: { kind: 'health', perLevel: 0.03 },
+      },
+      {
+        id: 'spears',
+        name: 'Lances dressées',
+        icon: '🔱',
+        description: '+6 % d’attaque des Guerriers, par niveau',
+        effect: { kind: 'familyAttack', family: 'warrior', perLevel: 0.06 },
+      },
+      {
+        id: 'rally',
+        name: 'Cri de ralliement',
+        icon: '📯',
+        description: '+3 % d’attaque pour toute l’armée, par niveau',
+        effect: { kind: 'attack', perLevel: 0.03 },
+      },
+    ],
+  },
+  {
+    id: 'durgan',
+    name: 'Durgan Barbe-de-Granite',
+    title: 'Maître des mines',
+    icon: '🧔',
+    description: 'Un vieux nain qui flaire un filon à des lieues. Avec lui, une armée récolte plus vite et rapporte davantage.',
+    castleLevel: 2,
+    cost: { gold: 100 },
+    skills: [
+      {
+        id: 'pickaxes',
+        name: 'Pioches bénies',
+        icon: '⛏️',
+        description: '+10 % de vitesse de récolte, par niveau',
+        effect: { kind: 'gatherSpeed', perLevel: 0.1 },
+      },
+      {
+        id: 'baskets',
+        name: 'Hottes renforcées',
+        icon: '🧺',
+        description: '+10 % de charge, par niveau',
+        effect: { kind: 'load', perLevel: 0.1 },
+      },
+      {
+        id: 'shortcuts',
+        name: 'Raccourcis de mineur',
+        icon: '🥾',
+        description: '−6 % de temps de marche, par niveau',
+        effect: { kind: 'marchSpeed', perLevel: 0.06 },
+      },
+    ],
+  },
+  {
+    id: 'faelan',
+    name: 'Faëlan Flèche-d’Argent',
+    title: 'Maître archer',
+    icon: '🧝',
+    description: 'Un archer elfe qui ne manque jamais sa cible, et qui connaît chaque sentier de la forêt.',
+    castleLevel: 3,
+    cost: { gold: 300, mana: 40 },
+    skills: [
+      {
+        id: 'volley',
+        name: 'Pluie de flèches',
+        icon: '🏹',
+        description: '+6 % d’attaque des Archers, par niveau',
+        effect: { kind: 'familyAttack', family: 'archer', perLevel: 0.06 },
+      },
+      {
+        id: 'trails',
+        name: 'Sentiers secrets',
+        icon: '🍃',
+        description: '−6 % de temps de marche, par niveau',
+        effect: { kind: 'marchSpeed', perLevel: 0.06 },
+      },
+      {
+        id: 'aim',
+        name: 'Tir précis',
+        icon: '🎯',
+        description: '+3 % d’attaque pour toute l’armée, par niveau',
+        effect: { kind: 'attack', perLevel: 0.03 },
+      },
+    ],
+  },
+  {
+    id: 'garrok',
+    name: 'Garrok aux Deux Haches',
+    title: 'Chef de guerre',
+    icon: '🪓',
+    description: 'Un orc colossal qui mène ses cavaliers à la charge en hurlant.',
+    castleLevel: 4,
+    cost: { gold: 500 },
+    skills: [
+      {
+        id: 'charge',
+        name: 'Charge sauvage',
+        icon: '🐎',
+        description: '+6 % d’attaque des Cavaliers, par niveau',
+        effect: { kind: 'familyAttack', family: 'rider', perLevel: 0.06 },
+      },
+      {
+        id: 'thickHide',
+        name: 'Cuir épais',
+        icon: '🐗',
+        description: '+3 % de vie pour toute l’armée, par niveau',
+        effect: { kind: 'health', perLevel: 0.03 },
+      },
+      {
+        id: 'gallop',
+        name: 'Galop furieux',
+        icon: '💨',
+        description: '−6 % de temps de marche, par niveau',
+        effect: { kind: 'marchSpeed', perLevel: 0.06 },
+      },
+    ],
+  },
+  {
+    id: 'thalia',
+    name: 'Thalia des Brumes',
+    title: 'Archimage',
+    icon: '🧙‍♀️',
+    description: 'Elle a étudié la magie dans les tours oubliées du Nord. Ses mages frappent comme la foudre.',
+    castleLevel: 5,
+    cost: { gold: 800, mana: 150 },
+    skills: [
+      {
+        id: 'lightning',
+        name: 'Foudre',
+        icon: '⚡',
+        description: '+6 % d’attaque des Mages, par niveau',
+        effect: { kind: 'familyAttack', family: 'mage', perLevel: 0.06 },
+      },
+      {
+        id: 'ward',
+        name: 'Bouclier arcanique',
+        icon: '🔮',
+        description: '+3 % de vie pour toute l’armée, par niveau',
+        effect: { kind: 'health', perLevel: 0.03 },
+      },
+      {
+        id: 'lore',
+        name: 'Savoir ancien',
+        icon: '📖',
+        description: '+3 % d’attaque pour toute l’armée, par niveau',
+        effect: { kind: 'attack', perLevel: 0.03 },
+      },
+    ],
+  },
+]
+
+/** Niveau maximum d'un héros. Chaque niveau donne un point de compétence (le premier aussi). */
+export const HERO_MAX_LEVEL = 10
+/** Niveau maximum d'une compétence : un héros ne peut pas tout apprendre, il faut choisir. */
+export const SKILL_MAX_LEVEL = 5
+/** L'expérience pour passer du niveau 1 au niveau 2 ; chaque niveau suivant en demande 1,5 fois plus. */
+export const HERO_BASE_XP = 100
+export const HERO_XP_GROWTH = 1.5
+
 // --- La carte des alentours ---
 
 /** Un point de la carte des alentours, en unités de carte. */
@@ -458,14 +672,16 @@ export interface MonsterDef {
   family: UnitId
   attack: number
   health: number
+  /** L'expérience que gagne le héros d'une armée pour chacun de ces monstres vaincus. */
+  xp: number
 }
 
 export const MONSTERS: MonsterDef[] = [
-  { id: 'wolf', name: 'Loups', icon: '🐺', family: 'rider', attack: 12, health: 40 },
-  { id: 'goblin', name: 'Gobelins', icon: '👺', family: 'warrior', attack: 8, health: 35 },
-  { id: 'skeleton', name: 'Squelettes archers', icon: '💀', family: 'archer', attack: 11, health: 25 },
-  { id: 'shaman', name: 'Chamans', icon: '🔥', family: 'mage', attack: 18, health: 20 },
-  { id: 'troll', name: 'Trolls', icon: '👹', family: 'warrior', attack: 40, health: 400 },
+  { id: 'wolf', name: 'Loups', icon: '🐺', family: 'rider', attack: 12, health: 40, xp: 5 },
+  { id: 'goblin', name: 'Gobelins', icon: '👺', family: 'warrior', attack: 8, health: 35, xp: 4 },
+  { id: 'skeleton', name: 'Squelettes archers', icon: '💀', family: 'archer', attack: 11, health: 25, xp: 4 },
+  { id: 'shaman', name: 'Chamans', icon: '🔥', family: 'mage', attack: 18, health: 20, xp: 6 },
+  { id: 'troll', name: 'Trolls', icon: '👹', family: 'warrior', attack: 40, health: 400, xp: 30 },
 ]
 
 export type CampId = 'wolfDen' | 'goblinCamp' | 'hauntedRuins' | 'trollLair'

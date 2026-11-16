@@ -8,11 +8,11 @@ import {
   UNIT_IDS,
   WORLD,
   type Army,
+  type HeroId,
   type MonsterId,
   type Resources,
 } from '../game/config'
 import {
-  armySize,
   bandLoot,
   bandMonsters,
   bandsNearPath,
@@ -20,12 +20,15 @@ import {
   checkMarch,
   checkMarchSlot,
   emptyArmy,
+  gatherRate,
   getBand,
   getBandKind,
   getCamp,
+  getHeroDef,
   getMonster,
   getNode,
   getUnit,
+  heroArmy,
   marchDuration,
   targetPosition,
   timeUntilFamine,
@@ -36,9 +39,9 @@ import {
 import { formatAmount, formatDuration } from './format'
 
 // La fiche d'une cible : un camp, une bande de monstres ou un gisement. On y prépare le départ
-// d'une armée de la cité : pour attaquer, ou pour récolter.
+// d'une armée de la cité : pour attaquer, ou pour récolter, avec un héros à sa tête si on veut.
 const props = defineProps<{ target: Target; state: GameState }>()
-const emit = defineEmits<{ march: [troops: Army] }>()
+const emit = defineEmits<{ march: [troops: Army, hero: HeroId | null] }>()
 
 function total(monsters: Monsters): number {
   return Object.values(monsters).reduce((sum, count) => sum + (count ?? 0), 0)
@@ -88,8 +91,21 @@ const info = computed(() => {
   return null
 })
 
+const open = ref(false)
+const selection = reactive<Army>(emptyArmy())
+// Le héros qui mènera l'armée (null : aucun), parmi ceux qui attendent à la cité.
+const hero = ref<HeroId | null>(null)
+const freeHeroes = computed(() =>
+  props.state.heroes
+    .filter((recruited) => !heroArmy(props.state, recruited.id))
+    .map((recruited) => ({ id: recruited.id, level: recruited.level, def: getHeroDef(recruited.id) })),
+)
+const chosenHero = computed(() => (open.value ? hero.value : null))
+
 const position = computed(() => targetPosition(props.state, props.target))
-const march = computed(() => (position.value ? marchDuration(props.state, WORLD.city, position.value) : 0))
+const march = computed(() =>
+  position.value ? marchDuration(props.state, WORLD.city, position.value, chosenHero.value) : 0,
+)
 const foes = computed(() =>
   (Object.entries(info.value?.monsters ?? {}) as [MonsterId, number][])
     .filter(([, count]) => count > 0)
@@ -110,8 +126,6 @@ const dangers = computed(() =>
     : [],
 )
 
-const open = ref(false)
-const selection = reactive<Army>(emptyArmy())
 const available = computed(() => UNIT_IDS.filter((id) => props.state.troops[id] > 0))
 const blocked = computed(() => {
   const slot = checkMarchSlot(props.state, props.target)
@@ -124,8 +138,8 @@ const harvest = computed(() => {
   const node = info.value
   if (node?.kind !== 'node') return null
   const troops = { ...selection }
-  const amount = Math.min(carryCapacity(troops), node.remaining)
-  const rate = armySize(troops) * NODE_KINDS[node.resource].gatherRate
+  const amount = Math.min(carryCapacity(props.state, troops, hero.value), node.remaining)
+  const rate = gatherRate(props.state, troops, node.resource, hero.value)
   return { amount, seconds: rate > 0 ? amount / rate : 0 }
 })
 // Les réserves de nourriture seront-elles vides quand l'armée arrivera ?
@@ -134,18 +148,29 @@ const hungryOnArrival = computed(() => {
   return info.value?.kind !== 'node' && famineIn !== null && famineIn < march.value
 })
 const malusPercent = Math.round(STARVATION_ATTACK_MALUS * 100)
-const check = computed(() => checkMarch(props.state, props.target, { ...selection }))
+const check = computed(() => checkMarch(props.state, props.target, { ...selection }, hero.value))
 const reason = computed(() => (check.value.ok ? null : check.value.reason))
 
-/** Ouvre le formulaire, avec toutes les troupes de la cité sélectionnées. */
+/** Un héros fait pour récolter : ses compétences aident à la récolte. */
+function gathers(id: HeroId): boolean {
+  return getHeroDef(id).skills.some((skill) => skill.effect.kind === 'gatherSpeed' || skill.effect.kind === 'load')
+}
+
+/**
+ * Ouvre le formulaire, avec toutes les troupes de la cité sélectionnées, et un héros libre à leur
+ * tête : un récolteur pour un gisement, un combattant sinon.
+ */
 function prepare() {
   for (const id of UNIT_IDS) selection[id] = props.state.troops[id]
+  const free = freeHeroes.value
+  const forNode = info.value?.kind === 'node'
+  hero.value = (free.find((h) => gathers(h.id) === forNode) ?? free[0])?.id ?? null
   open.value = true
 }
 
 function send() {
   if (!check.value.ok) return
-  emit('march', { ...selection })
+  emit('march', { ...selection }, hero.value)
   open.value = false
 }
 </script>
@@ -201,6 +226,22 @@ function send() {
 
     <div class="plaque-foot">
       <form v-if="open" class="send" @submit.prevent="send">
+        <fieldset v-if="freeHeroes.length" class="hero-pick">
+          <legend>Héros à la tête de l’armée</legend>
+          <ul class="chips">
+            <li>
+              <button type="button" class="chip" :aria-pressed="hero === null" @click="hero = null">Aucun</button>
+            </li>
+            <li v-for="h in freeHeroes" :key="h.id">
+              <button type="button" class="chip" :aria-pressed="hero === h.id" @click="hero = h.id">
+                <span aria-hidden="true">{{ h.def.icon }}</span>
+                {{ h.def.name }}
+                <span class="chip-tag">niv. {{ h.level }}</span>
+              </button>
+            </li>
+          </ul>
+        </fieldset>
+        <p v-else-if="state.heroes.length" class="muted">Tes héros mènent déjà d’autres armées.</p>
         <label v-for="id in available" :key="id" class="field" :for="`send-${info.key}-${id}`">
           <span>
             {{ getUnit(id).icon }} {{ getUnit(id).name }} <span class="muted">(max {{ state.troops[id] }})</span>
@@ -268,6 +309,22 @@ function send() {
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
+}
+
+.hero-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.hero-pick legend {
+  margin-bottom: 0.4rem;
+  padding: 0;
+  font-weight: 700;
 }
 
 .send-actions {

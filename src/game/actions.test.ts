@@ -5,8 +5,10 @@ import {
   emptyArmy,
   emptyResources,
   getBuilding,
+  learnSkill,
   newGame,
   orderArmy,
+  recruitHero,
   startMarch,
   startResearch,
   startTraining,
@@ -39,12 +41,24 @@ describe('parseAction', () => {
       { type: 'march', target: { type: 'band', band: 3 }, troops: army({ archer: 2 }) },
       { type: 'march', target: { type: 'node', node: 4 }, troops: army({ rider: 6 }) },
       { type: 'march', target: { type: 'point', x: 120.5, y: 900 }, troops: army({ mage: 1 }) },
+      { type: 'march', target: { type: 'camp', camp: 'wolfDen' }, troops: army({ warrior: 5 }), hero: 'ysolde' },
+      { type: 'recruit', hero: 'durgan' },
+      { type: 'skill', hero: 'thalia', skill: 'lightning' },
       { type: 'order', army: 7, target: { type: 'city' } },
       { type: 'order', army: 7, target: { type: 'band', band: 2 } },
       { type: 'dismiss', troops: army({ mage: 2 }) },
     ]
     // Comme s'ils arrivaient du réseau : transformés en texte, puis relus.
     for (const action of actions) expect(parseAction(JSON.parse(JSON.stringify(action)))).toEqual(action)
+  })
+
+  it('une armée sans héros peut le dire avec null', () => {
+    const target = { type: 'camp', camp: 'wolfDen' }
+    expect(parseAction({ type: 'march', target, troops: { warrior: 1 }, hero: null })).toEqual({
+      type: 'march',
+      target,
+      troops: army({ warrior: 1 }),
+    })
   })
 
   it('complète une armée : un type de troupe absent compte pour zéro', () => {
@@ -80,6 +94,13 @@ describe('parseAction', () => {
       { type: 'march', target: { type: 'point', x: '10', y: 10 }, troops: { warrior: 1 } },
       { type: 'march', target: { type: 'camp', camp: 'wolfDen' }, troops: [1, 2] },
       { type: 'march', target: { type: 'camp', camp: 'wolfDen' }, troops: { warrior: 1, dragon: 1 } },
+      { type: 'march', target: { type: 'camp', camp: 'wolfDen' }, troops: { warrior: 1 }, hero: 'merlin' },
+      { type: 'march', target: { type: 'camp', camp: 'wolfDen' }, troops: { warrior: 1 }, hero: 3 },
+      { type: 'recruit', hero: 'merlin' },
+      { type: 'recruit' },
+      { type: 'skill', hero: 'ysolde', skill: 'lightning' },
+      { type: 'skill', hero: 'ysolde', skill: 'toString' },
+      { type: 'skill', hero: 'nobody', skill: 'rally' },
       { type: 'order', army: -2, target: { type: 'city' } },
       { type: 'order', army: 3 },
       { type: 'order', army: 3, target: { type: 'node' } },
@@ -122,6 +143,17 @@ describe('performAction', () => {
     })
     const dismissed = performAction(game, { type: 'dismiss', troops: army({ warrior: 4 }) }, t)
     expect(dismissed.ok && dismissed.state.troops.warrior).toBe(6)
+
+    const recruited = recruitHero(game, 'ysolde', t)
+    expect(performAction(game, { type: 'recruit', hero: 'ysolde' }, t)).toEqual({ ok: true, state: recruited })
+    expect(performAction(recruited, { type: 'skill', hero: 'ysolde', skill: 'rally' }, t)).toEqual({
+      ok: true,
+      state: learnSkill(recruited, 'ysolde', 'rally', t),
+    })
+    expect(performAction(recruited, { type: 'march', target, troops, hero: 'ysolde' }, t)).toEqual({
+      ok: true,
+      state: startMarch(recruited, target, troops, t, 'ysolde'),
+    })
   })
 
   it('explique un refus, sans rien changer à la partie', () => {

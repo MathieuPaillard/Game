@@ -23,6 +23,8 @@ const {
   upgrade,
   research,
   train,
+  recruit,
+  learn,
   march,
   order,
   dismiss,
@@ -76,6 +78,8 @@ const {
     @upgrade="upgrade"
     @research="research"
     @train="train"
+    @recruit="recruit"
+    @learn="learn"
     @march="march"
     @order="order"
     @dismiss="dismiss"

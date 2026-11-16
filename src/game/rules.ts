@@ -20,6 +20,10 @@ import {
   CAMPS,
   COST_GROWTH,
   DURATION_GROWTH,
+  HEROES,
+  HERO_BASE_XP,
+  HERO_MAX_LEVEL,
+  HERO_XP_GROWTH,
   MARCH_SPEED,
   MAX_BAND_LEVEL,
   MAX_BANDS,
@@ -37,6 +41,7 @@ import {
   PRODUCTION_GROWTH,
   RACES,
   RESOURCE_IDS,
+  SKILL_MAX_LEVEL,
   START_BANDS,
   START_LEVELS,
   START_NODES,
@@ -55,6 +60,8 @@ import {
   type BuildingId,
   type CampDef,
   type CampId,
+  type HeroDef,
+  type HeroId,
   type MonsterDef,
   type MonsterId,
   type Point,
@@ -62,6 +69,7 @@ import {
   type RaceId,
   type ResourceId,
   type Resources,
+  type SkillEffect,
   type TechDef,
   type TechEffect,
   type TechId,
@@ -151,6 +159,27 @@ export interface FieldArmy {
   load: Partial<Resources>
   /** Les bandes qui l'ont déjà combattue : elles ne l'attaquent plus d'elles-mêmes. */
   fought: number[]
+  /** Le héros qui la mène, ou null. */
+  hero: HeroId | null
+}
+
+/** Un héros recruté : son niveau, son expérience, et ce qu'il a appris. */
+export interface Hero {
+  id: HeroId
+  level: number
+  /** L'expérience gagnée depuis son dernier niveau. */
+  xp: number
+  /** Le niveau de chacune de ses compétences apprises, par identifiant. */
+  skills: Record<string, number>
+}
+
+/** Ce qu'a gagné le héros d'une armée dans une bataille. */
+export interface HeroGain {
+  hero: HeroId
+  xp: number
+  /** Son niveau après la bataille, et les niveaux gagnés pendant celle-ci. */
+  level: number
+  levelsGained: number
 }
 
 /** Une manche du combat, telle que la raconte le journal. */
@@ -179,7 +208,7 @@ export interface Battle {
   /** Les points de vie qui restent à chaque groupe : un combattant blessé continue de se battre. */
   armyHealth: Army
   foeHealth: Monsters
-  /** L'effet des Armures au début de la bataille : il fixe la vie de chaque troupe. */
+  /** L'effet des Armures et du héros au début de la bataille : il fixe la vie de chaque troupe. */
   healthFactor: number
   /** L'armée avait faim en début de bataille. */
   starving: boolean
@@ -208,6 +237,8 @@ export interface BattleReport {
   starving: boolean
   /** Le journal du combat, manche par manche. */
   rounds: BattleRound[]
+  /** Le héros qui menait l'armée, et l'expérience qu'il a gagnée ; null sans héros. */
+  hero: HeroGain | null
 }
 
 /** Tout ce qu'il faut savoir sur une partie. Les heures sont en millisecondes (comme Date.now()). */
@@ -223,6 +254,8 @@ export interface GameState {
   troops: Army
   /** Entraînements en cours à la Caserne : au plus un par type de troupe. */
   trainings: Training[]
+  /** Les héros recrutés, dans l'ordre de leur arrivée. */
+  heroes: Hero[]
   /** Les armées sorties de la cité, sur la carte des alentours : pas plus que maxArmies(). */
   armies: FieldArmy[]
   /** Les batailles en cours. */
@@ -266,6 +299,7 @@ export function newGame(race: RaceId, now: number, seed = now): GameState {
     research: null,
     troops: emptyArmy(),
     trainings: [],
+    heroes: [],
     armies: [],
     battles: [],
     reports: [],
@@ -605,6 +639,111 @@ export function startTraining(state: GameState, unitId: UnitId, count: number, n
   }
 }
 
+// --- Les héros : on les recrute, ils gagnent de l'expérience et apprennent des compétences ---
+
+export function getHeroDef(id: HeroId): HeroDef {
+  return byId(HEROES, id)
+}
+
+/** Un héros recruté, ou undefined s'il n'est pas (encore) à ton service. */
+export function getHero(state: GameState, id: HeroId): Hero | undefined {
+  return state.heroes.find((hero) => hero.id === id)
+}
+
+/** L'armée que mène ce héros, ou undefined s'il attend à la cité. */
+export function heroArmy(state: GameState, id: HeroId): FieldArmy | undefined {
+  return state.armies.find((army) => army.hero === id)
+}
+
+/** L'expérience qu'il faut pour passer du niveau `level` au suivant. */
+export function xpToNextLevel(level: number): number {
+  return Math.round(HERO_BASE_XP * HERO_XP_GROWTH ** (level - 1))
+}
+
+/** Les points de compétence qui restent à placer : un par niveau, le premier compris. */
+export function skillPoints(hero: Hero): number {
+  return hero.level - Object.values(hero.skills).reduce((sum, level) => sum + level, 0)
+}
+
+/** Ajoute de l'expérience à un héros : il gagne autant de niveaux qu'elle le permet. */
+export function gainXp(hero: Hero, xp: number): Hero {
+  let level = hero.level
+  let rest = hero.xp + xp
+  while (level < HERO_MAX_LEVEL && rest >= xpToNextLevel(level)) {
+    rest -= xpToNextLevel(level)
+    level++
+  }
+  // Au niveau maximum, l'expérience ne sert plus à rien.
+  return { ...hero, level, xp: level >= HERO_MAX_LEVEL ? 0 : rest }
+}
+
+/**
+ * Ce que les compétences d'un héros apportent à son armée, pour un type d'effet : 0.12 veut dire
+ * +12 %. `family` dit quelles troupes sont concernées par un effet 'familyAttack'.
+ */
+export function heroBonus(
+  state: GameState,
+  heroId: HeroId | null,
+  kind: SkillEffect['kind'],
+  family?: UnitId,
+): number {
+  const hero = heroId === null ? undefined : getHero(state, heroId)
+  if (!hero) return 0
+  return getHeroDef(hero.id).skills.reduce((sum, skill) => {
+    const effect = skill.effect
+    if (effect.kind !== kind || (effect.kind === 'familyAttack' && effect.family !== family)) return sum
+    return sum + effect.perLevel * (hero.skills[skill.id] ?? 0)
+  }, 0)
+}
+
+export function checkRecruit(state: GameState, heroId: HeroId): Check {
+  const hero = getHeroDef(heroId)
+  if (getHero(state, heroId)) return { ok: false, reason: 'Ce héros est déjà à ton service' }
+  if (state.levels.castle < hero.castleLevel) {
+    return { ok: false, reason: `Nécessite le Château niveau ${hero.castleLevel}` }
+  }
+  if (!canAfford(state.resources, hero.cost)) return { ok: false, reason: 'Ressources insuffisantes' }
+  return { ok: true }
+}
+
+/** Recrute un héros : il arrive au niveau 1, avec un point de compétence à placer. */
+export function recruitHero(state: GameState, heroId: HeroId, now: number): GameState {
+  const current = advance(state, now)
+  const check = checkRecruit(current, heroId)
+  if (!check.ok) throw new Error(check.reason)
+  return {
+    ...current,
+    resources: addResources(current.resources, getHeroDef(heroId).cost, -1),
+    heroes: [...current.heroes, { id: heroId, level: 1, xp: 0, skills: {} }],
+  }
+}
+
+export function checkSkill(state: GameState, heroId: HeroId, skillId: string): Check {
+  const hero = getHero(state, heroId)
+  if (!hero) return { ok: false, reason: 'Recrute d’abord ce héros' }
+  if (!getHeroDef(heroId).skills.some((skill) => skill.id === skillId)) {
+    return { ok: false, reason: 'Ce héros n’a pas cette compétence' }
+  }
+  if ((hero.skills[skillId] ?? 0) >= SKILL_MAX_LEVEL) return { ok: false, reason: 'Niveau maximum atteint' }
+  if (skillPoints(hero) <= 0) {
+    return { ok: false, reason: 'Aucun point de compétence : le héros doit gagner un niveau' }
+  }
+  return { ok: true }
+}
+
+/** Place un point de compétence : la compétence gagne un niveau, et son effet compte aussitôt. */
+export function learnSkill(state: GameState, heroId: HeroId, skillId: string, now: number): GameState {
+  const current = advance(state, now)
+  const check = checkSkill(current, heroId, skillId)
+  if (!check.ok) throw new Error(check.reason)
+  const hero = getHero(current, heroId)!
+  return updateHero(current, { ...hero, skills: { ...hero.skills, [skillId]: (hero.skills[skillId] ?? 0) + 1 } })
+}
+
+function updateHero(state: GameState, hero: Hero): GameState {
+  return { ...state, heroes: state.heroes.map((h) => (h.id === hero.id ? hero : h)) }
+}
+
 // --- Les armées dehors : on les envoie, puis on leur donne des ordres ---
 
 /** Nombre d'armées qui peuvent être dehors en même temps : 1, plus le Commandement. */
@@ -612,19 +751,25 @@ export function maxArmies(state: GameState): number {
   return 1 + techBonus(state, 'armies')
 }
 
-/** Vitesse de marche des armées, en unités de carte par seconde : la Marche forcée l'augmente. */
-export function marchSpeed(state: GameState): number {
-  return MARCH_SPEED / (1 - techBonus(state, 'marchSpeed'))
+/** Vitesse de marche d'une armée, en unités de carte par seconde : la Marche forcée et son héros l'augmentent. */
+export function marchSpeed(state: GameState, hero: HeroId | null = null): number {
+  return MARCH_SPEED / (1 - techBonus(state, 'marchSpeed') - heroBonus(state, hero, 'marchSpeed'))
 }
 
-/** Durée (en millisecondes) d'une marche en ligne droite de `from` à `to`. */
-export function marchDuration(state: GameState, from: Point, to: Point): number {
-  return Math.round((distance(from, to) / marchSpeed(state)) * SECOND)
+/** Durée (en millisecondes) d'une marche en ligne droite de `from` à `to`, avec ce héros à sa tête. */
+export function marchDuration(state: GameState, from: Point, to: Point, hero: HeroId | null = null): number {
+  return Math.round((distance(from, to) / marchSpeed(state, hero)) * SECOND)
 }
 
-/** Ce qu'une armée peut porter : le butin et la récolte. */
-export function carryCapacity(troops: Army): number {
-  return UNIT_IDS.reduce((sum, id) => sum + troops[id] * getUnit(id).load, 0)
+/** Ce qu'une armée peut porter : le butin et la récolte. Son héros peut l'augmenter. */
+export function carryCapacity(state: GameState, troops: Army, hero: HeroId | null = null): number {
+  const base = UNIT_IDS.reduce((sum, id) => sum + troops[id] * getUnit(id).load, 0)
+  return base * (1 + heroBonus(state, hero, 'load'))
+}
+
+/** Ce qu'une armée récolte par seconde sur un gisement de cette ressource. */
+export function gatherRate(state: GameState, troops: Army, resource: ResourceId, hero: HeroId | null = null): number {
+  return armySize(troops) * NODE_KINDS[resource].gatherRate * (1 + heroBonus(state, hero, 'gatherSpeed'))
 }
 
 /** Ce qu'une armée porte déjà. */
@@ -717,15 +862,31 @@ export function checkMarchSlot(state: GameState, target: Target): Check {
   return { ok: true }
 }
 
-export function checkMarch(state: GameState, target: Target, troops: Army): Check {
-  const slot = checkMarchSlot(state, target)
-  return slot.ok ? checkSelection(state, troops) : slot
+/** Le héros choisi peut-il mener une nouvelle armée ? (null : l'armée part sans héros.) */
+function checkHero(state: GameState, hero: HeroId | null): Check {
+  if (hero === null) return { ok: true }
+  if (!getHero(state, hero)) return { ok: false, reason: 'Recrute d’abord ce héros' }
+  if (heroArmy(state, hero)) return { ok: false, reason: `${getHeroDef(hero).name} mène déjà une armée` }
+  return { ok: true }
 }
 
-/** Une armée sort de la cité, avec un premier ordre : aller quelque part, attaquer ou récolter. */
-export function startMarch(state: GameState, target: Target, troops: Army, now: number): GameState {
+export function checkMarch(state: GameState, target: Target, troops: Army, hero: HeroId | null = null): Check {
+  const slot = checkMarchSlot(state, target)
+  if (!slot.ok) return slot
+  const selection = checkSelection(state, troops)
+  return selection.ok ? checkHero(state, hero) : selection
+}
+
+/** Une armée sort de la cité, avec un premier ordre : aller quelque part, attaquer ou récolter. Un héros peut la mener. */
+export function startMarch(
+  state: GameState,
+  target: Target,
+  troops: Army,
+  now: number,
+  hero: HeroId | null = null,
+): GameState {
   const current = advance(state, now)
-  const check = checkMarch(current, target, troops)
+  const check = checkMarch(current, target, troops, hero)
   if (!check.ok) throw new Error(check.reason)
 
   const home = { ...current.troops }
@@ -738,6 +899,7 @@ export function startMarch(state: GameState, target: Target, troops: Army, now: 
     status: 'marching',
     load: {},
     fought: [],
+    hero,
   }
   return { ...current, troops: home, armies: [...current.armies, army], nextId: current.nextId + 1 }
 }
@@ -831,7 +993,7 @@ function stepArmy(state: GameState, id: number, at: number): GameState {
       return band.since === null ? state : startBattle(state, army, band, at, false)
     }
   }
-  const step = marchSpeed(state) * WORLD_TICK_SECONDS
+  const step = marchSpeed(state, army.hero) * WORLD_TICK_SECONDS
   if (gap > step) return updateArmy(state, { ...army, position: along(army.position, destination, step / gap) })
   return arrive(updateArmy(state, { ...army, position: { ...destination } }), army.id, at)
 }
@@ -871,8 +1033,8 @@ function disband(state: GameState, army: FieldArmy): GameState {
 function gather(state: GameState, army: FieldArmy, at: number): GameState {
   const node = army.order?.type === 'node' ? getNode(state, army.order.node) : undefined
   if (!node) return updateArmy(state, { ...army, order: null, status: 'idle' })
-  const room = carryCapacity(army.troops) - loadSize(army.load)
-  const rate = armySize(army.troops) * NODE_KINDS[node.resource].gatherRate * WORLD_TICK_SECONDS
+  const room = carryCapacity(state, army.troops, army.hero) - loadSize(army.load)
+  const rate = gatherRate(state, army.troops, node.resource, army.hero) * WORLD_TICK_SECONDS
   const amount = Math.max(0, Math.min(rate, room, node.remaining))
   const remaining = node.remaining - amount
   const load = { ...army.load, [node.resource]: (army.load[node.resource] ?? 0) + amount }
@@ -903,7 +1065,7 @@ function checkAggro(state: GameState, at: number): GameState {
 
 /**
  * Une bataille commence : contre une bande (qui s'arrête de patrouiller), ou contre les défenseurs
- * d'un camp. Les Armures donnent plus de vie aux troupes, pour toute la bataille.
+ * d'un camp. Les Armures et le héros de l'armée donnent plus de vie aux troupes, pour toute la bataille.
  */
 function startBattle(
   state: GameState,
@@ -918,7 +1080,7 @@ function startBattle(
   const monsters = Object.fromEntries(
     Object.entries(band ? band.monsters : (campDefenders ?? {})).filter(([, count]) => (count ?? 0) > 0),
   ) as Monsters
-  const healthFactor = 1 + techBonus(state, 'health')
+  const healthFactor = 1 + techBonus(state, 'health') + heroBonus(state, army.hero, 'health')
   const armyHealth = emptyArmy()
   for (const id of UNIT_IDS) armyHealth[id] = army.troops[id] * getUnit(id).health * healthFactor
   const foeHealth: Monsters = {}
@@ -946,12 +1108,18 @@ function startBattle(
   return next
 }
 
-/** Les groupes de la bataille, avec leurs forces du moment : la Forge, et la faim, comptent à chaque manche. */
+/**
+ * Les groupes de la bataille, avec leurs forces du moment : la Forge, les compétences du héros
+ * et la faim comptent à chaque manche.
+ */
 function battleStacks(state: GameState, battle: Battle): { attackers: Stack[]; defenders: Stack[]; monsterIds: MonsterId[] } {
-  const attackFactor = (1 + techBonus(state, 'attack')) * (isStarving(state) ? 1 - STARVATION_ATTACK_MALUS : 1)
+  const hero = getArmy(state, battle.army)?.hero ?? null
+  const hunger = isStarving(state) ? 1 - STARVATION_ATTACK_MALUS : 1
+  const attackBonus = techBonus(state, 'attack') + heroBonus(state, hero, 'attack')
   const attackers: Stack[] = UNIT_IDS.map((id) => {
     const unit = getUnit(id)
-    return { family: id, attack: unit.attack * attackFactor, health: unit.health * battle.healthFactor, count: 0 }
+    const factor = (1 + attackBonus + heroBonus(state, hero, 'familyAttack', id)) * hunger
+    return { family: id, attack: unit.attack * factor, health: unit.health * battle.healthFactor, count: 0 }
   })
   const monsterIds = Object.keys(battle.enemies) as MonsterId[]
   const defenders: Stack[] = monsterIds.map((id) => {
@@ -1034,6 +1202,22 @@ function endBattle(state: GameState, battle: Battle, at: number, outcome: Outcom
   const foe = battle.foe
   const loot =
     outcome !== 'victory' ? {} : foe.type === 'camp' ? { ...getCamp(foe.camp).loot } : bandLoot(foe.kind, foe.level)
+  let next: GameState = { ...state, battles: state.battles.filter((b) => b.id !== battle.id) }
+
+  // Le héros de l'armée gagne de l'expérience pour chaque monstre vaincu, quelle que soit l'issue.
+  const heroId = getArmy(state, battle.army)?.hero ?? null
+  const hero = heroId === null ? undefined : getHero(state, heroId)
+  let heroGain: HeroGain | null = null
+  if (hero) {
+    const xp = (Object.entries(enemyLost) as [MonsterId, number][]).reduce(
+      (sum, [id, count]) => sum + count * getMonster(id).xp,
+      0,
+    )
+    const after = gainXp(hero, xp)
+    next = updateHero(next, after)
+    heroGain = { hero: hero.id, xp, level: after.level, levelsGained: after.level - hero.level }
+  }
+
   const report: BattleReport = {
     at,
     startedAt: battle.startedAt,
@@ -1048,8 +1232,8 @@ function endBattle(state: GameState, battle: Battle, at: number, outcome: Outcom
     loot,
     starving: battle.starving,
     rounds: battle.rounds,
+    hero: heroGain,
   }
-  let next: GameState = { ...state, battles: state.battles.filter((b) => b.id !== battle.id) }
   next = { ...next, reports: [report, ...next.reports].slice(0, MAX_REPORTS) }
 
   const band = battle.band === null ? undefined : getBand(next, battle.band)
