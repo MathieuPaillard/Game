@@ -187,6 +187,8 @@ export const BUILDINGS: BuildingDef[] = [
 
 /** Niveau maximum des bâtiments, pour l'instant. */
 export const MAX_LEVEL = 10
+/** Un seul chantier à la fois au début : un second s'ouvre à ce niveau du Château. */
+export const SECOND_CONSTRUCTION_CASTLE_LEVEL = 5
 /** Chaque niveau coûte 1,6 fois plus que le précédent. */
 export const COST_GROWTH = 1.6
 /** Chaque niveau dure 1,6 fois plus longtemps que le précédent. */

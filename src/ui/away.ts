@@ -22,9 +22,9 @@ export function makeAwayReport(before: GameState, after: GameState): AwayReport 
   for (const id of RESOURCE_IDS) gains[id] = after.resources[id] - before.resources[id]
 
   const events: string[] = []
-  const works = before.construction
-  if (works && !after.construction) {
-    events.push(`${getBuilding(works.building).name} : le niveau ${works.targetLevel} est terminé.`)
+  for (const works of before.constructions) {
+    const finished = !after.constructions.some((c) => c.building === works.building && c.startedAt === works.startedAt)
+    if (finished) events.push(`${getBuilding(works.building).name} : le niveau ${works.targetLevel} est terminé.`)
   }
   const research = before.research
   if (research && !after.research) {

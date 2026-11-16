@@ -157,18 +157,18 @@ describe('performAction', () => {
   })
 
   it('explique un refus, sans rien changer à la partie', () => {
-    const game = startUpgrade(richGame({ castle: 5 }), 'farm', T0)
+    const game = startUpgrade(richGame({ castle: 3 }), 'farm', T0)
     const result = performAction(game, { type: 'upgrade', building: 'sawmill' }, T0 + 1000)
     expect(result).toMatchObject({ ok: false, reason: 'Un chantier est déjà en cours' })
-    expect(result.state.construction).toEqual(game.construction)
+    expect(result.state.constructions).toEqual(game.constructions)
   })
 
   it('fait d’abord avancer la partie : un chantier terminé laisse place au suivant', () => {
-    const game = startUpgrade(richGame({ castle: 5 }), 'farm', T0)
+    const game = startUpgrade(richGame({ castle: 3 }), 'farm', T0)
     const done = T0 + upgradeDuration(game, getBuilding('farm'), 2)
     const result = performAction(game, { type: 'upgrade', building: 'sawmill' }, done)
     expect(result.ok).toBe(true)
     expect(result.state.levels.farm).toBe(2)
-    expect(result.state.construction?.building).toBe('sawmill')
+    expect(result.state.constructions.map((c) => c.building)).toEqual(['sawmill'])
   })
 })

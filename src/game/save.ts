@@ -10,6 +10,7 @@ import {
   emptyTechs,
   type Band,
   type BattleReport,
+  type Construction,
   type GameState,
   type Training,
 } from './rules.ts'
@@ -36,6 +37,8 @@ type SavedState = Partial<Omit<GameState, 'reports' | 'bands'>> & {
   updatedAt: number
   reports?: SavedReport[]
   bands?: SavedBand[]
+  /** Avant, un seul chantier à la fois. */
+  construction?: Construction | null
   /** Avant, un seul entraînement à la fois. */
   training?: Training | null
   /** Avant les ordres sur la carte, les armées faisaient un aller-retour. */
@@ -70,7 +73,7 @@ export function restoreState(saved: unknown): GameState | null {
       race: state.race,
       resources,
       levels: { ...START_LEVELS, ...state.levels },
-      construction: state.construction ?? null,
+      constructions: state.constructions ?? (state.construction ? [state.construction] : []),
       techs: { ...emptyTechs(), ...state.techs },
       research: state.research ?? null,
       troops,

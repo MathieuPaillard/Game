@@ -42,7 +42,7 @@ describe('restoreState', () => {
       heroes: [],
       armies: [],
       battles: [],
-      construction: null,
+      constructions: [],
       research: null,
     })
     expect(state?.reports[0]).toMatchObject({
@@ -97,6 +97,13 @@ describe('restoreState', () => {
     expect(state?.armies).toEqual([])
     expect(state?.troops).toEqual({ ...emptyArmy(), warrior: 9, archer: 3 })
     expect(state?.resources).toMatchObject({ gold: 180, wood: 150, food: 100 })
+  })
+
+  it('reprend le chantier d’une version qui n’en avait qu’un', () => {
+    const construction = { building: 'farm', targetLevel: 3, startedAt: T0, endsAt: T0 + 5000 }
+    const state = restoreState({ ...newGame('humans', T0), constructions: undefined, construction })!
+    expect(state.constructions).toEqual([construction])
+    expect(state).not.toHaveProperty('construction')
   })
 
   it('les armées d’avant les héros partent sans héros', () => {

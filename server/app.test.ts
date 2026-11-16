@@ -189,17 +189,17 @@ describe('la partie', () => {
   it('applique les ordres avec les règles du jeu', async () => {
     const server = testServer()
     const token = await server.register()
-    server.giveGame('Arthur', richGame({ castle: 5 }))
+    server.giveGame('Arthur', richGame({ castle: 3 }))
     const upgrade = { type: 'upgrade', building: 'farm' }
 
     const first = await server.call('POST', '/api/game/actions', { token, body: upgrade })
     expect(first.status).toBe(200)
-    expect(first.data).toMatchObject({ ok: true, now: T0, game: { construction: { building: 'farm', targetLevel: 2 } } })
+    expect(first.data).toMatchObject({ ok: true, now: T0, game: { constructions: [{ building: 'farm', targetLevel: 2 }] } })
 
     // Un second chantier est refusé, avec la raison donnée par les règles.
     const second = await server.call('POST', '/api/game/actions', { token, body: { type: 'upgrade', building: 'quarry' } })
     expect(second.data).toMatchObject({ ok: false, reason: 'Un chantier est déjà en cours' })
-    expect(second.data.game.construction.building).toBe('farm')
+    expect(second.data.game.constructions.map((c: { building: string }) => c.building)).toEqual(['farm'])
 
     // Le temps passe sur le serveur : le chantier se termine, même sans personne.
     server.wait(upgradeDuration(first.data.game, getBuilding('farm'), 2))
@@ -306,10 +306,10 @@ describe('la partie', () => {
     await server.call('POST', '/api/game', { token: arthur, body: { race: 'humans' } })
     await server.call('POST', '/api/game', { token: morgane, body: { race: 'elves' } })
     await server.call('POST', '/api/game/actions', { token: arthur, body: { type: 'upgrade', building: 'castle' } })
-    expect((await server.call('GET', '/api/game', { token: arthur })).data.game.construction).not.toBeNull()
+    expect((await server.call('GET', '/api/game', { token: arthur })).data.game.constructions).toHaveLength(1)
     expect((await server.call('GET', '/api/game', { token: morgane })).data.game).toMatchObject({
       race: 'elves',
-      construction: null,
+      constructions: [],
     })
   })
 })

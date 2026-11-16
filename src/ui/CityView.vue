@@ -4,6 +4,7 @@ import {
   BUILDINGS,
   RESOURCES,
   RESOURCE_IDS,
+  SECOND_CONSTRUCTION_CASTLE_LEVEL,
   STARVATION_ATTACK_MALUS,
   type Army,
   type BuildingId,
@@ -12,8 +13,10 @@ import {
   type UnitId,
 } from '../game/config'
 import {
+  constructionOf,
   getBuilding,
   getRace,
+  maxConstructions,
   netPerHour,
   skillPoints,
   timeUntilFamine,
@@ -62,7 +65,7 @@ const tab = ref<Tab>('city')
 // Un point doré signale l'onglet où quelque chose est en cours, ou attend le joueur.
 const IN_PROGRESS = '(en cours)'
 const tabs = computed(() => [
-  { id: 'city' as const, label: 'Cité', dot: props.state.construction !== null ? IN_PROGRESS : null },
+  { id: 'city' as const, label: 'Cité', dot: props.state.constructions.length > 0 ? IN_PROGRESS : null },
   { id: 'army' as const, label: 'Armée', dot: props.state.trainings.length > 0 ? IN_PROGRESS : null },
   {
     id: 'heroes' as const,
@@ -78,7 +81,7 @@ const selected = ref<BuildingId>('castle')
 const buildingChips = computed(() =>
   BUILDINGS.map((building) => {
     const level = props.state.levels[building.id]
-    const busy = props.state.construction?.building === building.id
+    const busy = constructionOf(props.state, building.id) !== undefined
     const locked = level === 0 && props.state.levels.castle < building.unlockedAtCastleLevel
     return { building, busy, tag: busy ? 'chantier' : locked ? '🔒' : level > 0 ? `niv. ${level}` : 'à bâtir' }
   }),
@@ -157,6 +160,12 @@ const confirmingRestart = ref(false)
     <section v-if="tab === 'city'" class="tab-city" aria-labelledby="city-title">
       <h2 id="city-title" class="sr-only">Ta cité</h2>
       <CityMap :state="state" :now="now" :selected="selected" @select="selected = $event" />
+      <p class="muted">
+        Chantiers en cours : <strong>{{ state.constructions.length }} / {{ maxConstructions(state) }}</strong
+        ><template v-if="maxConstructions(state) === 1">
+          · un second chantier s’ouvrira au Château niveau {{ SECOND_CONSTRUCTION_CASTLE_LEVEL }}</template
+        >.
+      </p>
       <ul class="chips" aria-label="Bâtiments">
         <li v-for="chip in buildingChips" :key="chip.building.id">
           <button

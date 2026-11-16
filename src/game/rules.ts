@@ -41,6 +41,7 @@ import {
   PRODUCTION_GROWTH,
   RACES,
   RESOURCE_IDS,
+  SECOND_CONSTRUCTION_CASTLE_LEVEL,
   SKILL_MAX_LEVEL,
   START_BANDS,
   START_LEVELS,
@@ -246,7 +247,8 @@ export interface GameState {
   race: RaceId
   resources: Resources
   levels: Record<BuildingId, number>
-  construction: Construction | null
+  /** Les chantiers en cours : un seul au début, deux plus tard (maxConstructions). */
+  constructions: Construction[]
   /** Niveau atteint dans chaque recherche. */
   techs: Record<TechId, number>
   research: Research | null
@@ -294,7 +296,7 @@ export function newGame(race: RaceId, now: number, seed = now): GameState {
     race,
     resources: { ...START_RESOURCES },
     levels: { ...START_LEVELS },
-    construction: null,
+    constructions: [],
     techs: emptyTechs(),
     research: null,
     troops: emptyArmy(),
@@ -481,6 +483,16 @@ export function upgradeDuration(state: GameState, building: BuildingDef, level: 
   return Math.round(seconds * (1 - speedUp) * SECOND)
 }
 
+/** Le nombre de chantiers possibles en même temps : un, puis deux à partir d'un niveau du Château. */
+export function maxConstructions(state: GameState): number {
+  return state.levels.castle >= SECOND_CONSTRUCTION_CASTLE_LEVEL ? 2 : 1
+}
+
+/** Le chantier en cours sur ce bâtiment, s'il y en a un. */
+export function constructionOf(state: GameState, buildingId: BuildingId): Construction | undefined {
+  return state.constructions.find((construction) => construction.building === buildingId)
+}
+
 export function checkUpgrade(state: GameState, buildingId: BuildingId): Check {
   const building = getBuilding(buildingId)
   const level = state.levels[buildingId]
@@ -493,7 +505,11 @@ export function checkUpgrade(state: GameState, buildingId: BuildingId): Check {
   if (buildingId !== 'castle' && level + 1 > castleLevel) {
     return { ok: false, reason: `Nécessite le Château niveau ${level + 1}` }
   }
-  if (state.construction) return { ok: false, reason: 'Un chantier est déjà en cours' }
+  if (constructionOf(state, buildingId)) return { ok: false, reason: 'Ce bâtiment est déjà en chantier' }
+  const slots = maxConstructions(state)
+  if (state.constructions.length >= slots) {
+    return { ok: false, reason: slots === 1 ? 'Un chantier est déjà en cours' : `Tes ${slots} chantiers sont occupés` }
+  }
   if (!canAfford(state.resources, upgradeCost(building, level + 1))) {
     return { ok: false, reason: 'Ressources insuffisantes' }
   }
@@ -511,12 +527,10 @@ export function startUpgrade(state: GameState, buildingId: BuildingId, now: numb
   return {
     ...current,
     resources: addResources(current.resources, upgradeCost(building, targetLevel), -1),
-    construction: {
-      building: buildingId,
-      targetLevel,
-      startedAt: now,
-      endsAt: now + upgradeDuration(current, building, targetLevel),
-    },
+    constructions: [
+      ...current.constructions,
+      { building: buildingId, targetLevel, startedAt: now, endsAt: now + upgradeDuration(current, building, targetLevel) },
+    ],
   }
 }
 
@@ -1490,15 +1504,15 @@ interface PendingEvent {
 
 /** Le prochain événement prévu : fin de chantier, de recherche ou d'entraînement, apparition d'une bande ou d'un gisement. */
 function nextEvent(state: GameState): PendingEvent | null {
-  const { construction, research, trainings, nextBandAt, nextNodeAt } = state
+  const { constructions, research, trainings, nextBandAt, nextNodeAt } = state
   const events: PendingEvent[] = []
-  if (construction) {
+  for (const construction of constructions) {
     events.push({
       at: construction.endsAt,
       apply: (s) => ({
         ...s,
         levels: { ...s.levels, [construction.building]: construction.targetLevel },
-        construction: null,
+        constructions: s.constructions.filter((c) => c.building !== construction.building),
       }),
     })
   }

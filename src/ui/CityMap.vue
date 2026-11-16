@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { BUILDINGS, type BuildingId } from '../game/config'
-import { checkUpgrade, type GameState } from '../game/rules'
+import { checkUpgrade, constructionOf, type GameState } from '../game/rules'
 import MapViewport from './MapViewport.vue'
 import { CITY_DECOR, CITY_MAP, CITY_PLOTS, CITY_WALL, mountainLight, mountainPoints } from './maps'
 
@@ -13,7 +13,7 @@ const emit = defineEmits<{ select: [building: BuildingId] }>()
 const plots = computed(() =>
   BUILDINGS.map((building) => {
     const level = props.state.levels[building.id]
-    const works = props.state.construction?.building === building.id ? props.state.construction : null
+    const works = constructionOf(props.state, building.id) ?? null
     const progress = works ? Math.min(1, Math.max(0, (props.now - works.startedAt) / (works.endsAt - works.startedAt))) : 0
     const big = building.id === 'castle'
     return {

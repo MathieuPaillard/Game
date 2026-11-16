@@ -14,6 +14,7 @@ import {
   PATROL_RADIUS,
   PATROL_SPEED,
   RESOURCE_IDS,
+  SECOND_CONSTRUCTION_CASTLE_LEVEL,
   SKILL_MAX_LEVEL,
   START_BANDS,
   START_LEVELS,
@@ -71,6 +72,7 @@ import {
   marchDuration,
   marchSpeed,
   maxArmies,
+  maxConstructions,
   maxTrainingBatch,
   newGame,
   nodeAmount,
@@ -267,12 +269,14 @@ describe('constructions', () => {
     const next = startUpgrade(game, 'farm', T0)
     const cost = upgradeCost(farm, 2)
     for (const id of RESOURCE_IDS) expect(next.resources[id]).toBe(game.resources[id] - (cost[id] ?? 0))
-    expect(next.construction).toEqual({
-      building: 'farm',
-      targetLevel: 2,
-      startedAt: T0,
-      endsAt: T0 + upgradeDuration(game, farm, 2),
-    })
+    expect(next.constructions).toEqual([
+      {
+        building: 'farm',
+        targetLevel: 2,
+        startedAt: T0,
+        endsAt: T0 + upgradeDuration(game, farm, 2),
+      },
+    ])
   })
 
   it('les Humains construisent plus vite', () => {
@@ -284,12 +288,12 @@ describe('constructions', () => {
 
   it('termine le chantier à l’heure prévue, puis produit au nouveau niveau', () => {
     const start = startUpgrade(richGame({ castle: 5 }), 'farm', T0)
-    const endsAt = start.construction!.endsAt
+    const endsAt = start.constructions[0].endsAt
     expect(advance(start, endsAt - 1).levels.farm).toBe(1)
 
     const after = advance(start, endsAt + HOUR)
     expect(after.levels.farm).toBe(2)
-    expect(after.construction).toBeNull()
+    expect(after.constructions).toEqual([])
     const expected =
       productionPerHour(start).food * ((endsAt - T0) / HOUR) + productionPerHour(after).food
     expect(after.resources.food - start.resources.food).toBeCloseTo(expected)
@@ -297,9 +301,37 @@ describe('constructions', () => {
 })
 
 describe('conditions de construction', () => {
-  it('un seul chantier à la fois', () => {
-    const busy = startUpgrade(richGame({ castle: 5 }), 'farm', T0)
+  it('un seul chantier à la fois au début, puis un second à partir d’un niveau du Château', () => {
+    const early = SECOND_CONSTRUCTION_CASTLE_LEVEL - 1
+    const busy = startUpgrade(richGame({ castle: early }), 'farm', T0)
+    expect(maxConstructions(busy)).toBe(1)
     expect(checkUpgrade(busy, 'sawmill')).toEqual({ ok: false, reason: 'Un chantier est déjà en cours' })
+
+    const later = startUpgrade(richGame({ castle: SECOND_CONSTRUCTION_CASTLE_LEVEL }), 'farm', T0)
+    expect(maxConstructions(later)).toBe(2)
+    expect(checkUpgrade(later, 'farm')).toEqual({ ok: false, reason: 'Ce bâtiment est déjà en chantier' })
+    const both = startUpgrade(later, 'sawmill', T0)
+    expect(both.constructions.map((c) => c.building)).toEqual(['farm', 'sawmill'])
+    expect(checkUpgrade(both, 'quarry')).toEqual({ ok: false, reason: 'Tes 2 chantiers sont occupés' })
+  })
+
+  it('deux chantiers avancent en même temps, et chacun se termine à son heure', () => {
+    const start = startUpgrade(
+      startUpgrade(richGame({ castle: SECOND_CONSTRUCTION_CASTLE_LEVEL }), 'farm', T0),
+      'academy',
+      T0,
+    )
+    const [farm, academy] = start.constructions
+    const first = Math.min(farm.endsAt, academy.endsAt)
+    const halfway = advance(start, first)
+    expect(halfway.constructions).toHaveLength(1)
+    const done = advance(start, Math.max(farm.endsAt, academy.endsAt))
+    expect(done.constructions).toEqual([])
+    expect(done.levels).toMatchObject({ farm: farm.targetLevel, academy: academy.targetLevel })
+    // Le même résultat seconde par seconde.
+    let stepped = start
+    for (let t = T0; t <= done.updatedAt; t += 1000) stepped = advance(stepped, t)
+    expect(advance(stepped, done.updatedAt).levels).toEqual(done.levels)
   })
 
   it('aucun bâtiment ne dépasse le niveau du Château', () => {

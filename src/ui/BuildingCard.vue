@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { MAX_LEVEL, RESOURCES, RESOURCE_IDS, type BuildingDef } from '../game/config'
-import { buildingOutput, checkUpgrade, upgradeCost, upgradeDuration, type GameState } from '../game/rules'
+import { buildingOutput, checkUpgrade, constructionOf, upgradeCost, upgradeDuration, type GameState } from '../game/rules'
 import { formatAmount, formatDuration } from './format'
 
 const props = defineProps<{ building: BuildingDef; state: GameState; now: number }>()
@@ -11,9 +11,7 @@ const level = computed(() => props.state.levels[props.building.id])
 const target = computed(() => level.value + 1)
 const maxed = computed(() => level.value >= MAX_LEVEL)
 
-const works = computed(() =>
-  props.state.construction?.building === props.building.id ? props.state.construction : null,
-)
+const works = computed(() => constructionOf(props.state, props.building.id) ?? null)
 const remaining = computed(() => (works.value ? works.value.endsAt - props.now : 0))
 const progress = computed(() => {
   const w = works.value
