@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { START_LEVELS } from './config.ts'
+import { RAID_CASTLE_LEVEL, RAID_FIRST_SECONDS, START_LEVELS } from './config.ts'
 import { advance, bandPosition, emptyArmy, emptyTechs, newGame } from './rules.ts'
 import { restoreState } from './save.ts'
 
@@ -42,8 +42,10 @@ describe('restoreState', () => {
       heroes: [],
       armies: [],
       battles: [],
-      stats: { victories: 0, bandsDefeated: 0, gathered: 0 },
+      stats: { victories: 0, bandsDefeated: 0, gathered: 0, raidsRepelled: 0 },
       quests: [],
+      // Un Château de niveau 2 n'attire pas encore les raids.
+      nextRaidAt: null,
       constructions: [],
       research: null,
       spells: [],
@@ -59,6 +61,7 @@ describe('restoreState', () => {
       starving: false,
       rounds: [],
       hero: null,
+      siege: null,
     })
     // Avant les bandes et les gisements, la carte était vide : ils arrivent peu à peu.
     expect(state).toMatchObject({ bands: [], nextBandAt: T0, nodes: [], nextNodeAt: T0, nextId: 1 })
@@ -153,6 +156,32 @@ describe('restoreState', () => {
     expect(state.armies).toEqual([{ ...army, hero: null }])
   })
 
+  it('une cité d’avant les raids attire son premier raid si son Château est assez grand', () => {
+    const game = newGame('humans', T0)
+    const old = {
+      ...game,
+      levels: { ...game.levels, castle: RAID_CASTLE_LEVEL },
+      nextRaidAt: undefined,
+      bands: game.bands.map(({ raid: _, ...band }) => band),
+      stats: { victories: 2, bandsDefeated: 1, gathered: 0 },
+    }
+    const state = restoreState(old)!
+    expect(state.nextRaidAt).toBe(T0 + RAID_FIRST_SECONDS * 1000)
+    expect(state.bands).toEqual(game.bands)
+    expect(state.stats).toEqual({ victories: 2, bandsDefeated: 1, gathered: 0, raidsRepelled: 0 })
+    // La bataille d'une version d'avant les raids se livrait dehors.
+    const battle = { ...game, battles: [{ id: 9, army: 5, band: null, rounds: [] }] }
+    expect(restoreState(battle)!.battles[0].siege).toBeNull()
+    // Un rapport de siège garde son armée vide (null), un très vieux rapport reçoit l'armée 0.
+    const reports = [
+      { at: T0, army: null, foe: { type: 'band', kind: 'wolves', level: 1, raid: true }, outcome: 'victory' },
+      { at: T0, camp: 'wolfDen', victory: true },
+    ]
+    expect(restoreState({ ...game, reports })!.reports.map((report) => report.army)).toEqual([null, 0])
+    // Avec un Château plus petit, aucun raid ne se prépare.
+    expect(restoreState({ ...old, levels: { castle: RAID_CASTLE_LEVEL - 1 } })!.nextRaidAt).toBeNull()
+  })
+
   it('fait patrouiller les bandes d’avant les rondes autour de l’endroit où elles étaient', () => {
     const old = {
       race: 'humans',
@@ -173,7 +202,14 @@ describe('restoreState', () => {
       ],
     }
     const state = restoreState(old)!
-    expect(state.bands[0]).toMatchObject({ id: 3, kind: 'goblins', level: 2, home: { x: 900, y: 200 }, since: T0 })
+    expect(state.bands[0]).toMatchObject({
+      id: 3,
+      kind: 'goblins',
+      level: 2,
+      home: { x: 900, y: 200 },
+      since: T0,
+      raid: false,
+    })
     expect(bandPosition(state.bands[0], T0 + 10_000)).not.toEqual(bandPosition(state.bands[0], T0))
     expect(state.reports[0]).toMatchObject({ ambush: true, outcome: 'defeat' })
   })

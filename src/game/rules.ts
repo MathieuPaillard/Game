@@ -39,10 +39,22 @@ import {
   PATROL_RADIUS,
   PATROL_SPEED,
   PRODUCTION_GROWTH,
+  PROTECTED_PER_CASTLE_LEVEL,
   QUESTS,
   RACES,
+  RAID_CASTLE_LEVEL,
+  RAID_FIRST_SECONDS,
+  RAID_GATES,
+  RAID_INTERVAL_SECONDS,
+  RAID_LOAD_PER_MONSTER,
+  RAID_PLUNDER_SHARE,
+  RAID_RESPITE_SECONDS,
+  RAID_SIZE,
+  RAID_SPEED,
   RESOURCE_IDS,
   SECOND_CONSTRUCTION_CASTLE_LEVEL,
+  SIEGE_HEALED_SHARE,
+  SIEGE_WAIT_SECONDS,
   SKILL_MAX_LEVEL,
   SPELLS,
   START_BANDS,
@@ -54,6 +66,9 @@ import {
   TRAINING_BATCH_PER_LEVEL,
   UNITS,
   UNIT_IDS,
+  WALL_GUARD,
+  WALL_GUARDS_PER_LEVEL,
+  WALL_HEALTH_PER_LEVEL,
   WORLD,
   WORLD_TICK_SECONDS,
   type Army,
@@ -128,24 +143,34 @@ export type Target =
   | { type: 'node'; node: number }
   | { type: 'city' }
 
-/** Contre qui une bataille a lieu, pour les rapports : un camp, ou une sorte de bande et son niveau. */
-export type Foe = { type: 'camp'; camp: CampId } | { type: 'band'; kind: BandKindId; level: number }
+/**
+ * Contre qui une bataille a lieu, pour les rapports : un camp, ou une sorte de bande et son niveau
+ * (`raid` : cette bande était un raid, en marche vers la cité).
+ */
+export type Foe =
+  | { type: 'camp'; camp: CampId }
+  | { type: 'band'; kind: BandKindId; level: number; raid?: boolean }
 
-/** Une bande de monstres : elle fait des rondes autour de son repaire. */
+/**
+ * Une bande de monstres. Elle fait des rondes autour de son repaire ; ou bien c'est un raid
+ * (`raid`), qui part du bord de la carte et marche droit sur la cité pour la piller.
+ */
 export interface Band {
   id: number
   kind: BandKindId
   level: number
-  /** Le repaire, au centre de sa ronde. */
+  /** Le repaire, au centre de sa ronde. Pour un raid : son point de départ, au bord de la carte. */
   home: Point
   /** Les monstres encore debout : une bande garde ses pertes d'une bataille à l'autre. */
   monsters: Monsters
-  /** Le chemin déjà parcouru sur sa ronde (en unités de carte), à l'instant `since`. */
+  /** Le chemin déjà parcouru sur sa ronde, ou vers la cité (en unités de carte), à l'instant `since`. */
   phase: number
   /** Depuis quand elle marche ; null quand elle s'est arrêtée pour se battre. */
   since: number | null
   /** 1 ou -1 : le sens de sa ronde. */
   direction: number
+  /** Un raid : il ne fait pas de ronde, il marche sur la cité. */
+  raid: boolean
 }
 
 /** Un gisement de ressources : champs, scierie, carrière, mine d'or ou source de mana. */
@@ -204,12 +229,22 @@ export interface BattleRound {
   /** Pertes de la manche, de chaque côté. */
   lost: Army
   enemyLost: Monsters
+  /** Pendant un siège : les gardes des Remparts tombés dans la manche. */
+  guardsLost?: number
+}
+
+/** Un siège : la bataille se joue aux portes de la cité, avec les gardes des Remparts. */
+export interface Siege {
+  /** Les gardes des Remparts au début du siège, et les points de vie qui leur restent. */
+  guards: number
+  guardHealth: number
 }
 
 /** Une bataille en cours : une manche toutes les BATTLE_ROUND_SECONDS, jusqu'à ce qu'un camp tombe. */
 export interface Battle {
   id: number
-  army: number
+  /** L'armée qui se bat, ou null pour un siège : ce sont alors les troupes de la cité qui se battent. */
+  army: number | null
   /** La bande combattue, ou null pour un camp. */
   band: number | null
   foe: Foe
@@ -227,17 +262,30 @@ export interface Battle {
   /** L'armée avait faim en début de bataille. */
   starving: boolean
   rounds: BattleRound[]
+  /** Un raid assiège la cité ; null pour une bataille dehors. */
+  siege: Siege | null
 }
 
 /** Comment une bataille s'est terminée, pour ton armée. */
 export type Outcome = 'victory' | 'defeat' | 'retreat' | 'draw'
 
+/** Ce qu'un siège a coûté à la cité, pour le rapport. */
+export interface SiegeReport {
+  /** Les gardes des Remparts au début du siège, et ceux qui sont tombés (ils sont remplacés ensuite). */
+  guards: number
+  guardsLost: number
+  /** Les troupes tombées pendant le siège puis soignées dans la cité : elles ne sont pas perdues. */
+  healed: Army
+  /** Ce que les monstres ont emporté, si la cité est tombée. */
+  plunder: Partial<Resources>
+}
+
 export interface BattleReport {
   /** La fin de la bataille. */
   at: number
   startedAt: number
-  /** Le numéro de l'armée qui s'est battue. */
-  army: number
+  /** Le numéro de l'armée qui s'est battue, ou null pour un siège. */
+  army: number | null
   foe: Foe
   ambush: boolean
   outcome: Outcome
@@ -253,6 +301,8 @@ export interface BattleReport {
   rounds: BattleRound[]
   /** Le héros qui menait l'armée, et l'expérience qu'il a gagnée ; null sans héros. */
   hero: HeroGain | null
+  /** Un siège de la cité : ses gardes, ses blessés soignés, et ce qui a été pillé ; null pour une bataille dehors. */
+  siege: SiegeReport | null
 }
 
 /** Ce que le joueur a accompli depuis le début de la partie : les quêtes en tiennent compte. */
@@ -263,6 +313,8 @@ export interface Stats {
   bandsDefeated: number
   /** Ressources récoltées sur les gisements. */
   gathered: number
+  /** Raids repoussés : vaincus aux portes de la cité, ou interceptés en chemin. */
+  raidsRepelled: number
 }
 
 /** Tout ce qu'il faut savoir sur une partie. Les heures sont en millisecondes (comme Date.now()). */
@@ -297,6 +349,8 @@ export interface GameState {
   bands: Band[]
   /** Quand la prochaine bande apparaîtra, ou null si la carte est pleine. */
   nextBandAt: number | null
+  /** Quand le prochain raid partira vers la cité, ou null tant que le Château est trop petit pour en attirer. */
+  nextRaidAt: number | null
   /** Les gisements de ressources sur la carte des alentours. */
   nodes: ResourceNode[]
   /** Quand le prochain gisement apparaîtra, ou null si la carte en a assez. */
@@ -339,6 +393,7 @@ export function newGame(race: RaceId, now: number, seed = now): GameState {
     quests: [],
     bands: [],
     nextBandAt: null,
+    nextRaidAt: null,
     nodes: [],
     nextNodeAt: null,
     seed: seed | 0,
@@ -357,7 +412,7 @@ export function emptyResources(): Resources {
 }
 
 export function emptyStats(): Stats {
-  return { victories: 0, bandsDefeated: 0, gathered: 0 }
+  return { victories: 0, bandsDefeated: 0, gathered: 0, raidsRepelled: 0 }
 }
 
 export function emptyArmy(): Army {
@@ -758,6 +813,8 @@ export function questProgress(state: GameState, quest: QuestDef): { current: num
       return { current: state.stats.bandsDefeated, target: goal.count }
     case 'gathered':
       return { current: Math.floor(state.stats.gathered), target: goal.amount }
+    case 'raids':
+      return { current: state.stats.raidsRepelled, target: goal.count }
   }
 }
 
@@ -1007,6 +1064,7 @@ function checkSelection(state: GameState, troops: Army): Check {
 export function checkMarchSlot(state: GameState, target: Target): Check {
   const valid = checkTarget(state, target, null)
   if (!valid.ok) return valid
+  if (siegeOf(state)) return { ok: false, reason: BESIEGED }
   const max = maxArmies(state)
   if (state.armies.length >= max) {
     return { ok: false, reason: max === 1 ? 'Ton armée est déjà dehors' : `Tes ${max} armées sont déjà dehors` }
@@ -1074,12 +1132,16 @@ export function orderArmy(state: GameState, armyId: number, target: Target, now:
   return updateArmy(next, { ...army, order: { ...target }, status: 'marching' })
 }
 
-/** Les bandes qui patrouillent près du chemin de `from` à `to` : l'armée risque d'y être attaquée. */
+/**
+ * Les bandes qui patrouillent près du chemin de `from` à `to` : l'armée risque d'y être attaquée.
+ * Un raid compte quand il se trouve en ce moment près de ce chemin.
+ */
 export function bandsNearPath(state: GameState, from: Point, to: Point, except?: Target): Band[] {
+  const center = (band: Band) => (band.raid ? bandPosition(band, state.updatedAt) : band.home)
   return state.bands
     .filter((band) => !(except?.type === 'band' && except.band === band.id))
-    .filter((band) => distanceToSegment(band.home, from, to) <= PATROL_RADIUS + aggroRadius(band.level))
-    .sort((a, b) => distance(from, a.home) - distance(from, b.home))
+    .filter((band) => distanceToSegment(center(band), from, to) <= PATROL_RADIUS + aggroRadius(band.level))
+    .sort((a, b) => distance(from, center(a)) - distance(from, center(b)))
 }
 
 function updateArmy(state: GameState, army: FieldArmy): GameState {
@@ -1113,10 +1175,14 @@ function worldTick(state: GameState, at: number): GameState {
 
 /**
  * Rien ne peut arriver dehors : aucune bataille, et chaque armée attend sur place, hors de portée
- * des bandes. Le monde n'a alors pas besoin d'avancer seconde par seconde.
+ * des bandes. Le monde n'a alors pas besoin d'avancer seconde par seconde. (Un raid arrive à la cité
+ * à une heure connue d'avance : sans armée dehors pour le croiser, il n'a pas besoin de ces pas.)
  */
 function worldIsQuiet(state: GameState): boolean {
   if (state.battles.length > 0) return false
+  if (state.armies.length === 0) return true
+  // Un raid en marche peut croiser une armée, même immobile.
+  if (state.bands.some((band) => band.raid)) return false
   return state.armies.every(
     (army) =>
       army.status === 'idle' &&
@@ -1229,18 +1295,13 @@ function startBattle(
   campFoe?: Foe,
   campDefenders?: Monsters,
 ): GameState {
-  const foe: Foe = band ? { type: 'band', kind: band.kind, level: band.level } : campFoe!
-  const monsters = Object.fromEntries(
-    Object.entries(band ? band.monsters : (campDefenders ?? {})).filter(([, count]) => (count ?? 0) > 0),
-  ) as Monsters
+  const foe: Foe = band ? bandFoe(band) : campFoe!
+  const monsters = standing(band ? band.monsters : (campDefenders ?? {}))
   const healthFactor =
     1 + techBonus(state, 'health') + heroBonus(state, army.hero, 'health') + spellBonus(state, 'health')
   const armyHealth = emptyArmy()
   for (const id of UNIT_IDS) armyHealth[id] = army.troops[id] * getUnit(id).health * healthFactor
-  const foeHealth: Monsters = {}
-  for (const [id, count] of Object.entries(monsters) as [MonsterId, number][]) {
-    foeHealth[id] = count * getMonster(id).health
-  }
+  const foeHealth = monsterHealth(monsters)
   const battle: Battle = {
     id: state.nextId,
     army: army.id,
@@ -1255,6 +1316,7 @@ function startBattle(
     healthFactor,
     starving: isStarving(state),
     rounds: [],
+    siege: null,
   }
   let next: GameState = { ...state, battles: [...state.battles, battle], nextId: state.nextId + 1 }
   next = updateArmy(next, { ...army, status: 'fighting' })
@@ -1262,12 +1324,38 @@ function startBattle(
   return next
 }
 
+function bandFoe(band: Band): Foe {
+  return band.raid
+    ? { type: 'band', kind: band.kind, level: band.level, raid: true }
+    : { type: 'band', kind: band.kind, level: band.level }
+}
+
+/** Les monstres présents : on oublie les sortes dont il ne reste personne. */
+function standing(monsters: Monsters): Monsters {
+  return Object.fromEntries(Object.entries(monsters).filter(([, count]) => (count ?? 0) > 0)) as Monsters
+}
+
+/** Les points de vie de chaque sorte de monstres, au complet. */
+function monsterHealth(monsters: Monsters): Monsters {
+  const health: Monsters = {}
+  for (const [id, count] of Object.entries(monsters) as [MonsterId, number][]) {
+    health[id] = count * getMonster(id).health
+  }
+  return health
+}
+
+/** L'armée qui livre cette bataille (aucune pour un siège : la cité se défend elle-même). */
+function battleArmy(state: GameState, battle: Battle): FieldArmy | undefined {
+  return battle.army === null ? undefined : getArmy(state, battle.army)
+}
+
 /**
  * Les groupes de la bataille, avec leurs forces du moment : la Forge, les compétences du héros
- * et la faim comptent à chaque manche.
+ * et la faim comptent à chaque manche. Pendant un siège, les gardes des Remparts forment un
+ * groupe de plus, après les troupes.
  */
 function battleStacks(state: GameState, battle: Battle): { attackers: Stack[]; defenders: Stack[]; monsterIds: MonsterId[] } {
-  const hero = getArmy(state, battle.army)?.hero ?? null
+  const hero = battleArmy(state, battle)?.hero ?? null
   const hunger = isStarving(state) ? 1 - STARVATION_ATTACK_MALUS : 1
   const attackBonus = techBonus(state, 'attack') + heroBonus(state, hero, 'attack') + spellBonus(state, 'attack')
   const attackers: Stack[] = UNIT_IDS.map((id) => {
@@ -1275,6 +1363,7 @@ function battleStacks(state: GameState, battle: Battle): { attackers: Stack[]; d
     const factor = (1 + attackBonus + heroBonus(state, hero, 'familyAttack', unit.family)) * hunger
     return { family: unit.family, attack: unit.attack * factor, health: unit.health * battle.healthFactor, count: 0 }
   })
+  if (battle.siege) attackers.push({ ...WALL_GUARD, count: 0 })
   const monsterIds = Object.keys(battle.enemies) as MonsterId[]
   const defenders: Stack[] = monsterIds.map((id) => {
     const monster = getMonster(id)
@@ -1283,8 +1372,8 @@ function battleStacks(state: GameState, battle: Battle): { attackers: Stack[]; d
   return { attackers, defenders, monsterIds }
 }
 
-/** Les troupes et les monstres encore debout dans une bataille. */
-export function battleSurvivors(battle: Battle): { troops: Army; monsters: Monsters } {
+/** Les troupes, les monstres et (pendant un siège) les gardes des Remparts encore debout dans une bataille. */
+export function battleSurvivors(battle: Battle): { troops: Army; monsters: Monsters; guards: number } {
   const troops = emptyArmy()
   for (const id of UNIT_IDS) {
     troops[id] = Math.max(0, Math.ceil(battle.armyHealth[id] / (getUnit(id).health * battle.healthFactor) - 1e-9))
@@ -1293,7 +1382,8 @@ export function battleSurvivors(battle: Battle): { troops: Army; monsters: Monst
   for (const id of Object.keys(battle.enemies) as MonsterId[]) {
     monsters[id] = Math.max(0, Math.ceil((battle.foeHealth[id] ?? 0) / getMonster(id).health - 1e-9))
   }
-  return { troops, monsters }
+  const guards = battle.siege ? Math.max(0, Math.ceil(battle.siege.guardHealth / WALL_GUARD.health - 1e-9)) : 0
+  return { troops, monsters, guards }
 }
 
 /** Une manche : les deux camps frappent en même temps. La bataille s'arrête quand un camp tombe. */
@@ -1302,6 +1392,9 @@ function playRound(state: GameState, battleId: number, at: number): GameState {
   if (!battle) return state
   const { attackers, defenders, monsterIds } = battleStacks(state, battle)
   const armyHealth = UNIT_IDS.map((id) => battle.armyHealth[id])
+  // Les gardes des Remparts : le dernier groupe, après les troupes.
+  const guardIndex = UNIT_IDS.length
+  if (battle.siege) armyHealth.push(battle.siege.guardHealth)
   const foeHealth = monsterIds.map((id) => battle.foeHealth[id] ?? 0)
   const before = { attackers: counts(attackers, armyHealth), defenders: counts(defenders, foeHealth) }
   const round = fightRound(attackers, defenders, armyHealth, foeHealth)
@@ -1318,19 +1411,19 @@ function playRound(state: GameState, battleId: number, at: number): GameState {
     nextFoeHealth[id] = round.defenderHealth[i]
     enemyLost[id] = before.defenders[i] - round.log.defenders[i]
   })
+  const played: BattleRound = {
+    dealt: Math.round(round.log.damageByAttackers),
+    taken: Math.round(round.log.damageByDefenders),
+    lost,
+    enemyLost,
+  }
+  if (battle.siege) played.guardsLost = before.attackers[guardIndex] - round.log.attackers[guardIndex]
   const updated: Battle = {
     ...battle,
     armyHealth: nextArmyHealth,
     foeHealth: nextFoeHealth,
-    rounds: [
-      ...battle.rounds,
-      {
-        dealt: Math.round(round.log.damageByAttackers),
-        taken: Math.round(round.log.damageByDefenders),
-        lost,
-        enemyLost,
-      },
-    ],
+    rounds: [...battle.rounds, played],
+    siege: battle.siege && { ...battle.siege, guardHealth: round.attackerHealth[guardIndex] },
   }
   const next = { ...state, battles: state.battles.map((b) => (b.id === battleId ? updated : b)) }
   if (total(round.log.attackers) === 0) return endBattle(next, updated, at, 'defeat')
@@ -1341,11 +1434,12 @@ function playRound(state: GameState, battleId: number, at: number): GameState {
 
 /**
  * La bataille se termine : on écrit le rapport. Une bande vaincue disparaît ; sinon elle garde ses
- * survivants et reprend sa ronde. Une armée anéantie disparaît. Attaquée en chemin, une armée qui
- * survit reprend sa route (sa récolte, son retour…) ; sinon elle reste sur place, avec le butin
- * d'une victoire, en attendant un ordre.
+ * survivants et reprend sa ronde (ou, pour un raid, sa marche vers la cité). Une armée anéantie
+ * disparaît. Attaquée en chemin, une armée qui survit reprend sa route (sa récolte, son retour…) ;
+ * sinon elle reste sur place, avec le butin d'une victoire, en attendant un ordre.
  */
 function endBattle(state: GameState, battle: Battle, at: number, outcome: Outcome): GameState {
+  if (battle.siege) return endSiege(state, battle, battle.siege, at, outcome)
   const { troops: survivors, monsters: monstersLeft } = battleSurvivors(battle)
   const lost = emptyArmy()
   for (const id of UNIT_IDS) lost[id] = battle.sent[id] - survivors[id]
@@ -1354,8 +1448,15 @@ function endBattle(state: GameState, battle: Battle, at: number, outcome: Outcom
     enemyLost[id] = (battle.enemies[id] ?? 0) - (monstersLeft[id] ?? 0)
   }
   const foe = battle.foe
+  const raid = foe.type === 'band' && foe.raid === true
   const loot =
-    outcome !== 'victory' ? {} : foe.type === 'camp' ? { ...getCamp(foe.camp).loot } : bandLoot(foe.kind, foe.level)
+    outcome !== 'victory'
+      ? {}
+      : foe.type === 'camp'
+        ? { ...getCamp(foe.camp).loot }
+        : raid
+          ? raidLoot(foe.kind, foe.level)
+          : bandLoot(foe.kind, foe.level)
   let next: GameState = { ...state, battles: state.battles.filter((b) => b.id !== battle.id) }
   if (outcome === 'victory') {
     const stats = next.stats
@@ -1365,12 +1466,14 @@ function endBattle(state: GameState, battle: Battle, at: number, outcome: Outcom
         ...stats,
         victories: stats.victories + 1,
         bandsDefeated: stats.bandsDefeated + (battle.band === null ? 0 : 1),
+        // Un raid arrêté en chemin n'atteindra jamais la cité : il est repoussé.
+        raidsRepelled: stats.raidsRepelled + (raid ? 1 : 0),
       },
     }
   }
 
   // Le héros de l'armée gagne de l'expérience pour chaque monstre vaincu, quelle que soit l'issue.
-  const heroId = getArmy(state, battle.army)?.hero ?? null
+  const heroId = battleArmy(state, battle)?.hero ?? null
   const hero = heroId === null ? undefined : getHero(state, heroId)
   let heroGain: HeroGain | null = null
   if (hero) {
@@ -1398,6 +1501,7 @@ function endBattle(state: GameState, battle: Battle, at: number, outcome: Outcom
     starving: battle.starving,
     rounds: battle.rounds,
     hero: heroGain,
+    siege: null,
   }
   next = { ...next, reports: [report, ...next.reports].slice(0, MAX_REPORTS) }
 
@@ -1405,7 +1509,7 @@ function endBattle(state: GameState, battle: Battle, at: number, outcome: Outcom
   if (band) {
     next = outcome === 'victory' ? removeBand(next, band.id, at) : updateBand(next, { ...band, monsters: monstersLeft, since: at })
   }
-  const army = getArmy(next, battle.army)
+  const army = battleArmy(next, battle)
   if (!army) return next
   if (armySize(survivors) === 0) return removeArmy(next, army.id)
   const fought = battle.band === null || army.fought.includes(battle.band) ? army.fought : [...army.fought, battle.band]
@@ -1472,15 +1576,29 @@ function loopLength(loop: Point[]): number {
   return loop.reduce((sum, point, i) => sum + distance(point, loop[(i + 1) % loop.length]), 0)
 }
 
-/** Le chemin parcouru par une bande sur sa ronde à l'instant `at`, entre 0 et la longueur de la ronde. */
+/**
+ * Le chemin parcouru par une bande à l'instant `at` : sur sa ronde, entre 0 et la longueur de la
+ * ronde ; pour un raid, depuis son point de départ, jusqu'à la cité au plus.
+ */
 function bandPhase(band: Band, at: number): number {
+  if (band.raid) {
+    const walked = band.since === null ? 0 : (RAID_SPEED * Math.max(0, at - band.since)) / SECOND
+    return Math.min(raidLength(band), band.phase + walked)
+  }
   const length = loopLength(patrolLoop(band.home))
   const walked = band.since === null ? 0 : (band.direction * PATROL_SPEED * Math.max(0, at - band.since)) / SECOND
   return (((band.phase + walked) % length) + length) % length
 }
 
-/** Où se trouve une bande à l'instant `at` : elle avance sur sa ronde, sauf pendant un combat. */
+/**
+ * Où se trouve une bande à l'instant `at` : elle avance sur sa ronde (ou, pour un raid, vers la
+ * cité), sauf pendant un combat.
+ */
 export function bandPosition(band: Band, at: number): Point {
+  if (band.raid) {
+    const length = raidLength(band)
+    return along(band.home, WORLD.city, length === 0 ? 1 : bandPhase(band, at) / length)
+  }
   const loop = patrolLoop(band.home)
   let rest = bandPhase(band, at)
   for (let i = 0; i < loop.length; i++) {
@@ -1534,7 +1652,7 @@ function spawnBand(state: GameState, at: number): GameState {
     return state.armies.every((army) => patrolDistance(spot, army.position) > radius)
   })
   let next = state
-  if (free.length > 0 && state.bands.length < MAX_BANDS) {
+  if (free.length > 0 && patrolCount(state) < MAX_BANDS) {
     const { values, seed } = draws(state.seed, 5)
     const home = free[Math.floor(values[0] * free.length)]
     const level = Math.min(MAX_BAND_LEVEL, levelAt(home) + (values[1] < BAND_LEVEL_UP_CHANCE ? 1 : 0))
@@ -1549,20 +1667,231 @@ function spawnBand(state: GameState, at: number): GameState {
       phase: values[3] * loopLength(patrolLoop(home)),
       since: at,
       direction: values[4] < 0.5 ? 1 : -1,
+      raid: false,
     }
     next = { ...state, bands: [...state.bands, band], seed, nextId: state.nextId + 1 }
   }
   // Tant qu'il reste de la place, une autre bande viendra plus tard.
-  return { ...next, nextBandAt: next.bands.length < MAX_BANDS ? at + BAND_SPAWN_SECONDS * SECOND : null }
+  return { ...next, nextBandAt: patrolCount(next) < MAX_BANDS ? at + BAND_SPAWN_SECONDS * SECOND : null }
 }
 
-/** Une bande vaincue disparaît. Si la carte était pleine, une autre bande viendra prendre sa place. */
+/** Les bandes qui font leur ronde : les raids ne prennent pas leur place sur la carte. */
+function patrolCount(state: GameState): number {
+  return state.bands.filter((band) => !band.raid).length
+}
+
+/**
+ * Une bande vaincue disparaît. Si la carte était pleine, une autre bande viendra prendre sa place
+ * (un raid, lui, ne libère aucun repaire).
+ */
 function removeBand(state: GameState, id: number, at: number): GameState {
+  const band = getBand(state, id)
   return {
     ...state,
-    bands: state.bands.filter((band) => band.id !== id),
-    nextBandAt: state.nextBandAt ?? at + BAND_SPAWN_SECONDS * SECOND,
+    bands: state.bands.filter((other) => other.id !== id),
+    nextBandAt: band?.raid ? state.nextBandAt : (state.nextBandAt ?? at + BAND_SPAWN_SECONDS * SECOND),
   }
+}
+
+// --- Les raids et la défense de la cité ---
+
+const BESIEGED = 'La cité est assiégée : tes troupes défendent les remparts'
+
+/** Le niveau des raids qui visent la cité : il grandit avec le Château. */
+export function raidLevel(state: GameState): number {
+  return Math.min(MAX_BAND_LEVEL, Math.max(1, state.levels.castle - RAID_CASTLE_LEVEL + 1))
+}
+
+/** Les monstres d'un raid : plus nombreux que ceux d'une bande du même niveau. */
+export function raidMonsters(kind: BandKindId, level: number): Monsters {
+  return scaled(bandMonsters(kind, level), RAID_SIZE)
+}
+
+/** Ce que rapporte la victoire sur un raid : plus que sur une bande du même niveau. */
+export function raidLoot(kind: BandKindId, level: number): Partial<Resources> {
+  return scaled(bandLoot(kind, level), RAID_SIZE)
+}
+
+/** Les gardes qui veillent sur les Remparts : ils se battent à chaque siège, toujours au complet. */
+export function wallGuards(state: GameState): number {
+  return WALL_GUARDS_PER_LEVEL * state.levels.walls
+}
+
+/** Ce que le Château met à l'abri des pillards, pour chaque ressource. */
+export function protectedAmount(state: GameState): number {
+  return PROTECTED_PER_CASTLE_LEVEL * state.levels.castle
+}
+
+/** Le siège en cours, s'il y en a un : un raid se bat aux portes de la cité. */
+export function siegeOf(state: GameState): Battle | undefined {
+  return state.battles.find((battle) => battle.siege !== null)
+}
+
+/** La longueur du chemin d'un raid, de son point de départ à la cité. */
+function raidLength(band: Band): number {
+  return distance(band.home, WORLD.city)
+}
+
+/** Quand un raid atteindra la cité s'il n'est pas arrêté en chemin (null : il se bat). */
+export function raidArrival(band: Band): number | null {
+  if (!band.raid || band.since === null) return null
+  const left = Math.max(0, raidLength(band) - band.phase)
+  return band.since + Math.ceil((left / RAID_SPEED) * SECOND)
+}
+
+/**
+ * Un raid part d'un bord de la carte, tiré au sort, et marche droit sur la cité. Sa sorte est
+ * tirée parmi celles de son niveau. Il ne part jamais d'assez près d'une armée pour l'attaquer aussitôt.
+ */
+function spawnRaid(state: GameState, at: number): GameState {
+  const level = raidLevel(state)
+  const far = RAID_GATES.filter((gate) =>
+    state.armies.every((army) => distance(gate, army.position) > aggroRadius(level)),
+  )
+  const gates = far.length > 0 ? far : RAID_GATES
+  const { values, seed } = draws(state.seed, 2)
+  const gate = gates[Math.floor(values[0] * gates.length)]
+  const kinds = BAND_KINDS.filter((kind) => kind.minLevel <= level)
+  const kind = kinds[Math.floor(values[1] * kinds.length)].id
+  const band: Band = {
+    id: state.nextId,
+    kind,
+    level,
+    home: { ...gate },
+    monsters: raidMonsters(kind, level),
+    phase: 0,
+    since: at,
+    direction: 1,
+    raid: true,
+  }
+  return {
+    ...state,
+    bands: [...state.bands, band],
+    seed,
+    nextId: state.nextId + 1,
+    nextRaidAt: at + RAID_INTERVAL_SECONDS * SECOND,
+  }
+}
+
+/**
+ * Le raid arrive aux portes : le siège commence. Les troupes présentes dans la cité se battent,
+ * mieux protégées grâce aux Remparts, avec les gardes qui y veillent. Une cité sans défenseur
+ * est pillée sans combat.
+ */
+function startSiege(state: GameState, bandId: number, at: number): GameState {
+  const band = getBand(state, bandId)
+  if (!band) return state
+  const atGates = { ...band, phase: raidLength(band) }
+  // Un seul siège à la fois : ce raid attend son tour aux portes.
+  if (siegeOf(state)) return updateBand(state, { ...atGates, since: at + SIEGE_WAIT_SECONDS * SECOND })
+
+  const guards = wallGuards(state)
+  const healthFactor =
+    1 + techBonus(state, 'health') + spellBonus(state, 'health') + WALL_HEALTH_PER_LEVEL * state.levels.walls
+  const armyHealth = emptyArmy()
+  for (const id of UNIT_IDS) armyHealth[id] = state.troops[id] * getUnit(id).health * healthFactor
+  const monsters = standing(band.monsters)
+  const siege: Siege = { guards, guardHealth: guards * WALL_GUARD.health }
+  const battle: Battle = {
+    id: state.nextId,
+    army: null,
+    band: band.id,
+    foe: bandFoe(band),
+    ambush: false,
+    startedAt: at,
+    sent: { ...state.troops },
+    enemies: monsters,
+    armyHealth,
+    foeHealth: monsterHealth(monsters),
+    healthFactor,
+    starving: isStarving(state),
+    rounds: [],
+    siege,
+  }
+  const next = updateBand(
+    { ...state, battles: [...state.battles, battle], nextId: state.nextId + 1 },
+    { ...atGates, since: null },
+  )
+  return armySize(state.troops) === 0 && guards === 0 ? endSiege(next, battle, siege, at, 'defeat') : next
+}
+
+/** Ce qu'un raid victorieux emporte : une part de ce que le Château ne protège pas, dans la limite de ce que portent les monstres. */
+export function plunderOf(state: GameState, monsters: Monsters): Partial<Resources> {
+  const safe = protectedAmount(state)
+  const wanted = RESOURCE_IDS.map((id) => Math.max(0, state.resources[id] - safe) * RAID_PLUNDER_SHARE)
+  const sum = wanted.reduce((a, b) => a + b, 0)
+  const carriers = Object.values(monsters).reduce((a, b) => a + (b ?? 0), 0)
+  const share = sum === 0 ? 0 : Math.min(1, (carriers * RAID_LOAD_PER_MONSTER) / sum)
+  const plunder: Partial<Resources> = {}
+  RESOURCE_IDS.forEach((id, i) => {
+    // Le petit ajout évite qu'un calcul qui tombe juste (24) ne soit arrondi à 23 (23,999999…).
+    const amount = Math.floor(wanted[i] * share + 1e-9)
+    if (amount > 0) plunder[id] = amount
+  })
+  return plunder
+}
+
+/**
+ * Le siège se termine, et le raid s'en va dans tous les cas. Repoussé, il laisse son butin dans
+ * les réserves. Vainqueur, il pille la cité, puis les monstres la laissent tranquille un moment.
+ * Une part des troupes tombées est soignée : elle retrouve la garnison.
+ */
+function endSiege(state: GameState, battle: Battle, siege: Siege, at: number, outcome: Outcome): GameState {
+  const { troops: survivors, monsters: monstersLeft, guards: guardsLeft } = battleSurvivors(battle)
+  const lost = emptyArmy()
+  const healed = emptyArmy()
+  const troops = { ...state.troops }
+  for (const id of UNIT_IDS) {
+    const fallen = battle.sent[id] - survivors[id]
+    healed[id] = Math.ceil(fallen * SIEGE_HEALED_SHARE)
+    lost[id] = fallen - healed[id]
+    troops[id] = Math.max(0, troops[id] - lost[id])
+  }
+  const enemyLost: Monsters = {}
+  for (const id of Object.keys(battle.enemies) as MonsterId[]) {
+    enemyLost[id] = (battle.enemies[id] ?? 0) - (monstersLeft[id] ?? 0)
+  }
+  const foe = battle.foe
+  const loot = outcome === 'victory' && foe.type === 'band' ? raidLoot(foe.kind, foe.level) : {}
+  const plunder = outcome === 'defeat' ? plunderOf(state, monstersLeft) : {}
+  const stats = state.stats
+  const report: BattleReport = {
+    at,
+    startedAt: battle.startedAt,
+    army: null,
+    foe,
+    ambush: false,
+    outcome,
+    sent: { ...battle.sent },
+    lost,
+    enemies: { ...battle.enemies },
+    enemyLost,
+    loot,
+    starving: battle.starving,
+    rounds: battle.rounds,
+    hero: null,
+    siege: { guards: siege.guards, guardsLost: siege.guards - guardsLeft, healed, plunder },
+  }
+  const next: GameState = {
+    ...state,
+    troops,
+    resources: addResources(addResources(state.resources, loot), plunder, -1),
+    battles: state.battles.filter((b) => b.id !== battle.id),
+    reports: [report, ...state.reports].slice(0, MAX_REPORTS),
+    stats:
+      outcome === 'victory'
+        ? {
+            ...stats,
+            victories: stats.victories + 1,
+            bandsDefeated: stats.bandsDefeated + 1,
+            raidsRepelled: stats.raidsRepelled + 1,
+          }
+        : stats,
+    // Après un pillage, les monstres sont repus : le prochain raid attendra.
+    nextRaidAt:
+      outcome === 'defeat' ? Math.max(state.nextRaidAt ?? 0, at + RAID_RESPITE_SECONDS * SECOND) : state.nextRaidAt,
+  }
+  return battle.band === null ? next : removeBand(next, battle.band, at)
 }
 
 // --- Les gisements de ressources ---
@@ -1632,6 +1961,7 @@ function distanceToSegment(point: Point, a: Point, b: Point): number {
 // --- Renvoi de troupes ---
 
 export function checkDismiss(state: GameState, troops: Army): Check {
+  if (siegeOf(state)) return { ok: false, reason: BESIEGED }
   return checkSelection(state, troops)
 }
 
@@ -1655,10 +1985,10 @@ interface PendingEvent {
 
 /**
  * Le prochain événement prévu : fin de chantier, de recherche, d'entraînement ou d'un sort,
- * apparition d'une bande ou d'un gisement.
+ * apparition d'une bande ou d'un gisement, départ d'un raid ou son arrivée à la cité.
  */
 function nextEvent(state: GameState): PendingEvent | null {
-  const { constructions, research, spells, trainings, nextBandAt, nextNodeAt } = state
+  const { constructions, research, spells, trainings, nextBandAt, nextNodeAt, nextRaidAt } = state
   const events: PendingEvent[] = []
   for (const active of spells) {
     events.push({
@@ -1667,14 +1997,7 @@ function nextEvent(state: GameState): PendingEvent | null {
     })
   }
   for (const construction of constructions) {
-    events.push({
-      at: construction.endsAt,
-      apply: (s) => ({
-        ...s,
-        levels: { ...s.levels, [construction.building]: construction.targetLevel },
-        constructions: s.constructions.filter((c) => c.building !== construction.building),
-      }),
-    })
+    events.push({ at: construction.endsAt, apply: (s) => finishConstruction(s, construction) })
   }
   if (research) {
     events.push({
@@ -1694,7 +2017,28 @@ function nextEvent(state: GameState): PendingEvent | null {
   }
   if (nextBandAt !== null) events.push({ at: nextBandAt, apply: (s) => spawnBand(s, nextBandAt) })
   if (nextNodeAt !== null) events.push({ at: nextNodeAt, apply: (s) => spawnNode(s, nextNodeAt) })
+  if (nextRaidAt !== null) events.push({ at: nextRaidAt, apply: (s) => spawnRaid(s, nextRaidAt) })
+  for (const band of state.bands) {
+    const arrival = raidArrival(band)
+    if (arrival !== null) events.push({ at: arrival, apply: (s) => startSiege(s, band.id, arrival) })
+  }
   return events.reduce<PendingEvent | null>((first, e) => (!first || e.at < first.at ? e : first), null)
+}
+
+/**
+ * Un chantier se termine. Quand le Château atteint RAID_CASTLE_LEVEL, la cité est assez riche
+ * pour attirer les monstres : un premier raid se prépare.
+ */
+function finishConstruction(state: GameState, construction: Construction): GameState {
+  const next: GameState = {
+    ...state,
+    levels: { ...state.levels, [construction.building]: construction.targetLevel },
+    constructions: state.constructions.filter((c) => c.building !== construction.building),
+  }
+  const attracts = construction.building === 'castle' && construction.targetLevel >= RAID_CASTLE_LEVEL
+  return attracts && next.nextRaidAt === null
+    ? { ...next, nextRaidAt: construction.endsAt + RAID_FIRST_SECONDS * SECOND }
+    : next
 }
 
 /** Le prochain pas du monde (toujours à une seconde ronde), ou null si rien ne peut s'y passer. */
@@ -1705,9 +2049,9 @@ function nextTick(state: GameState): number | null {
 
 /**
  * Fait avancer la partie jusqu'à l'instant `now` : les ressources s'accumulent, chaque événement
- * prévu (chantier, recherche, entraînement, apparition d'une bande ou d'un gisement) arrive à son
- * heure, et tant que des armées sont dehors, le monde avance seconde par seconde (marches,
- * batailles, récoltes, patrouilles). Tout cela même si personne ne regardait : c'est ce qui
+ * prévu (chantier, recherche, entraînement, apparition d'une bande ou d'un gisement, raid) arrive
+ * à son heure, et tant que des armées sont dehors ou que la cité est assiégée, le monde avance
+ * seconde par seconde (marches, batailles, récoltes, patrouilles). Tout cela même si personne ne regardait : c'est ce qui
  * permet au royaume de vivre hors connexion. Les secondes du monde tombent toujours aux mêmes
  * heures : avancer d'un coup ou seconde par seconde donne exactement le même résultat.
  */

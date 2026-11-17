@@ -91,6 +91,7 @@ export type BuildingId =
   | 'barracks'
   | 'academy'
   | 'mageTower'
+  | 'walls'
 
 export interface BuildingDef {
   id: BuildingId
@@ -200,6 +201,15 @@ export const BUILDINGS: BuildingDef[] = [
     unlockedAtCastleLevel: 4,
     baseCost: { wood: 300, stone: 400, gold: 200, mana: 150 },
     baseDurationSeconds: 30,
+  },
+  {
+    id: 'walls',
+    name: 'Remparts',
+    icon: '🧱',
+    description: 'Ils défendent la cité contre les raids : des gardes y veillent, et tes troupes s’y battent mieux.',
+    unlockedAtCastleLevel: 3,
+    baseCost: { wood: 200, stone: 350, gold: 60 },
+    baseDurationSeconds: 20,
   },
 ]
 
@@ -1004,6 +1014,54 @@ export const BAND_SPOTS: Point[] = [
   { x: 1490, y: 110 },
 ]
 
+// --- Les raids et la défense de la cité ---
+// Quand la cité a grandi, des monstres viennent la piller : un raid part du bord de la carte et
+// marche droit sur elle. On peut l'intercepter avec une armée ; sinon, il assiège la cité, que
+// défendent les troupes présentes et les gardes des Remparts.
+
+/** Les raids commencent quand le Château atteint ce niveau. */
+export const RAID_CASTLE_LEVEL = 3
+/** Le premier raid part ce temps après, puis les suivants à cet intervalle (en secondes). */
+export const RAID_FIRST_SECONDS = 5 * 60
+export const RAID_INTERVAL_SECONDS = 30 * 60
+/** Après un pillage, les monstres laissent la cité tranquille pendant ce temps (en secondes). */
+export const RAID_RESPITE_SECONDS = 2 * 60 * 60
+/** Vitesse de marche d'un raid, en unités de carte par seconde : on a le temps de le voir venir. */
+export const RAID_SPEED = 6
+/** Un raid compte une fois et demie plus de monstres qu'une bande du même niveau, et rapporte autant de plus. */
+export const RAID_SIZE = 1.5
+/** D'où partent les raids : des points au bord de la carte. */
+export const RAID_GATES: Point[] = [
+  { x: 60, y: 70 },
+  { x: 800, y: 30 },
+  { x: 1540, y: 80 },
+  { x: 1550, y: 1130 },
+  { x: 800, y: 1170 },
+  { x: 60, y: 1140 },
+]
+
+/** Chaque niveau de Remparts ajoute ce nombre de gardes, qui défendent la cité à chaque siège. */
+export const WALL_GUARDS_PER_LEVEL = 8
+/** Un garde des Remparts : il tire du haut des murs, comme un archer. */
+export const WALL_GUARD: { attack: number; health: number; family: Family } = {
+  attack: 12,
+  health: 45,
+  family: 'archer',
+}
+/** Chaque niveau de Remparts donne ce bonus de vie aux troupes qui défendent la cité (0.05 = +5 %). */
+export const WALL_HEALTH_PER_LEVEL = 0.05
+/** On soigne les défenseurs dans la cité : cette part des troupes tombées pendant un siège se relève ensuite. */
+export const SIEGE_HEALED_SHARE = 0.5
+/** Un seul siège à la fois : un raid qui arrive pendant un siège attend ce temps aux portes (en secondes). */
+export const SIEGE_WAIT_SECONDS = 10
+
+/** Un raid victorieux emporte cette part des réserves… */
+export const RAID_PLUNDER_SHARE = 0.2
+/** … sauf ce que le Château met à l'abri : autant de chaque ressource, par niveau du Château. */
+export const PROTECTED_PER_CASTLE_LEVEL = 300
+/** Et chaque monstre encore debout ne peut emporter que cette quantité. */
+export const RAID_LOAD_PER_MONSTER = 40
+
 // --- Les gisements de ressources ---
 // Des champs, des scieries, des carrières, des mines et des sources de mana, sur la carte des
 // alentours. Une armée peut aller y récolter : chaque troupe récolte un peu chaque seconde, et
@@ -1078,6 +1136,8 @@ export type QuestGoal =
   | { kind: 'bands'; count: number }
   /** Autant de ressources récoltées sur les gisements. */
   | { kind: 'gathered'; amount: number }
+  /** Autant de raids repoussés aux portes de la cité. */
+  | { kind: 'raids'; count: number }
 
 export interface QuestDef {
   id: string
@@ -1153,6 +1213,13 @@ export const QUESTS: QuestDef[] = [
     reward: { stone: 500, gold: 200 },
   },
   {
+    id: 'walls',
+    name: 'Des murs pour la cité',
+    description: 'Construis les Remparts : des monstres viendront bientôt piller ta cité.',
+    goal: { kind: 'building', building: 'walls', level: 1 },
+    reward: { wood: 300, stone: 300 },
+  },
+  {
     id: 'academy',
     name: 'La maison des savants',
     description: 'Construis l’Académie.',
@@ -1179,6 +1246,13 @@ export const QUESTS: QuestDef[] = [
     description: 'Fais monter un héros au niveau 3.',
     goal: { kind: 'heroLevel', level: 3 },
     reward: { gold: 500 },
+  },
+  {
+    id: 'raid',
+    name: 'La cité tient bon',
+    description: 'Repousse un raid de monstres aux portes de la cité.',
+    goal: { kind: 'raids', count: 1 },
+    reward: { food: 600, stone: 600, gold: 300 },
   },
   {
     id: 'castle5',
@@ -1210,4 +1284,5 @@ export const START_LEVELS: Record<BuildingId, number> = {
   barracks: 0,
   academy: 0,
   mageTower: 0,
+  walls: 0,
 }

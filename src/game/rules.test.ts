@@ -17,8 +17,18 @@ import {
   PATROL_SPEED,
   QUESTS,
   RACES,
+  RAID_CASTLE_LEVEL,
+  RAID_FIRST_SECONDS,
+  RAID_GATES,
+  RAID_INTERVAL_SECONDS,
+  RAID_LOAD_PER_MONSTER,
+  RAID_PLUNDER_SHARE,
+  RAID_RESPITE_SECONDS,
+  RAID_SPEED,
   RESOURCE_IDS,
   SECOND_CONSTRUCTION_CASTLE_LEVEL,
+  SIEGE_HEALED_SHARE,
+  SIEGE_WAIT_SECONDS,
   SKILL_MAX_LEVEL,
   SPELLS,
   START_BANDS,
@@ -27,6 +37,8 @@ import {
   START_RESOURCES,
   UNITS,
   UNIT_IDS,
+  WALL_GUARDS_PER_LEVEL,
+  WALL_HEALTH_PER_LEVEL,
   WORLD,
   type Army,
   type BandKindId,
@@ -53,6 +65,7 @@ import {
   checkClaim,
   checkDismiss,
   checkMarch,
+  checkMarchSlot,
   checkOrder,
   checkRecruit,
   checkResearch,
@@ -93,10 +106,16 @@ import {
   patrolDistance,
   patrolLoop,
   productionPerHour,
+  protectedAmount,
   questDone,
   questProgress,
+  raidArrival,
+  raidLevel,
+  raidLoot,
+  raidMonsters,
   recruitHero,
   researchCost,
+  siegeOf,
   skillPoints,
   startMarch,
   startResearch,
@@ -107,6 +126,7 @@ import {
   upgradeCost,
   upgradeDuration,
   upkeepPerHour,
+  wallGuards,
   xpToNextLevel,
   type Band,
   type GameState,
@@ -176,7 +196,43 @@ function withBand(
   level = 1,
   kind: BandKindId = 'wolves',
 ): { game: GameState; id: number } {
-  const band: Band = { id: game.nextId, kind, level, home, monsters, phase: 0, since: game.updatedAt, direction: 1 }
+  const band: Band = {
+    id: game.nextId,
+    kind,
+    level,
+    home,
+    monsters,
+    phase: 0,
+    since: game.updatedAt,
+    direction: 1,
+    raid: false,
+  }
+  return { game: { ...game, bands: [...game.bands, band], nextId: game.nextId + 1 }, id: band.id }
+}
+
+/**
+ * Lance un raid de monstres choisis vers la cité, depuis le bord de la carte. `left` : la distance
+ * qu'il lui reste à parcourir (par défaut, tout le chemin).
+ */
+function withRaid(
+  game: GameState,
+  monsters: Monsters,
+  left?: number,
+  level = 1,
+  kind: BandKindId = 'wolves',
+): { game: GameState; id: number } {
+  const home = RAID_GATES[0]
+  const band: Band = {
+    id: game.nextId,
+    kind,
+    level,
+    home,
+    monsters,
+    phase: left === undefined ? 0 : distance(home, WORLD.city) - left,
+    since: game.updatedAt,
+    direction: 1,
+    raid: true,
+  }
   return { game: { ...game, bands: [...game.bands, band], nextId: game.nextId + 1 }, id: band.id }
 }
 
@@ -853,6 +909,253 @@ describe('les gisements de ressources', () => {
   })
 })
 
+describe('les raids et la défense de la cité', () => {
+  /** Une cité qui ne produit rien : ses réserves ne bougent que par le pillage ou le butin. */
+  const idleCity = (levels: Partial<Record<BuildingId, number>> = {}, troops: Partial<Army> = {}) =>
+    richGame({ farm: 0, sawmill: 0, quarry: 0, goldMine: 0, manaWell: 0, ...levels }, troops)
+
+  it('les raids commencent quand le Château a assez grandi, puis reviennent régulièrement', () => {
+    const start = startUpgrade(richGame({ castle: RAID_CASTLE_LEVEL - 1 }), 'castle', T0)
+    expect(start.nextRaidAt).toBeNull()
+    const endsAt = start.constructions[0].endsAt
+    const built = advance(start, endsAt)
+    const first = endsAt + RAID_FIRST_SECONDS * 1000
+    expect(built.nextRaidAt).toBe(first)
+    expect(advance(built, first - 1).bands).toEqual([])
+
+    const raided = advance(built, first)
+    expect(raided.bands).toHaveLength(1)
+    const raid = raided.bands[0]
+    expect(raid).toMatchObject({ raid: true, level: 1, monsters: raidMonsters(raid.kind, 1), since: first })
+    expect(RAID_GATES).toContainEqual(raid.home)
+    expect(bandPosition(raid, first)).toEqual(raid.home)
+    // Le suivant est déjà prévu, et il ne prend la place d'aucune bande sur la carte.
+    expect(raided.nextRaidAt).toBe(first + RAID_INTERVAL_SECONDS * 1000)
+    expect(raided.nextBandAt).toBeNull()
+  })
+
+  it('le niveau des raids grandit avec le Château, et un raid compte plus de monstres qu’une bande', () => {
+    expect(raidLevel(richGame({ castle: RAID_CASTLE_LEVEL }))).toBe(1)
+    expect(raidLevel(richGame({ castle: RAID_CASTLE_LEVEL + 2 }))).toBe(3)
+    expect(raidLevel(richGame({ castle: MAX_LEVEL }))).toBe(Math.min(MAX_BAND_LEVEL, MAX_LEVEL - RAID_CASTLE_LEVEL + 1))
+    for (const kind of BAND_KINDS) {
+      expect(total(raidMonsters(kind.id, 2)), kind.id).toBeGreaterThan(total(bandMonsters(kind.id, 2)))
+      expect(loadSize(raidLoot(kind.id, 2)), kind.id).toBeGreaterThan(loadSize(bandLoot(kind.id, 2)))
+    }
+  })
+
+  it('un raid marche droit sur la cité et y arrive à l’heure dite', () => {
+    const { game, id } = withRaid(richGame({}, { warrior: 500 }), { wolf: 1 })
+    const raid = game.bands[0]
+    const arrival = raidArrival(raid)!
+    expect(arrival).toBe(T0 + Math.ceil((distance(raid.home, WORLD.city) / RAID_SPEED) * 1000))
+    expect(distance(bandPosition(raid, T0 + 10_000), raid.home)).toBeCloseTo(RAID_SPEED * 10)
+    expect(bandPosition(raid, arrival)).toEqual(WORLD.city)
+    // Aucune armée dehors pour le croiser : inutile de suivre sa marche seconde par seconde.
+    const waiting = advance(game, arrival - 1)
+    expect(waiting.battles).toEqual([])
+    expect(waiting.tickedAt).toBe(game.tickedAt)
+    // À son arrivée, le siège commence : les troupes de la cité se battent.
+    const besieged = advance(game, arrival)
+    expect(siegeOf(besieged)).toMatchObject({ army: null, band: id, sent: army({ warrior: 500 }), rounds: [] })
+    expect(raidArrival(besieged.bands[0])).toBeNull()
+  })
+
+  it('les troupes de la cité repoussent le raid : son butin rejoint les réserves', () => {
+    const calm = richGame({}, { warrior: 500 })
+    const { game } = withRaid(calm, { goblin: 3 }, RAID_SPEED, 2, 'goblins')
+    const won = runUntil(game, (s) => s.reports.length > 0)
+    const report = won.reports[0]
+    const loot = raidLoot('goblins', 2)
+    expect(report).toMatchObject({ outcome: 'victory', army: null, ambush: false, loot, hero: null })
+    expect(report.foe).toEqual({ type: 'band', kind: 'goblins', level: 2, raid: true })
+    expect(report.siege).toMatchObject({ guards: 0, guardsLost: 0, plunder: {} })
+    expect(won.bands).toEqual([])
+    expect(won.battles).toEqual([])
+    expect(won.stats).toMatchObject({ victories: 1, bandsDefeated: 1, raidsRepelled: 1 })
+    // Le butin est allé droit dans les réserves.
+    const without = advance(calm, won.updatedAt)
+    for (const id of RESOURCE_IDS) expect(won.resources[id]).toBeCloseTo(without.resources[id] + (loot[id] ?? 0), 1)
+    // Un raid vaincu ne libère aucun repaire : aucune bande ne vient le remplacer.
+    expect(won.nextBandAt).toBeNull()
+  })
+
+  it('les Remparts ajoutent des gardes et protègent mieux les troupes', () => {
+    const siege = (walls: number) => {
+      const { game } = withRaid(richGame({ walls }, { warrior: 50 }), { troll: 500 }, RAID_SPEED)
+      return siegeOf(runUntil(game, (s) => s.battles.length > 0))!
+    }
+    const bare = siege(0)
+    const walled = siege(4)
+    expect(bare.siege).toEqual({ guards: 0, guardHealth: 0 })
+    expect(walled.siege?.guards).toBe(4 * WALL_GUARDS_PER_LEVEL)
+    expect(wallGuards(richGame({ walls: 4 }))).toBe(4 * WALL_GUARDS_PER_LEVEL)
+    expect(walled.healthFactor).toBeCloseTo(bare.healthFactor + 4 * WALL_HEALTH_PER_LEVEL)
+  })
+
+  it('les gardes se battent même quand la garnison est vide, et sont au complet à chaque siège', () => {
+    const { game } = withRaid(richGame({ walls: 5 }), { goblin: 1 }, RAID_SPEED)
+    const won = runUntil(game, (s) => s.reports.length > 0)
+    expect(won.reports[0]).toMatchObject({ outcome: 'victory', sent: emptyArmy(), lost: emptyArmy() })
+    expect(won.reports[0].siege?.guards).toBe(wallGuards(game))
+    expect(won.reports[0].rounds[0].guardsLost).toBe(0)
+    // Des gardes tombés sont remplacés : le siège suivant en retrouve autant.
+    const again = withRaid(won, { troll: 500 }, RAID_SPEED, 4, 'trolls')
+    const lost = runUntil(again.game, (s) => s.reports.length > 1)
+    expect(lost.reports[0]).toMatchObject({ outcome: 'defeat' })
+    expect(lost.reports[0].siege).toMatchObject({ guards: wallGuards(game), guardsLost: wallGuards(game) })
+    expect(wallGuards(lost)).toBe(wallGuards(game))
+  })
+
+  it('une cité sans défense est pillée sans combat, sauf ce que le Château met à l’abri', () => {
+    const empty = idleCity()
+    const safe = protectedAmount(empty)
+    const stocked: GameState = {
+      ...empty,
+      resources: { ...emptyResources(), food: safe + 1000, wood: safe - 1, stone: safe + 500 },
+      nextRaidAt: T0 + 60_000,
+    }
+    const { game } = withRaid(stocked, { troll: 500 }, RAID_SPEED, 4, 'trolls')
+    const arrival = raidArrival(game.bands[0])!
+    const pillaged = advance(game, arrival)
+    const report = pillaged.reports[0]
+    expect(report).toMatchObject({ outcome: 'defeat', rounds: [], loot: {}, enemyLost: { troll: 0 } })
+    const plunder = { food: Math.floor(1000 * RAID_PLUNDER_SHARE), stone: Math.floor(500 * RAID_PLUNDER_SHARE) }
+    expect(report.siege?.plunder).toEqual(plunder)
+    expect(pillaged.resources).toEqual({
+      ...stocked.resources,
+      food: safe + 1000 - plunder.food,
+      stone: safe + 500 - plunder.stone,
+    })
+    expect(pillaged.bands).toEqual([])
+    expect(pillaged.battles).toEqual([])
+    expect(pillaged.stats.raidsRepelled).toBe(0)
+    // Les monstres sont repus : le prochain raid attendra plus longtemps que prévu.
+    expect(pillaged.nextRaidAt).toBe(arrival + RAID_RESPITE_SECONDS * 1000)
+  })
+
+  it('les pillards n’emportent que ce qu’ils peuvent porter', () => {
+    const { game } = withRaid(idleCity(), { goblin: 3 }, RAID_SPEED)
+    const pillaged = advance(game, raidArrival(game.bands[0])!)
+    const carried = loadSize(pillaged.reports[0].siege!.plunder)
+    expect(carried).toBeLessThanOrEqual(3 * RAID_LOAD_PER_MONSTER)
+    expect(carried).toBeGreaterThan(3 * RAID_LOAD_PER_MONSTER - RESOURCE_IDS.length)
+  })
+
+  it('une partie des troupes tombées pendant un siège est soignée dans la cité', () => {
+    const { game } = withRaid(richGame({}, { warrior: 9 }), { troll: 500 }, RAID_SPEED, 4, 'trolls')
+    const lost = runUntil(game, (s) => s.reports.length > 0)
+    const healed = Math.ceil(9 * SIEGE_HEALED_SHARE)
+    expect(lost.reports[0]).toMatchObject({ outcome: 'defeat', sent: army({ warrior: 9 }), lost: army({ warrior: 9 - healed }) })
+    expect(lost.reports[0].siege?.healed).toEqual(army({ warrior: healed }))
+    expect(lost.troops).toEqual(army({ warrior: healed }))
+  })
+
+  it('pendant un siège, les troupes restent aux remparts : ni sortie, ni renvoi', () => {
+    const { game } = withRaid(richGame({}, { warrior: 500 }), { troll: 500 }, RAID_SPEED, 4, 'trolls')
+    const besieged = advance(game, raidArrival(game.bands[0])!)
+    const reason = 'La cité est assiégée : tes troupes défendent les remparts'
+    expect(checkMarch(besieged, toCamp('wolfDen'), army({ warrior: 10 }))).toEqual({ ok: false, reason })
+    expect(checkDismiss(besieged, army({ warrior: 10 }))).toEqual({ ok: false, reason })
+    // Les troupes entraînées pendant le siège arrivent trop tard pour se battre, et n'y perdent rien.
+    const trained = startTraining({ ...besieged, levels: { ...besieged.levels, barracks: 1 } }, 'archer', 1, besieged.updatedAt)
+    const over = runUntil(trained, (s) => s.battles.length === 0 && s.trainings.length === 0)
+    expect(over.troops.archer).toBe(1)
+    expect(checkMarchSlot(over, toCamp('wolfDen'))).toEqual({ ok: true })
+  })
+
+  it('un raid qui arrive pendant un siège attend son tour aux portes', () => {
+    const first = withRaid(richGame({}, { warrior: 500 }), { troll: 20 }, RAID_SPEED, 4, 'trolls')
+    const second = withRaid(first.game, { goblin: 1 }, RAID_SPEED)
+    const arrival = raidArrival(second.game.bands[0])!
+    const besieged = advance(second.game, arrival)
+    expect(besieged.battles).toHaveLength(1)
+    expect(besieged.battles[0].band).toBe(first.id)
+    expect(raidArrival(besieged.bands[1])).toBe(arrival + SIEGE_WAIT_SECONDS * 1000)
+    expect(bandPosition(besieged.bands[1], arrival)).toEqual(WORLD.city)
+    const over = runUntil(besieged, (s) => s.bands.length === 0)
+    expect(over.reports.map((report) => report.siege !== null)).toEqual([true, true])
+  })
+
+  it('une armée peut intercepter un raid avant qu’il n’atteigne la cité', () => {
+    const { game, id } = withRaid(richGame({}, { warrior: 500 }), { goblin: 3 }, undefined, 2, 'goblins')
+    const won = runUntil(startMarch(game, toBand(id), army({ warrior: 500 }), T0), (s) => s.reports.length > 0)
+    const loot = raidLoot('goblins', 2)
+    expect(won.reports[0]).toMatchObject({ outcome: 'victory', ambush: false, siege: null, loot })
+    expect(won.reports[0].foe).toEqual({ type: 'band', kind: 'goblins', level: 2, raid: true })
+    // La bataille a eu lieu loin des murs, et l'armée porte le butin.
+    expect(distance(won.armies[0].position, WORLD.city)).toBeGreaterThan(200)
+    expect(won.armies[0].load).toEqual(loot)
+    expect(won.bands).toEqual([])
+    expect(won.nextBandAt).toBeNull()
+    // Un raid arrêté en chemin est un raid repoussé.
+    expect(won.stats).toMatchObject({ victories: 1, bandsDefeated: 1, raidsRepelled: 1 })
+    const quest = QUESTS.find((q) => q.goal.kind === 'raids')!
+    expect(questDone(game, quest)).toBe(false)
+    expect(questDone(won, quest)).toBe(true)
+  })
+
+  it('un raid attaque l’armée qu’il croise, puis reprend sa marche vers la cité', () => {
+    const { game, id } = withRaid(idleCity({}, { archer: 1 }), { troll: 50 }, 400, 3, 'trolls')
+    const gate = game.bands[0].home
+    // L'armée remonte le chemin du raid : il l'attaque dès qu'elle est à sa portée.
+    const start = startMarch(game, toPoint(onRoad(gate, 0.3)), army({ archer: 1 }), T0)
+    const beaten = runUntil(start, (s) => s.reports.length > 0)
+    expect(beaten.reports[0]).toMatchObject({ ambush: true, outcome: 'defeat', siege: null })
+    expect(beaten.armies).toEqual([])
+    expect(beaten.bands[0]).toMatchObject({ id, since: beaten.reports[0].at })
+    // Vainqueur, le raid repart de là où il s'est battu, et finit par atteindre la cité.
+    const arrival = raidArrival(beaten.bands[0])!
+    expect(arrival).toBeGreaterThan(beaten.reports[0].at)
+    const pillaged = advance(beaten, arrival)
+    expect(pillaged.reports).toHaveLength(2)
+    expect(pillaged.reports[0].siege).not.toBeNull()
+    expect(pillaged.bands).toEqual([])
+  })
+
+  it('signale un raid qui se trouve près d’un chemin', () => {
+    const { game, id } = withRaid(richGame(), { wolf: 1 }, 200)
+    const gate = game.bands[0].home
+    expect(bandsNearPath(game, WORLD.city, gate).map((band) => band.id)).toEqual([id])
+    expect(bandsNearPath(game, WORLD.city, onRoad(gate, -0.5))).toEqual([])
+    expect(bandsNearPath(game, WORLD.city, gate, toBand(id))).toEqual([])
+  })
+
+  it('donne le même résultat d’un coup ou seconde par seconde, raids et sièges compris', () => {
+    const base = newGame('orcs', T0, 11)
+    let start: GameState = {
+      ...base,
+      resources: { food: 9000, wood: 9000, stone: 9000, gold: 3000, mana: 900 },
+      levels: { ...START_LEVELS, castle: RAID_CASTLE_LEVEL + 1, walls: 2 },
+      techs: { ...base.techs, command: 1 },
+      troops: army({ warrior: 60, archer: 30 }),
+      nextRaidAt: T0 + 20_000,
+    }
+    // Une armée attend dehors, sur le chemin possible d'un raid ; une autre part en intercepter un.
+    start = startMarch(start, toPoint(onRoad(RAID_GATES[1], 0.5)), army({ warrior: 10 }), T0)
+    start = advance(start, T0 + 20_000)
+    expect(start.bands.filter((band) => band.raid)).toHaveLength(1)
+    start = startMarch(start, toBand(start.bands.find((band) => band.raid)!.id), army({ warrior: 20 }), T0 + 20_000)
+    const end = T0 + 3 * HOUR
+
+    const oneShot = advance(start, end)
+    let stepped = start
+    for (let t = T0 + 21_000; t <= end; t += 1000) stepped = advance(stepped, t)
+
+    // Plusieurs raids sont venus, et au moins un a atteint les murs.
+    expect(oneShot.reports.some((report) => report.siege !== null)).toBe(true)
+    expect(stepped.reports).toEqual(oneShot.reports)
+    expect(stepped.troops).toEqual(oneShot.troops)
+    expect(stepped.armies).toEqual(oneShot.armies)
+    expect(stepped.bands).toEqual(oneShot.bands)
+    expect(stepped.battles).toEqual(oneShot.battles)
+    expect(stepped.stats).toEqual(oneShot.stats)
+    expect(stepped.nextRaidAt).toBe(oneShot.nextRaidAt)
+    expect(stepped.seed).toBe(oneShot.seed)
+    for (const id of RESOURCE_IDS) expect(stepped.resources[id]).toBeCloseTo(oneShot.resources[id], 6)
+  })
+})
+
 describe('les héros', () => {
   it('on recrute un héros avec ses ressources, à partir d’un niveau du Château', () => {
     const ysolde = getHeroDef('ysolde')
@@ -1000,6 +1303,8 @@ function reach(game: GameState, quest: QuestDef): GameState {
       return { ...game, stats: { ...game.stats, bandsDefeated: goal.count } }
     case 'gathered':
       return { ...game, stats: { ...game.stats, gathered: goal.amount } }
+    case 'raids':
+      return { ...game, stats: { ...game.stats, raidsRepelled: goal.count } }
   }
 }
 

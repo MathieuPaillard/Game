@@ -1,7 +1,17 @@
 // Relire une partie enregistrée, dans le navigateur ou sur le serveur, même si c'est une
 // version plus ancienne du jeu qui l'a enregistrée.
 
-import { RACES, START_LEVELS, WORLD_TICK_SECONDS, type Army, type CampId, type RaceId, type Resources } from './config.ts'
+import {
+  RACES,
+  RAID_CASTLE_LEVEL,
+  RAID_FIRST_SECONDS,
+  START_LEVELS,
+  WORLD_TICK_SECONDS,
+  type Army,
+  type CampId,
+  type RaceId,
+  type Resources,
+} from './config.ts'
 import {
   addResources,
   armySize,
@@ -70,10 +80,11 @@ export function restoreState(saved: unknown): GameState | null {
       for (const id of Object.keys(troops) as (keyof Army)[]) troops[id] += back[id] ?? 0
       resources = addResources(resources, old.result?.loot ?? old.loot ?? {})
     }
+    const levels = { ...START_LEVELS, ...state.levels }
     return {
       race: state.race,
       resources,
-      levels: { ...START_LEVELS, ...state.levels },
+      levels,
       constructions: state.constructions ?? (state.construction ? [state.construction] : []),
       techs: { ...emptyTechs(), ...state.techs },
       research: state.research ?? null,
@@ -92,6 +103,8 @@ export function restoreState(saved: unknown): GameState | null {
         ...battle,
         sent: { ...emptyArmy(), ...battle.sent },
         armyHealth: { ...emptyArmy(), ...battle.armyHealth },
+        // Avant les raids, toutes les batailles se livraient dehors.
+        siege: battle.siege ?? null,
       })),
       reports: (state.reports ?? []).filter((report) => report.foe || report.camp).map(upgradeReport),
       // Avant les quêtes, rien n'était compté : les compteurs partent de zéro.
@@ -100,6 +113,14 @@ export function restoreState(saved: unknown): GameState | null {
       bands: (state.bands ?? []).map((band) => upgradeBand(band, state.updatedAt)),
       // Avant les bandes et les gisements, la carte était vide : ils arrivent peu à peu.
       nextBandAt: state.nextBandAt === undefined ? state.updatedAt : state.nextBandAt,
+      // Avant les raids, personne n'attaquait la cité : si son Château est déjà assez grand, un premier
+      // raid se prépare, comme pour une cité qui vient d'atteindre ce niveau.
+      nextRaidAt:
+        state.nextRaidAt === undefined
+          ? levels.castle >= RAID_CASTLE_LEVEL
+            ? state.updatedAt + RAID_FIRST_SECONDS * 1000
+            : null
+          : state.nextRaidAt,
       nodes: state.nodes ?? [],
       nextNodeAt: state.nextNodeAt === undefined ? state.updatedAt : state.nextNodeAt,
       seed: state.seed ?? state.updatedAt | 0,
@@ -113,9 +134,12 @@ export function restoreState(saved: unknown): GameState | null {
   }
 }
 
-/** Une bande d'avant les patrouilles se met à faire sa ronde autour de l'endroit où elle était. */
+/**
+ * Une bande d'avant les patrouilles se met à faire sa ronde autour de l'endroit où elle était.
+ * Et avant les raids, toutes les bandes faisaient des rondes.
+ */
 function upgradeBand(band: SavedBand, updatedAt: number): Band {
-  if (band.home) return band as Band
+  if (band.home) return { ...band, raid: band.raid ?? false } as Band
   return {
     id: band.id ?? 0,
     kind: band.kind ?? 'wolves',
@@ -125,6 +149,7 @@ function upgradeBand(band: SavedBand, updatedAt: number): Band {
     phase: 0,
     since: updatedAt,
     direction: 1,
+    raid: false,
   }
 }
 
@@ -138,7 +163,8 @@ function upgradeReport(report: SavedReport): BattleReport {
     sent,
     lost,
     startedAt: report.startedAt ?? report.at ?? 0,
-    army: report.army ?? 0,
+    // null : le rapport d'un siège. Les très vieux rapports, eux, ne disaient pas quelle armée s'était battue.
+    army: report.army === undefined ? 0 : report.army,
     foe: report.foe ?? { type: 'camp', camp: camp as CampId },
     ambush: report.ambush ?? false,
     outcome,
@@ -149,5 +175,6 @@ function upgradeReport(report: SavedReport): BattleReport {
     starving: report.starving ?? false,
     rounds: report.rounds ?? [],
     hero: report.hero ?? null,
+    siege: report.siege ?? null,
   } as BattleReport
 }

@@ -41,12 +41,14 @@ export const CITY_PLOTS: Record<BuildingId, Point> = {
   barracks: { x: 530, y: 345 },
   academy: { x: 870, y: 345 },
   farm: { x: 500, y: 580 },
-  manaWell: { x: 700, y: 640 },
+  manaWell: { x: 700, y: 615 },
   goldMine: { x: 905, y: 585 },
   sawmill: { x: 340, y: 420 },
   quarry: { x: 1060, y: 440 },
   // La Tour des mages se dresse sur l'enceinte, au nord, au-dessus du Château.
   mageTower: { x: 700, y: 245 },
+  // La porte des Remparts s'ouvre au sud, dans l'enceinte.
+  walls: { x: 700, y: 738 },
 }
 
 /** Dans la cité, on peut aussi toucher la garnison (les troupes au repos) et le quartier des héros. */

@@ -7,7 +7,8 @@
 //
 // Ce joueur est simple : il construit ce que demande l'objectif (et économise pour ça), entraîne des
 // guerriers, recrute Ysolde et Durgan, fait des recherches, et envoie son armée contre la bande la
-// plus proche (ou récolter quand l'objectif le demande). Un vrai joueur fera mieux, ou moins bien.
+// plus proche (ou récolter quand l'objectif le demande). Quand un raid marche sur la cité, son armée
+// part l'intercepter. Un vrai joueur fera mieux, ou moins bien.
 
 import { CAMPS, QUESTS, RACES, WORLD, type BuildingId, type RaceId } from '../src/game/config.ts'
 import {
@@ -83,10 +84,16 @@ function build(state: GameState, now: number): GameState {
   return state
 }
 
+/** Un raid en marche vers la cité : le joueur part l'intercepter. */
+function incomingRaid(state: GameState): Target | null {
+  const raid = state.bands.find((band) => band.raid && band.since !== null)
+  return raid ? { type: 'band', band: raid.id } : null
+}
+
 /** La bande la plus proche qu'une petite armée peut battre, sinon la Tanière de loups. */
 function nearestTarget(state: GameState): Target {
   const bands = state.bands
-    .filter((band) => band.level <= Math.max(1, state.levels.castle - 1) && band.since !== null)
+    .filter((band) => !band.raid && band.level <= Math.max(1, state.levels.castle - 1) && band.since !== null)
     .sort((a, b) => distance(WORLD.city, a.home) - distance(WORLD.city, b.home))
   return bands[0] ? { type: 'band', band: bands[0].id } : { type: 'camp', camp: CAMPS[0].id }
 }
@@ -134,10 +141,13 @@ function play(state: GameState, now: number): GameState {
   for (const army of g.armies) {
     if (army.status === 'idle') g = orderArmy(g, army.id, { type: 'city' }, now)
   }
-  if (g.armies.length === 0 && g.troops.warrior >= 20) {
-    const gathering = currentQuest(g)?.goal.kind === 'gathered'
+  // Pour repousser un raid, l'armée l'attend à la cité tant qu'il n'est pas en vue.
+  const raid = incomingRaid(g)
+  const waitForRaid = currentQuest(g)?.goal.kind === 'raids' && !raid
+  if (g.armies.length === 0 && g.troops.warrior >= 20 && !waitForRaid) {
+    const gathering = !raid && currentQuest(g)?.goal.kind === 'gathered'
     const nodes = [...g.nodes].sort((a, b) => distance(WORLD.city, a.position) - distance(WORLD.city, b.position))
-    const target: Target = gathering && nodes[0] ? { type: 'node', node: nodes[0].id } : nearestTarget(g)
+    const target: Target = raid ?? (gathering && nodes[0] ? { type: 'node', node: nodes[0].id } : nearestTarget(g))
     const troops = { ...emptyArmy(), warrior: g.troops.warrior }
     const hero = gathering ? (getHero(g, 'durgan') ? 'durgan' : null) : getHero(g, 'ysolde') ? 'ysolde' : null
     if (checkMarch(g, target, troops, hero).ok) g = startMarch(g, target, troops, now, hero)
@@ -148,10 +158,19 @@ function play(state: GameState, now: number): GameState {
 let game = newGame(race, T0, seed)
 let lastClaim = T0
 let famine = 0
+let pillages = 0
 console.log(`Race : ${race} · graine du hasard : ${seed}\n`)
 for (let now = T0 + STEP; now <= T0 + LIMIT; now += STEP) {
+  const before = game.updatedAt
   game = advance(game, now)
   if (game.resources.food < 1 && netPerHour(game).food < 0) famine += STEP
+  // Les sièges perdus depuis le dernier coup d'œil : la cité a été pillée.
+  for (const report of game.reports) {
+    if (report.at > before && report.siege && report.outcome === 'defeat') {
+      pillages++
+      console.log(`${time(report.at - T0).padStart(11)}     (la cité est pillée par un raid de niveau ${report.foe.type === 'band' ? report.foe.level : '?'})`)
+    }
+  }
   const quest = currentQuest(game)
   if (!quest) break
   if (questDone(game, quest)) {
@@ -172,4 +191,5 @@ console.log(`\nFin : ${time(game.updatedAt - T0)} de jeu, ${game.quests.length} 
 console.log('Bâtiments :', Object.entries(game.levels).map(([id, level]) => `${id} ${level}`).join(', '))
 console.log('Héros :', game.heroes.map((hero) => `${hero.id} niv. ${hero.level}`).join(', ') || 'aucun')
 console.log(`Batailles gagnées : ${game.stats.victories} · bandes vaincues : ${game.stats.bandsDefeated}`)
+console.log(`Raids repoussés : ${game.stats.raidsRepelled} · pillages subis : ${pillages}`)
 console.log(`Temps passé en famine : ${time(famine)}`)

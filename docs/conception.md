@@ -61,6 +61,7 @@ Boucle de jeu : récolter des ressources → construire et améliorer → entra�
 - **[Décidé]** Un seul chantier à la fois au début, un second plus tard.
 - **[Proposition]** Le second chantier s'ouvre au Château niveau 5. Deux bâtiments différents peuvent alors s'améliorer en même temps, jamais le même deux fois.
 - **[Décidé]** Bâtiments suivants : Caserne (troupes), Académie (recherches), Tour des mages (sorts), Remparts (défense).
+- **[Proposition]** Les **Remparts** se débloquent au Château niveau 3. Chaque niveau ajoute 8 gardes, qui défendent la cité à chaque siège, et donne +5 % de vie aux troupes qui la défendent (voir « Les raids et la défense de la cité »).
 - **[Proposition]** La **Tour des mages** se débloque au Château niveau 4. Elle lance des sorts : contre du mana, un bienfait de quelques minutes pour toute la cité ou toutes les armées. Un même sort ne se lance pas deux fois à la fois, et chaque niveau de la Tour en débloque un : Moisson abondante (+25 % de nourriture, 10 min), Sève vive (+25 % de bois et de pierre, 10 min), Fureur guerrière (+15 % d'attaque, 5 min), Vent porteur (−20 % de temps de marche, 5 min) et Peau de pierre (+15 % de vie dans les batailles qui commencent, 5 min).
 - **[Décidé]** L'**Académie** (débloquée au Château niveau 3) mène les recherches : une à la fois, et aucune recherche ne dépasse le niveau de l'Académie.
 - **[Proposition]** Huit recherches pour commencer : Agriculture (nourriture), Outils de qualité (bois et pierre), Alchimie (or et mana), Forge (attaque des troupes), Armures (vie des troupes), Maçonnerie (constructions plus rapides), Marche forcée (marche plus rapide) et Commandement (une armée de plus sur la carte par niveau).
@@ -103,7 +104,20 @@ Boucle de jeu : récolter des ressources → construire et améliorer → entra�
 - **[Proposition]** La zone d'aggro est un cercle autour de la bande, plus grand quand son niveau monte. Une bande attaque toute armée qui entre dans sa zone, mais jamais deux fois la même. Attaquée en chemin, une armée qui survit à la bataille reprend sa route (sa récolte, son retour…) ; vaincue, elle est perdue. Avant chaque ordre, les fiches préviennent des bandes qui patrouillent près du chemin.
 - **[Proposition]** On peut aussi attaquer une bande directement : l'armée la poursuit, et la bataille commence dès qu'elle entre dans sa zone d'aggro. Vaincue, la bande disparaît, et une autre viendra plus tard ; sinon, elle garde ses pertes et reprend sa ronde.
 
-## 8. L'écran de jeu
+## 8. Les raids et la défense de la cité
+
+- **[Décidé]** Des **raids de monstres** viennent attaquer la cité : c'est contre eux que servent d'abord les Remparts.
+- **[Proposition]** Les raids commencent quand le Château atteint le niveau 3 : le premier part 5 minutes plus tard, puis un nouveau toutes les 30 minutes. Un raid part d'un bord de la carte et marche droit sur la cité, lentement (60 % de la vitesse d'une armée) : on le voit venir, avec le compte à rebours de son arrivée.
+- **[Proposition]** Un raid est une bande de monstres d'une sorte tirée au sort, avec une fois et demie plus de monstres qu'une bande du même niveau, et un butin plus gros d'autant. Son niveau suit le Château : niveau 1 au Château 3, puis un de plus par niveau du Château, jusqu'au niveau 5.
+- **[Proposition]** On peut intercepter un raid en chemin avec une armée : vaincu, il compte comme repoussé, et l'armée garde son butin. En chemin, un raid attaque aussi les armées qu'il croise, puis reprend sa marche.
+- **[Proposition]** Arrivé à la cité, le raid l'assiège : une bataille en manches, comme dehors, contre toutes les troupes présentes dans la cité et les gardes des Remparts. Les gardes tirent du haut des murs, comme des archers (12 d'attaque, 45 de vie) ; ceux qui tombent sont remplacés, et le siège suivant les retrouve au complet. Pendant un siège, les troupes ne peuvent ni sortir ni être renvoyées. Un raid qui arrive pendant un siège attend son tour aux portes.
+- **[Proposition]** Repoussé, le raid laisse son butin dans les réserves. Victorieux, il pille la cité : 20 % de chaque ressource, sauf ce que le Château met à l'abri (300 de chaque ressource par niveau du Château), et chaque monstre encore debout n'emporte que 40 ressources. Après un pillage, les monstres laissent la cité tranquille au moins 2 heures. Dans tous les cas, le raid s'en va ensuite.
+- **[Proposition]** On soigne les défenseurs dans la cité : la moitié des troupes tombées pendant un siège se relève après la bataille. Une cité sans troupes ni gardes est pillée sans combat.
+- **[Décidé]** Plus tard, les **autres joueurs** pourront aussi attaquer la cité, et les Remparts la défendront de la même façon.
+- **[Proposition]** Les attaques entre joueurs viendront avec le monde partagé (étape 4 de la feuille de route). Il faut d'abord une carte commune où les armées d'un joueur peuvent atteindre la cité d'un autre, et un serveur qui fait avancer toutes les parties ensemble : aujourd'hui, chaque partie avance seule, et le serveur ne la calcule que quand son joueur se connecte. Les règles du siège (défenseurs, gardes, pillage, part mise à l'abri) sont écrites pour servir aussi à ces attaques.
+- **[À trancher]** Comment protéger les débutants des attaques des autres joueurs (un bouclier pendant les premiers jours ?), et ce que gagne un joueur qui en attaque un autre.
+
+## 9. L'écran de jeu
 
 - **[Décidé]** Le jeu s'affiche comme un jeu mobile, en mode paysage : la carte remplit l'écran (la cité, ou ses alentours), avec les ressources en haut et des boutons aux coins.
 - **[Décidé]** On agit en touchant directement la carte : les bâtiments, les troupes (la garnison dans la cité, les armées dehors), les héros, les gisements, les camps, les bandes, la cité. Ce qu'on touche ouvre sa fiche à côté de la carte, avec tout ce qu'on peut en faire.
@@ -116,13 +130,13 @@ Boucle de jeu : récolter des ressources → construire et améliorer → entra�
 - **[Proposition]** Téléphone tenu en hauteur : le jeu marche aussi (la fiche s'ouvre sous la carte), et une étiquette conseille de tourner l'écran. Le menu propose le plein écran, qui bloque l'écran en paysage quand le navigateur le permet. L'appli Android, elle, sera toujours en paysage.
 - **[Proposition]** Les emojis seront remplacés par les images du guide graphique.
 
-## 9. Les quêtes
+## 10. Les quêtes
 
-- **[Proposition]** Une suite d'objectifs guide le joueur, du premier chantier aux grandes batailles : un objectif à la fois, dans l'ordre, comme une histoire. Chaque objectif atteint donne une récompense en ressources, à recevoir d'un geste. L'objectif du moment s'affiche en haut de l'onglet Cité, et un point doré sur l'onglet signale une récompense à recevoir.
-- **[Proposition]** Quinze objectifs pour commencer : construire la Mine d'or, monter le Château au niveau 2, la Ferme au niveau 2, construire la Caserne, rassembler 20 guerriers, recruter un héros, remporter une bataille, récolter 500 ressources sur les gisements, Château niveau 3, construire l'Académie, terminer une recherche, vaincre 3 bandes de monstres, monter un héros au niveau 3, Château niveau 5, et remporter 10 batailles.
+- **[Proposition]** Une suite d'objectifs guide le joueur, du premier chantier aux grandes batailles : un objectif à la fois, dans l'ordre, comme une histoire. Chaque objectif atteint donne une récompense en ressources, à recevoir d'un geste. L'objectif du moment s'affiche sur l'écran de jeu : quand il est atteint, un toucher suffit pour recevoir sa récompense.
+- **[Proposition]** Dix-sept objectifs pour commencer : construire la Mine d'or, monter le Château au niveau 2, la Ferme au niveau 2, construire la Caserne, rassembler 20 guerriers, recruter un héros, remporter une bataille, récolter 500 ressources sur les gisements, Château niveau 3, construire les Remparts, construire l'Académie, terminer une recherche, vaincre 3 bandes de monstres, monter un héros au niveau 3, repousser un raid, Château niveau 5, et remporter 10 batailles.
 - **[À trancher]** La suite : des quêtes qui racontent l'histoire du royaume (avec des personnages), des quêtes quotidiennes, et les créatures légendaires, à gagner par des quêtes.
 
-## 10. Les comptes et le serveur
+## 11. Les comptes et le serveur
 
 - **[Décidé]** Le serveur garde les parties et applique lui-même les règles du jeu. Le navigateur n'envoie que des ordres (« améliorer la Ferme », « entraîner 20 archers »…) : impossible de tricher en modifiant le jeu dans son navigateur.
 - **[Proposition]** Un compte, c'est un nom de joueur (unique, et visible des autres joueurs) et un mot de passe. Pas d'adresse e-mail pour l'instant : le serveur ne garde rien de personnel, mais un mot de passe oublié ne peut pas être récupéré.
@@ -130,14 +144,14 @@ Boucle de jeu : récolter des ressources → construire et améliorer → entra�
 - **[Décidé]** Pour l'instant, le jeu se développe avec un serveur local, sur l'ordinateur. La mise en ligne chez un hébergeur (payant) viendra plus tard.
 - **[À trancher]** Quel hébergeur, le moment venu.
 
-## 11. Feuille de route
+## 12. Feuille de route
 
 Chaque étape donne un jeu jouable.
 
 1. **Prototype solo dans le navigateur** : la cité, les ressources, les bâtiments et leurs durées de construction. *En place* : choix de la race, cinq ressources, huit bâtiments, un chantier à la fois puis deux au Château niveau 5, production hors connexion.
-2. **Armées** : troupes, recherches, combats contre des monstres. *En place* : Caserne, quatre troupes, Académie et recherches, cartes de la cité et des alentours, plusieurs armées qu'on dirige sur la carte, camps de monstres, bandes de monstres qui patrouillent (avec leurs niveaux et leurs zones d'aggro), batailles qui durent et leurs rapports, gisements de ressources à récolter, et des héros qui mènent les armées.
+2. **Armées** : troupes, recherches, combats contre des monstres. *En place* : Caserne, quatre troupes, Académie et recherches, cartes de la cité et des alentours, plusieurs armées qu'on dirige sur la carte, camps de monstres, bandes de monstres qui patrouillent (avec leurs niveaux et leurs zones d'aggro), batailles qui durent et leurs rapports, gisements de ressources à récolter, des héros qui mènent les armées, et les Remparts contre les raids de monstres sur la cité.
 3. **Serveur et comptes joueurs** : sauvegarde en ligne ; le serveur décide de tout. *En cours* : comptes (nom et mot de passe), parties gardées sur le serveur, qui applique les règles, et partie sans compte toujours possible. Reste à mettre le jeu en ligne chez un hébergeur, plus tard.
-4. **Monde partagé** : la carte, les attaques entre joueurs, les alliances.
-5. **Contenu et mobile** : quêtes, livre de sorts, créatures légendaires, puis l'appli Android. *Commencé* : une première suite de quinze objectifs, avec leurs récompenses, et les cinq premiers sorts de la Tour des mages.
+4. **Monde partagé** : la carte commune, les attaques entre joueurs (contre leurs Remparts), les alliances.
+5. **Contenu et mobile** : quêtes, livre de sorts, créatures légendaires, puis l'appli Android. *Commencé* : une première suite de dix-sept objectifs, avec leurs récompenses, et les cinq premiers sorts de la Tour des mages.
 
 Les chiffres du jeu (coûts, durées, production, bonus des races) sont regroupés dans `src/game/config.ts`, pour pouvoir équilibrer le jeu sans toucher au reste du code.

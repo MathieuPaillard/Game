@@ -221,7 +221,7 @@ const armies = computed(() =>
 // Les batailles en cours : une ligne entre l'armée et la bande, et le numéro de la manche.
 const battles = computed(() =>
   props.state.battles.flatMap((battle) => {
-    const army = getArmy(props.state, battle.army)
+    const army = battle.army === null ? undefined : getArmy(props.state, battle.army)
     if (!army) return []
     const band = battle.band === null ? undefined : getBand(props.state, battle.band)
     const foe = band ? bandPosition(band, props.now) : army.position
