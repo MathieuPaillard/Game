@@ -6,7 +6,9 @@ import {
   getCamp,
   getMonster,
   getNode,
+  raidArrival,
   type ArmyStatus,
+  type Band,
   type FieldArmy,
   type GameState,
   type Monsters,
@@ -24,6 +26,22 @@ export const STATUS_ICONS: Record<ArmyStatus, string> = {
   gathering: '⛏️',
 }
 
+/** Le nom d'une bande : « Meute de loups (niv. 2) », ou « Raid : Meute de loups (niv. 2) ». */
+export function bandName(band: Band): string {
+  return foeName({ type: 'band', kind: band.kind, level: band.level, raid: band.raid })
+}
+
+/**
+ * Les raids sur la carte, du premier qui atteindra la cité au dernier. `arrival` : l'heure de son
+ * arrivée, ou null s'il se bat (contre une armée, ou aux portes de la cité).
+ */
+export function incomingRaids(state: GameState): { band: Band; arrival: number | null }[] {
+  return state.bands
+    .filter((band) => band.raid)
+    .map((band) => ({ band, arrival: raidArrival(band) }))
+    .sort((a, b) => (a.arrival ?? Infinity) - (b.arrival ?? Infinity))
+}
+
 /** L'icône d'un groupe de monstres : celle du premier monstre encore debout. */
 export function monstersIcon(monsters: Monsters): string {
   const first = (Object.keys(monsters) as MonsterId[]).find((id) => (monsters[id] ?? 0) > 0)
@@ -39,7 +57,7 @@ export function targetName(state: GameState, target: Target): string {
       return getCamp(target.camp).name
     case 'band': {
       const band = getBand(state, target.band)
-      return band ? foeName({ type: 'band', kind: band.kind, level: band.level }) : 'une bande disparue'
+      return band ? bandName(band) : 'une bande disparue'
     }
     case 'node': {
       const node = getNode(state, target.node)
@@ -56,8 +74,9 @@ export function orderText(state: GameState, target: Target): string {
     case 'point':
       return 'Aller à cet endroit'
     case 'camp':
-    case 'band':
       return `Attaquer : ${targetName(state, target)}`
+    case 'band':
+      return `${getBand(state, target.band)?.raid ? 'Intercepter' : 'Attaquer'} : ${targetName(state, target)}`
     case 'node':
       return `Récolter : ${targetName(state, target)}`
     case 'city':

@@ -47,18 +47,21 @@ export const CITY_PLOTS: Record<BuildingId, Point> = {
   quarry: { x: 1060, y: 440 },
   // La Tour des mages se dresse sur l'enceinte, au nord, au-dessus du Château.
   mageTower: { x: 700, y: 245 },
-  // La porte des Remparts s'ouvre au sud, dans l'enceinte.
-  walls: { x: 700, y: 738 },
+  // La porte des Remparts s'ouvre au sud, devant l'enceinte.
+  walls: { x: 700, y: 760 },
 }
 
 /** Dans la cité, on peut aussi toucher la garnison (les troupes au repos) et le quartier des héros. */
 export const CITY_SPOTS = {
   garrison: { x: 450, y: 480 },
-  heroes: { x: 810, y: 640 },
+  heroes: { x: 915, y: 455 },
 }
 
 /** L'enceinte de la cité : la Scierie et la Carrière sont dehors, près de la forêt et des montagnes. */
 export const CITY_WALL = { cx: 700, cy: 485, rx: 300, ry: 225 }
+
+/** Pendant un siège, les monstres se pressent ici, devant la porte sud, à côté des Remparts. */
+export const CITY_SIEGE = { x: 870, y: 790 }
 
 /** Pas d'arbre dans l'enceinte de la cité. */
 function outsideWall(p: Point) {

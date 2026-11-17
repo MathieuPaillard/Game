@@ -8,6 +8,7 @@ import {
   emptyArmy,
   getUnit,
   netPerHour,
+  siegeOf,
   timeUntilFamine,
   upkeepPerHour,
   type GameState,
@@ -56,7 +57,14 @@ function confirmDismiss() {
       </div>
     </header>
 
-    <p class="muted">Les troupes au repos dans la cité. Pour les envoyer en campagne, touche une cible aux alentours.</p>
+    <p v-if="siegeOf(state)" class="besieged" role="status">
+      <strong>La cité est assiégée :</strong> tes troupes défendent les remparts. Elles ne peuvent ni sortir ni être
+      renvoyées avant la fin du siège.
+    </p>
+    <p class="muted">
+      Les troupes au repos dans la cité. Elles la défendent contre les raids, avec les gardes des Remparts. Pour les
+      envoyer en campagne, touche une cible aux alentours.
+    </p>
 
     <ul v-if="home.length" class="troops" aria-label="Troupes dans la cité">
       <li v-for="id in home" :key="id">
@@ -124,7 +132,8 @@ function confirmDismiss() {
   font-variant-numeric: tabular-nums;
 }
 
-.hungry strong {
+.hungry strong,
+.besieged strong {
   color: var(--ember);
 }
 

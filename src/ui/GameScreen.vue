@@ -28,6 +28,7 @@ import {
   maxConstructions,
   netPerHour,
   questProgress,
+  siegeOf,
   skillPoints,
   timeUntilFamine,
   type GameState,
@@ -38,6 +39,7 @@ import ArmyCard from './ArmyCard.vue'
 import type { AwayReport } from './away'
 import BuildingCard from './BuildingCard.vue'
 import CityMap from './CityMap.vue'
+import DefenseCard from './DefenseCard.vue'
 import GarrisonCard from './GarrisonCard.vue'
 import HeroPanel from './HeroPanel.vue'
 import NoticeBar from './NoticeBar.vue'
@@ -53,7 +55,7 @@ import WorldMap from './WorldMap.vue'
 import { formatAmount, formatClock, formatDuration } from './format'
 import type { Point } from './maps'
 import type { CitySelection, Panel } from './screen'
-import { STATUS_ICONS, armyStatusText, type Selection } from './world'
+import { STATUS_ICONS, armyStatusText, incomingRaids, type Selection } from './world'
 
 // L'écran de jeu, pensé pour le mode paysage : la carte (la cité, ou ses alentours) remplit l'écran.
 // Par-dessus : les ressources en haut, des boutons aux coins, et ce qui est en cours sur les côtés.
@@ -254,6 +256,34 @@ const famine = computed(() => {
   return props.state.resources.food >= 1 ? `Famine dans ${formatDuration(left)}` : 'Famine : tes troupes ont faim'
 })
 
+// Un raid marche sur la cité, ou l'assiège : l'alerte reste en haut de l'écran jusqu'à la fin.
+const raidAlert = computed(() => {
+  const siege = siegeOf(props.state)
+  if (siege) return { siege: true, band: siege.band, text: `Cité assiégée · manche ${siege.rounds.length + 1}` }
+  const first = incomingRaids(props.state)[0]
+  if (!first) return null
+  const left = first.arrival === null ? null : Math.max(0, first.arrival - props.now)
+  return {
+    siege: false,
+    band: first.band.id,
+    text: left === null ? 'Raid : bataille en chemin' : `Raid dans ${formatClock(left)}`,
+    label: left === null ? undefined : `Un raid arrive à la cité dans ${formatDuration(left)}`,
+  }
+})
+
+/** L'alerte touchée : pendant un siège, la défense de la cité ; sinon, le raid sur la carte des alentours. */
+function onRaidAlert() {
+  const alert = raidAlert.value
+  if (!alert) return
+  if (alert.siege) open({ kind: 'building', id: 'walls' })
+  else if (alert.band !== null) open({ kind: 'target', target: { type: 'band', band: alert.band } })
+}
+
+/** Depuis la défense de la cité : voir un raid sur la carte des alentours. */
+function showRaid(band: number) {
+  open({ kind: 'target', target: { type: 'band', band } })
+}
+
 const quest = computed(() => {
   const def = currentQuest(props.state)
   if (!def) return null
@@ -337,7 +367,9 @@ const heroesWaiting = computed(() => props.state.heroes.some((hero) => skillPoin
 const seenReportAt = ref(props.state.reports[0]?.at ?? 0)
 const newReport = computed(() => (props.state.reports[0]?.at ?? 0) > seenReportAt.value)
 const elsewhereBusy = computed(() =>
-  view.value === 'city' ? props.state.armies.length > 0 : props.state.constructions.length > 0,
+  view.value === 'city'
+    ? props.state.armies.length > 0 || props.state.bands.some((band) => band.raid)
+    : props.state.constructions.length > 0,
 )
 
 const awayGains = computed(() =>
@@ -449,6 +481,16 @@ onBeforeUnmount(() => {
               <span aria-hidden="true">{{ quest.done ? '🎁' : '🎯' }}</span>
               <span class="text">{{ quest.done ? 'Recevoir la récompense' : quest.def.name }}</span>
               <span v-if="!quest.done" class="tag">{{ formatAmount(quest.current) }}/{{ formatAmount(quest.goal) }}</span>
+            </button>
+            <button
+              v-if="raidAlert"
+              type="button"
+              class="hud-chip alert raid-alert"
+              :aria-label="raidAlert.label"
+              @click="onRaidAlert"
+            >
+              <span aria-hidden="true">{{ raidAlert.siege ? '⚔️' : '🔥' }}</span>
+              <span class="text">{{ raidAlert.text }}</span>
             </button>
             <button v-if="famine" type="button" class="hud-chip alert" @click="open({ kind: 'garrison' })">
               <span aria-hidden="true">🌾</span>
@@ -586,6 +628,7 @@ onBeforeUnmount(() => {
             :now="now"
             @cast="(spell) => emit('cast', spell)"
           />
+          <DefenseCard v-else-if="buildingId === 'walls'" :state="state" :now="now" @show-raid="showRaid" />
         </template>
 
         <GarrisonCard
@@ -607,6 +650,7 @@ onBeforeUnmount(() => {
           :key="targetKey(target)"
           :target="target"
           :state="state"
+          :now="now"
           @march="(troops, hero) => march(target!, troops, hero)"
           @order="(army) => command(army, target!)"
         />
@@ -768,16 +812,17 @@ onBeforeUnmount(() => {
   gap: 0.35rem;
 }
 
+/* Les deux colonnes se partagent la largeur, marges comprises : elles ne se chevauchent jamais. */
 .hud-left {
   left: max(16px, env(safe-area-inset-left, 0px));
   align-items: flex-start;
-  max-width: min(18rem, 58%);
+  max-width: min(18rem, calc(58% - 1.5rem));
 }
 
 .hud-right {
   right: max(16px, env(safe-area-inset-right, 0px));
   align-items: flex-end;
-  max-width: min(15rem, 42%);
+  max-width: min(15rem, calc(42% - 1.5rem));
 }
 
 .activities,
@@ -850,6 +895,12 @@ onBeforeUnmount(() => {
 
 .hud-chip.alert {
   border-color: var(--ember);
+}
+
+/* Un raid : l'alerte se voit de loin. */
+.hud-chip.raid-alert {
+  color: var(--ember);
+  border-width: 2px;
 }
 
 .hud-toasts {

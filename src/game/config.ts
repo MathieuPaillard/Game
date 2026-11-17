@@ -1250,7 +1250,7 @@ export const QUESTS: QuestDef[] = [
   {
     id: 'raid',
     name: 'La cité tient bon',
-    description: 'Repousse un raid de monstres aux portes de la cité.',
+    description: 'Repousse un raid de monstres : aux portes de la cité, ou en l’arrêtant en chemin.',
     goal: { kind: 'raids', count: 1 },
     reward: { food: 600, stone: 600, gold: 300 },
   },

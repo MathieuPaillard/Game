@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { RESOURCES, RESOURCE_IDS, STARVATION_ATTACK_MALUS, type MonsterId, type Resources } from '../game/config'
-import { getHeroDef, getMonster, type GameState, type HeroGain } from '../game/rules'
-import { OUTCOME_NAMES, describeBattle, foeName } from './battleLog'
+import { armySize, getHeroDef, getMonster, type BattleReport, type GameState, type HeroGain } from '../game/rules'
+import { describeBattle, foeName, reportTitle } from './battleLog'
 import { formatAgo, formatAmount, formatArmy, formatDuration } from './format'
 
 // Les derniers rapports de bataille, du plus récent au plus ancien, avec le journal de chaque combat.
+// Un siège se raconte du point de vue de la cité : ses défenseurs, ses gardes, ses blessés soignés.
 const props = defineProps<{ state: GameState; now: number }>()
 
 const malusPercent = Math.round(STARVATION_ATTACK_MALUS * 100)
@@ -26,6 +27,13 @@ function heroText(gain: HeroGain): string {
   return `${hero.icon} ${hero.name} gagne ${formatAmount(gain.xp)} XP${levelUp}`
 }
 
+/** Qui défendait la cité : « 🛡️ Guerriers 30 + 🧱 16 gardes des Remparts ». */
+function defendersText(report: BattleReport): string {
+  const troops = formatArmy(report.sent)
+  const guards = report.siege?.guards ? `🧱 ${report.siege.guards} gardes des Remparts` : ''
+  return [troops, guards].filter(Boolean).join(' + ') || 'personne'
+}
+
 function lootText(loot: Partial<Resources>): string {
   return RESOURCE_IDS.filter((id) => loot[id])
     .map((id) => `${RESOURCES[id].icon} ${formatAmount(loot[id] ?? 0)}`)
@@ -38,21 +46,51 @@ function lootText(loot: Partial<Resources>): string {
     <h2 id="reports-title" class="section-title">Rapports de bataille</h2>
     <p v-if="state.reports.length === 0" class="muted">Aucune bataille pour l’instant.</p>
     <ol v-else class="reports">
-      <li v-for="(report, index) in state.reports" :key="`${report.at}-${report.army}-${index}`" class="report">
+      <li
+        v-for="(report, index) in state.reports"
+        :key="`${report.at}-${report.army ?? 'cite'}-${index}`"
+        class="report"
+        :class="{ siege: report.siege }"
+      >
         <p>
-          <strong :class="report.outcome === 'victory' ? 'won' : 'lost'">{{ OUTCOME_NAMES[report.outcome] }}</strong>
+          <strong :class="report.outcome === 'victory' ? 'won' : 'lost'">{{ reportTitle(report) }}</strong>
           · {{ foeName(report.foe) }}
           <template v-if="report.ambush">· <strong class="lost">embuscade</strong></template>
           <span class="muted">· {{ formatAgo(now - report.at) }}</span>
         </p>
-        <p class="muted">
+        <p v-if="report.siege && report.rounds.length === 0" class="muted">
+          Personne ne défendait la cité : ni troupes, ni gardes sur les Remparts.
+        </p>
+        <p v-else class="muted">
+          <template v-if="report.siege">Aux portes de la cité : </template>
           {{ report.rounds.length }} manche{{ report.rounds.length > 1 ? 's' : '' }}, en
           {{ formatDuration(report.at - report.startedAt) }}.
         </p>
-        <p>Envoyés : {{ formatArmy(report.sent) }}</p>
-        <p>Pertes : {{ formatArmy(report.lost) || 'aucune' }}</p>
+        <template v-if="report.siege">
+          <p>Défenseurs : {{ defendersText(report) }}</p>
+          <p>
+            Pertes : {{ formatArmy(report.lost) || 'aucune' }}
+            <template v-if="armySize(report.siege.healed)">
+              <span class="muted">· soignés ensuite : {{ formatArmy(report.siege.healed) }}</span>
+            </template>
+          </p>
+          <p v-if="report.siege.guardsLost">
+            Gardes tombés : {{ report.siege.guardsLost }}
+            <span class="muted">· d’autres les remplacent pour le prochain siège</span>
+          </p>
+        </template>
+        <template v-else>
+          <p>Envoyés : {{ formatArmy(report.sent) }}</p>
+          <p>Pertes : {{ formatArmy(report.lost) || 'aucune' }}</p>
+        </template>
         <p>Monstres vaincus : {{ monstersText(report.enemyLost) || 'aucun' }}</p>
-        <p v-if="report.outcome === 'victory'">Butin : {{ lootText(report.loot) }}</p>
+        <p v-if="report.outcome === 'victory'">
+          Butin : {{ lootText(report.loot) }}
+          <span v-if="report.siege" class="muted">· déjà dans tes réserves</span>
+        </p>
+        <p v-if="report.siege && lootText(report.siege.plunder)" class="lost">
+          Pillé : {{ lootText(report.siege.plunder) }}
+        </p>
         <p v-if="report.hero" :class="{ won: report.hero.levelsGained > 0 }">{{ heroText(report.hero) }}</p>
         <p v-if="report.starving" class="lost">Tes troupes avaient faim : {{ malusPercent }} % d’attaque en moins.</p>
         <details v-if="report.rounds.length" class="journal">
@@ -99,6 +137,11 @@ function lootText(loot: Partial<Resources>): string {
   border: 1px solid var(--seam);
   border-radius: var(--radius);
   font-variant-numeric: tabular-nums;
+}
+
+/* Un siège : la bataille s'est jouée aux portes de la cité. */
+.report.siege {
+  border-left: 4px solid var(--map-wall);
 }
 
 .journal {

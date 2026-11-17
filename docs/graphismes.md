@@ -43,6 +43,9 @@ Pour chaque image : le nom du fichier à utiliser, puis ce qu'il faut écrire ap
 | `batiment-mine-or.png` | Bâtiment : l'entrée d'une mine creusée dans la roche, étayée de poutres, avec un wagonnet rempli d'or. |
 | `batiment-puits-mana.png` | Bâtiment : un puits de pierre ancien d'où s'élève une lumière violette, entouré de runes gravées. |
 | `batiment-caserne.png` | Bâtiment : une caserne en pierre et en bois, avec un râtelier d'armes et un mannequin d'entraînement. |
+| `batiment-academie.png` | Bâtiment : une bibliothèque de pierre à coupole, avec des parchemins et une longue-vue sur le balcon. |
+| `batiment-tour-mages.png` | Bâtiment : une haute tour de pierre bleu nuit, au sommet pointu entouré d'un halo violet et d'étincelles. |
+| `batiment-remparts.png` | Bâtiment : une porte fortifiée en pierre grise, entre deux tours crénelées, avec une herse de bois et de fer à demi levée. |
 
 ### Races
 
@@ -86,6 +89,7 @@ Pour chaque image : le nom du fichier à utiliser, puis ce qu'il faut écrire ap
 | `gisement-mine-or.png` | Élément de carte, vu de trois quarts : une colline rocheuse percée d'une galerie étayée, avec des pépites d'or qui brillent dans la roche. |
 | `gisement-source-mana.png` | Élément de carte, vu de trois quarts : une source violette et lumineuse qui jaillit entre des pierres levées couvertes de runes. |
 | `carte-armee.png` | Élément de carte : un étendard bleu nuit et or, planté au milieu d'un petit groupe de soldats vus de loin. |
+| `carte-raid.png` | Élément de carte : un étendard rouge déchiré, au milieu d'une horde de monstres en marche, torches allumées, vue de loin. |
 
 Les monstres et leurs camps viendront ensuite.
 

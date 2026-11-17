@@ -46,8 +46,15 @@ function clamp() {
   view.y = height <= box.height ? (box.height - height) / 2 : Math.min(0, Math.max(box.height - height, view.y))
 }
 
+// Un point demandé avant que la carte ait une taille : on le montrera dès qu'elle sera cadrée.
+let pending: Point | null = null
+
 /** Montre un point du monde au milieu de la carte. */
 function centerOn(point: Point) {
+  if (!framed) {
+    pending = point
+    return
+  }
   measure()
   view.x = box.width / 2 - point.x * view.scale
   view.y = box.height / 2 - point.y * view.scale
@@ -182,9 +189,12 @@ onMounted(() => {
   observer = new ResizeObserver(() => {
     measure()
     if (box.width <= 1 || box.height <= 1) return
-    if (framed) clamp()
-    else recenter()
+    if (framed) return clamp()
     framed = true
+    recenter()
+    // Ce qu'on avait choisi avant que la carte s'affiche (une alerte touchée depuis l'autre carte…).
+    if (pending) centerOn(pending)
+    pending = null
   })
   observer.observe(el)
 })

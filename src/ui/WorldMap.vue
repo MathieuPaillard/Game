@@ -1,31 +1,35 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { CAMPS, NODE_KINDS, WORLD } from '../game/config'
 import {
   aggroRadius,
   armySize,
   bandPosition,
   bandsNearPath,
+  distance,
   getArmy,
   getBand,
   getBandKind,
   getHeroDef,
   nodeGatherer,
   patrolLoop,
+  raidArrival,
   sameTarget,
+  siegeOf,
   targetPosition,
+  type Band,
   type GameState,
   type Target,
 } from '../game/rules'
 import MapViewport from './MapViewport.vue'
-import { formatShort } from './format'
+import { formatClock, formatDuration, formatShort } from './format'
 import { WORLD_DECOR, WORLD_MAP, mountainLight, mountainPoints, type Point } from './maps'
 import { STATUS_ICONS, monstersIcon, type Selection } from './world'
 
 // Les alentours de la cité : les camps, les gisements, les bandes qui patrouillent (avec leur zone
-// d'aggro), tes armées et leurs batailles. Toucher un repère le choisit ; toucher le fond de la carte
-// donne un endroit. On peut aussi tirer une armée du doigt jusqu'à un endroit ou une cible : en
-// relâchant, elle reçoit cet ordre.
+// d'aggro), les raids qui marchent sur la cité, tes armées et leurs batailles. Toucher un repère le
+// choisit ; toucher le fond de la carte donne un endroit. On peut aussi tirer une armée du doigt
+// jusqu'à un endroit ou une cible : en relâchant, elle reçoit cet ordre.
 const props = defineProps<{ state: GameState; now: number; selection: Selection | null; cityName: string }>()
 const emit = defineEmits<{
   select: [selection: Selection]
@@ -38,19 +42,33 @@ const city = WORLD.city
 const CITY_TARGET: Target = { type: 'city' }
 const viewport = ref<InstanceType<typeof MapViewport> | null>(null)
 
-// Ce qu'on vient de choisir vient au milieu de la carte (une fois le panneau ouvert à côté).
-watch(
-  () => props.selection,
-  (selection) => {
-    if (!selection) return
-    const point =
-      selection.kind === 'army'
-        ? getArmy(props.state, selection.id)?.position
-        : targetPosition(props.state, selection.target, props.now)
-    if (point) viewport.value?.centerOn(point)
-  },
-  { flush: 'post' },
-)
+/** Un raid tout près de la cité (ou qui l'assiège) se dessine à cette distance, pour ne pas la cacher. */
+const GATE_DISTANCE = 130
+
+/** Où dessiner une bande : là où elle est ; un raid aux portes, devant la cité, du côté d'où il vient. */
+function drawnPosition(band: Band, at: number): Point {
+  const position = bandPosition(band, at)
+  if (!band.raid || distance(position, city) >= GATE_DISTANCE) return position
+  const length = distance(band.home, city)
+  if (length === 0) return position
+  return {
+    x: city.x + ((band.home.x - city.x) / length) * GATE_DISTANCE,
+    y: city.y + ((band.home.y - city.y) / length) * GATE_DISTANCE,
+  }
+}
+
+// Ce qu'on vient de choisir vient au milieu de la carte (une fois le panneau ouvert à côté), y compris
+// quand la carte s'affiche pour la première fois avec un choix déjà fait.
+function focus(selection: Selection | null) {
+  if (!selection) return
+  const point =
+    selection.kind === 'army'
+      ? getArmy(props.state, selection.id)?.position
+      : targetPosition(props.state, selection.target, props.now)
+  if (point) viewport.value?.centerOn(point)
+}
+watch(() => props.selection, focus, { flush: 'post' })
+onMounted(() => focus(props.selection))
 
 const selectedArmy = computed(() =>
   props.selection?.kind === 'army' ? getArmy(props.state, props.selection.id) : undefined,
@@ -185,26 +203,46 @@ const nodes = computed(() =>
   }),
 )
 
-const bands = computed(() =>
-  props.state.bands.map((band) => {
+const bands = computed(() => {
+  const siege = siegeOf(props.state)
+  const besieging = siege?.band
+  return props.state.bands.map((band) => {
     const target: Target = { type: 'band', band: band.id }
+    const name = getBandKind(band.kind).name
+    const arrival = raidArrival(band)
+    const left = arrival === null ? null : Math.max(0, arrival - props.now)
+    // Un raid : son état en quelques mots, sous son nom.
+    const raidState =
+      siege && besieging === band.id
+        ? `Siège · manche ${siege.rounds.length + 1}`
+        : left === null
+          ? 'au combat'
+          : `arrive dans ${formatClock(left)}`
     return {
       key: `band-${band.id}`,
       target,
-      ...bandPosition(band, props.now),
-      loop: patrolLoop(band.home)
-        .map((p) => `${p.x},${p.y}`)
-        .join(' '),
+      ...drawnPosition(band, props.now),
+      raid: band.raid,
+      loop: band.raid
+        ? ''
+        : patrolLoop(band.home)
+            .map((p) => `${p.x},${p.y}`)
+            .join(' '),
       radius: aggroRadius(band.level),
-      name: getBandKind(band.kind).name,
+      name: band.raid ? `Raid : ${name}` : name,
+      sublabel: band.raid ? raidState : null,
+      label: band.raid
+        ? `Raid : ${name}, niveau ${band.level}, ${besieging === band.id ? 'assiège la cité' : left === null ? 'au combat' : `arrive à la cité dans ${formatDuration(left)}`}`
+        : `${name}, bande de niveau ${band.level}${band.since === null ? ', au combat' : ', en patrouille'}`,
       level: band.level,
       icon: monstersIcon(band.monsters),
-      fighting: band.since === null,
       danger: dangers.value.has(band.id),
       selected: isSelectedTarget(target) || isOrdered(target),
     }
-  }),
-)
+  })
+})
+const patrols = computed(() => bands.value.filter((band) => !band.raid))
+const raids = computed(() => bands.value.filter((band) => band.raid))
 
 const armies = computed(() =>
   props.state.armies.map((army) => ({
@@ -218,21 +256,24 @@ const armies = computed(() =>
   })),
 )
 
-// Les batailles en cours : une ligne entre l'armée et la bande, et le numéro de la manche.
+// Les batailles en cours : une ligne entre l'armée et la bande, et le numéro de la manche. Pendant
+// un siège, seulement la ligne entre la cité et le raid : le raid dit lui-même où en est le siège.
 const battles = computed(() =>
   props.state.battles.flatMap((battle) => {
     const army = battle.army === null ? undefined : getArmy(props.state, battle.army)
-    if (!army) return []
+    const from = battle.siege ? city : army?.position
+    if (!from) return []
     const band = battle.band === null ? undefined : getBand(props.state, battle.band)
-    const foe = band ? bandPosition(band, props.now) : army.position
+    const foe = band ? drawnPosition(band, props.now) : from
     return [
       {
         key: battle.id,
-        from: army.position,
+        from,
         to: foe,
-        x: (army.position.x + foe.x) / 2,
-        y: (army.position.y + foe.y) / 2,
-        round: battle.rounds.length,
+        x: (from.x + foe.x) / 2,
+        y: (from.y + foe.y) / 2,
+        siege: battle.siege !== null,
+        label: `Manche ${battle.rounds.length + 1}`,
       },
     ]
   }),
@@ -266,8 +307,17 @@ const battles = computed(() =>
       :y2="camp.position.y"
       class="trail"
     />
-    <!-- Les rondes des bandes -->
-    <polygon v-for="band in bands" :key="`loop-${band.key}`" :points="band.loop" class="patrol" />
+    <!-- Les rondes des bandes, et le chemin des raids jusqu'à la cité -->
+    <polygon v-for="band in patrols" :key="`loop-${band.key}`" :points="band.loop" class="patrol" />
+    <line
+      v-for="raid in raids"
+      :key="`path-${raid.key}`"
+      :x1="raid.x"
+      :y1="raid.y"
+      :x2="city.x"
+      :y2="city.y"
+      class="raid-path"
+    />
     <g v-for="(mountain, i) in WORLD_DECOR.mountains" :key="`mountain-${i}`">
       <polygon :points="mountainPoints(mountain)" class="rock" />
       <polygon :points="mountainLight(mountain)" class="rock-light" />
@@ -369,16 +419,16 @@ const battles = computed(() =>
       <text class="map-sublabel" y="98">Niveau {{ camp.level }}</text>
     </g>
 
-    <!-- Les bandes, en patrouille, avec leur zone d'aggro -->
+    <!-- Les bandes, en patrouille, et les raids, avec leur zone d'aggro -->
     <g
       v-for="band in bands"
       :key="band.key"
       class="mover spot band"
-      :class="{ selected: band.selected }"
+      :class="{ selected: band.selected, raid: band.raid }"
       :style="{ transform: `translate(${band.x}px, ${band.y}px)` }"
       role="button"
       tabindex="0"
-      :aria-label="`${band.name}, bande de niveau ${band.level}${band.fighting ? ', au combat' : ', en patrouille'}`"
+      :aria-label="band.label"
       :aria-pressed="band.selected"
       :data-target="JSON.stringify(band.target)"
       @click.stop="select({ kind: 'target', target: band.target })"
@@ -394,6 +444,7 @@ const battles = computed(() =>
         <text class="badge-text">{{ band.level }}</text>
       </g>
       <text class="map-label" y="50">{{ band.name }}</text>
+      <text v-if="band.sublabel" class="map-sublabel raid-state" y="72">{{ band.sublabel }}</text>
     </g>
 
     <!-- Tes armées : on les touche pour les choisir, ou on les tire jusqu'à leur destination -->
@@ -426,10 +477,10 @@ const battles = computed(() =>
     <!-- Les batailles en cours -->
     <g v-for="battle in battles" :key="`battle-${battle.key}`" class="battle" aria-hidden="true">
       <line :x1="battle.from.x" :y1="battle.from.y" :x2="battle.to.x" :y2="battle.to.y" class="clash" />
-      <g :transform="`translate(${battle.x} ${battle.y})`">
+      <g v-if="!battle.siege" :transform="`translate(${battle.x} ${battle.y})`">
         <circle r="24" class="clash-mark" />
         <text class="emoji" font-size="26">⚔️</text>
-        <text class="map-label" y="40">Manche {{ battle.round + 1 }}</text>
+        <text class="map-label" y="40">{{ battle.label }}</text>
       </g>
     </g>
   </MapViewport>
@@ -469,6 +520,27 @@ const battles = computed(() =>
   stroke-width: 2;
   stroke-dasharray: 4 10;
   opacity: 0.45;
+}
+
+/* Le chemin d'un raid jusqu'à la cité : une ligne rouge, qu'on voit de loin. */
+.raid-path {
+  stroke: var(--ember);
+  stroke-width: 5;
+  stroke-linecap: round;
+  stroke-dasharray: 16 12;
+  opacity: 0.75;
+  pointer-events: none;
+}
+
+/* Un raid : son socle et son niveau sont rouges. */
+.band.raid .band-base {
+  fill: var(--map-aggro-badge);
+  stroke: var(--ember);
+  stroke-width: 3;
+}
+
+.raid-state {
+  fill: var(--ember);
 }
 
 /* La zone d'aggro : un cercle rouge, plus marqué si le chemin choisi passe tout près. On touche la

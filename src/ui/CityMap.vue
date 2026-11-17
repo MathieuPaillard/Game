@@ -1,29 +1,39 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { BUILDINGS } from '../game/config'
-import { armySize, checkUpgrade, constructionOf, skillPoints, type GameState } from '../game/rules'
+import { armySize, battleSurvivors, checkUpgrade, constructionOf, siegeOf, skillPoints, type GameState } from '../game/rules'
 import MapViewport from './MapViewport.vue'
 import { formatShort } from './format'
-import { CITY_DECOR, CITY_MAP, CITY_PLOTS, CITY_SPOTS, CITY_WALL, mountainLight, mountainPoints } from './maps'
+import {
+  CITY_DECOR,
+  CITY_MAP,
+  CITY_PLOTS,
+  CITY_SIEGE,
+  CITY_SPOTS,
+  CITY_WALL,
+  mountainLight,
+  mountainPoints,
+} from './maps'
 import type { CitySelection } from './screen'
+import { monstersIcon } from './world'
 
 // La cité vue d'en haut : chaque bâtiment sur son emplacement, la garnison et les héros. Toucher
-// l'un d'eux le choisit ; toucher le fond de la carte ne choisit rien.
+// l'un d'eux le choisit ; toucher le fond de la carte ne choisit rien. L'enceinte montre le niveau
+// des Remparts ; pendant un siège, les monstres se pressent devant la porte sud.
 const props = defineProps<{ state: GameState; now: number; selection: CitySelection | null }>()
 const emit = defineEmits<{ select: [selection: CitySelection]; tap: [] }>()
 
 const viewport = ref<InstanceType<typeof MapViewport> | null>(null)
 const selectedBuilding = computed(() => (props.selection?.kind === 'building' ? props.selection.id : null))
 
-// Ce qu'on vient de choisir vient au milieu de la carte (une fois le panneau ouvert à côté).
-watch(
-  () => props.selection,
-  (selection) => {
-    if (!selection) return
-    viewport.value?.centerOn(selection.kind === 'building' ? CITY_PLOTS[selection.id] : CITY_SPOTS[selection.kind])
-  },
-  { flush: 'post' },
-)
+// Ce qu'on vient de choisir vient au milieu de la carte (une fois le panneau ouvert à côté), y compris
+// quand la carte s'affiche pour la première fois avec un choix déjà fait.
+function focus(selection: CitySelection | null) {
+  if (!selection) return
+  viewport.value?.centerOn(selection.kind === 'building' ? CITY_PLOTS[selection.id] : CITY_SPOTS[selection.kind])
+}
+watch(() => props.selection, focus, { flush: 'post' })
+onMounted(() => focus(props.selection))
 
 // Les bâtiments du bas de la carte sont dessinés en dernier, pour passer devant ceux du haut.
 const plots = computed(() =>
@@ -59,6 +69,20 @@ const heroes = computed(() => ({
   // Un point de compétence attend d'être placé.
   ready: props.state.heroes.some((hero) => skillPoints(hero) > 0),
 }))
+
+// L'enceinte : une palissade tant que les Remparts ne sont pas construits, puis un mur de pierre,
+// plus épais à chaque niveau.
+const walls = computed(() => {
+  const level = props.state.levels.walls
+  return { level, width: level > 0 ? 12 + 2 * level : 8 }
+})
+
+// Le siège en cours : où en est la bataille, et qui attaque.
+const siege = computed(() => {
+  const battle = siegeOf(props.state)
+  if (!battle) return null
+  return { round: battle.rounds.length + 1, icon: monstersIcon(battleSurvivors(battle).monsters) }
+})
 
 /** La largeur d'une étiquette de nombre, selon le nombre de chiffres. */
 function pill(text: string | number): number {
@@ -106,7 +130,33 @@ function describe(plot: (typeof plots.value)[number]): string {
       rx="6"
       fill="url(#city-field)"
     />
-    <ellipse :cx="CITY_WALL.cx" :cy="CITY_WALL.cy" :rx="CITY_WALL.rx" :ry="CITY_WALL.ry" class="wall" />
+    <ellipse
+      v-if="siege"
+      :cx="CITY_WALL.cx"
+      :cy="CITY_WALL.cy"
+      :rx="CITY_WALL.rx"
+      :ry="CITY_WALL.ry"
+      class="wall-alarm"
+      :style="{ strokeWidth: walls.width + 18 }"
+    />
+    <ellipse
+      :cx="CITY_WALL.cx"
+      :cy="CITY_WALL.cy"
+      :rx="CITY_WALL.rx"
+      :ry="CITY_WALL.ry"
+      class="wall"
+      :class="{ built: walls.level > 0 }"
+      :style="{ strokeWidth: walls.width }"
+    />
+    <ellipse
+      v-if="walls.level > 0"
+      :cx="CITY_WALL.cx"
+      :cy="CITY_WALL.cy"
+      :rx="CITY_WALL.rx"
+      :ry="CITY_WALL.ry"
+      class="merlons"
+      :style="{ strokeWidth: walls.width / 2 }"
+    />
     <line
       v-for="road in roads"
       :key="`road-${road.id}`"
@@ -211,15 +261,65 @@ function describe(plot: (typeof plots.value)[number]): string {
       </g>
       <text class="map-label" y="56">Héros</text>
     </g>
+
+    <!-- Le siège : les monstres devant la porte sud. Le toucher ouvre la défense de la cité. -->
+    <g
+      v-if="siege"
+      class="spot siege"
+      :transform="`translate(${CITY_SIEGE.x} ${CITY_SIEGE.y})`"
+      role="button"
+      tabindex="0"
+      :aria-label="`La cité est assiégée : manche ${siege.round}. Voir la défense de la cité.`"
+      @click.stop="emit('select', { kind: 'building', id: 'walls' })"
+      @keydown.enter.prevent="emit('select', { kind: 'building', id: 'walls' })"
+      @keydown.space.prevent="emit('select', { kind: 'building', id: 'walls' })"
+    >
+      <ellipse class="spot-base siege-base" rx="70" ry="24" cy="26" />
+      <ellipse class="spot-ring" rx="82" ry="31" cy="26" />
+      <text class="emoji" font-size="54" x="-28">{{ siege.icon }}</text>
+      <text class="emoji" font-size="40" x="34" y="-6">⚔️</text>
+      <text class="map-label siege-label" y="66">Siège · manche {{ siege.round }}</text>
+    </g>
   </MapViewport>
 </template>
 
 <style scoped>
+/* L'enceinte : une palissade en pointillés, puis un mur plein quand les Remparts sont construits. */
 .wall {
   fill: none;
   stroke: var(--map-wall);
-  stroke-width: 10;
   stroke-dasharray: 26 10;
+}
+
+.wall.built {
+  stroke: var(--map-rock);
+  stroke-dasharray: none;
+}
+
+/* Pendant un siège, une lueur rouge entoure le mur. */
+.wall-alarm {
+  fill: none;
+  stroke: var(--ember);
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+/* Les créneaux, par-dessus le mur. */
+.merlons {
+  fill: none;
+  stroke: var(--map-rock-light);
+  stroke-dasharray: 10 8;
+  pointer-events: none;
+}
+
+.siege-base {
+  fill: var(--map-aggro-badge);
+  stroke: var(--ember);
+  stroke-width: 3;
+}
+
+.siege-label {
+  fill: var(--ember);
 }
 
 .road {

@@ -2,8 +2,17 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { RESOURCE_IDS, type BuildingId } from '../src/game/config.ts'
-import { emptyArmy, emptyResources, getBuilding, newGame, upgradeDuration, type GameState } from '../src/game/rules.ts'
+import { RAID_GATES, RAID_SPEED, RESOURCE_IDS, WORLD, type BuildingId } from '../src/game/config.ts'
+import {
+  distance,
+  emptyArmy,
+  emptyResources,
+  getBuilding,
+  newGame,
+  upgradeDuration,
+  type Band,
+  type GameState,
+} from '../src/game/rules.ts'
 import { createApp, LOGIN_LOCK_MS, LOGIN_MAX_FAILURES, SESSION_IDLE_MS } from './app.ts'
 import { nameKey } from './auth.ts'
 import { openStore } from './db.ts'
@@ -250,6 +259,39 @@ describe('la partie', () => {
     expect(sent.data.game.armies[0].hero).toBe('ysolde')
     // Le même héros ne peut pas mener deux armées.
     expect((await act(march)).data).toMatchObject({ ok: false, reason: 'Ysolde de Valcourt mène déjà une armée' })
+  })
+
+  it('fait assiéger la cité par un raid, même sans personne, et garde les troupes aux remparts', async () => {
+    const server = testServer()
+    const token = await server.register()
+    // Un raid à une seconde des portes, assez fort pour que le siège dure un moment.
+    const home = RAID_GATES[0]
+    const raid: Band = {
+      id: 900,
+      kind: 'trolls',
+      level: 2,
+      home,
+      monsters: { troll: 72 },
+      phase: distance(home, WORLD.city) - RAID_SPEED,
+      since: T0,
+      direction: 1,
+      raid: true,
+    }
+    const game = richGame({ castle: 4, walls: 2 })
+    server.giveGame('Arthur', { ...game, bands: [raid], nextBandAt: null, troops: { ...emptyArmy(), warrior: 400 } })
+    const march = { type: 'march', target: { type: 'camp', camp: 'wolfDen' }, troops: { warrior: 10 } }
+
+    server.wait(5000)
+    const besieged = await server.call('POST', '/api/game/actions', { token, body: march })
+    expect(besieged.data).toMatchObject({ ok: false, reason: 'La cité est assiégée : tes troupes défendent les remparts' })
+    expect(besieged.data.game.battles[0]).toMatchObject({ army: null, band: 900, siege: { guards: 16 } })
+
+    // Le siège se termine sur le serveur, et les troupes peuvent de nouveau sortir.
+    server.wait(10 * 60 * 1000)
+    const after = await server.call('POST', '/api/game/actions', { token, body: march })
+    expect(after.data.ok).toBe(true)
+    expect(after.data.game.reports[0]).toMatchObject({ army: null, outcome: 'victory', siege: { guards: 16 } })
+    expect(after.data.game.stats.raidsRepelled).toBe(1)
   })
 
   it('refuse les ordres mal formés', async () => {

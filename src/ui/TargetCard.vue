@@ -30,6 +30,10 @@ import {
   getUnit,
   heroArmy,
   marchDuration,
+  raidArrival,
+  raidLoot,
+  raidMonsters,
+  siegeOf,
   targetPosition,
   timeUntilFamine,
   type GameState,
@@ -38,11 +42,12 @@ import {
 } from '../game/rules'
 import CountPicker from './CountPicker.vue'
 import { formatAmount, formatDuration } from './format'
-import { STATUS_ICONS, armyStatusText } from './world'
+import { STATUS_ICONS, armyStatusText, bandName } from './world'
 
-// La fiche d'une cible : un camp, une bande de monstres ou un gisement. On y compose une nouvelle
-// armée, qui part aussitôt de la cité, ou on y envoie d'un geste une armée déjà dehors.
-const props = defineProps<{ target: Target; state: GameState }>()
+// La fiche d'une cible : un camp, une bande de monstres (ou un raid en marche vers la cité) ou un
+// gisement. On y compose une nouvelle armée, qui part aussitôt de la cité, ou on y envoie d'un geste
+// une armée déjà dehors.
+const props = defineProps<{ target: Target; state: GameState; now: number }>()
 const emit = defineEmits<{ march: [troops: Army, hero: HeroId | null]; order: [army: number] }>()
 
 function total(monsters: Monsters): number {
@@ -66,14 +71,18 @@ const info = computed(() => {
   if (target.type === 'band') {
     const band = getBand(props.state, target.band)
     if (!band) return null
+    const full = band.raid ? raidMonsters(band.kind, band.level) : bandMonsters(band.kind, band.level)
     return {
       key: `band-${band.id}`,
       kind: 'band' as const,
-      name: getBandKind(band.kind).name,
+      name: band.raid ? `Raid : ${getBandKind(band.kind).name}` : getBandKind(band.kind).name,
       level: band.level,
       monsters: band.monsters,
-      loot: bandLoot(band.kind, band.level),
-      weakened: total(band.monsters) < total(bandMonsters(band.kind, band.level)),
+      loot: band.raid ? raidLoot(band.kind, band.level) : bandLoot(band.kind, band.level),
+      weakened: total(band.monsters) < total(full),
+      raid: band.raid,
+      arrival: raidArrival(band),
+      besieging: siegeOf(props.state)?.band === band.id,
     }
   }
   if (target.type === 'node') {
@@ -125,13 +134,9 @@ const loot = computed(() =>
     amount: info.value?.loot[id] ?? 0,
   })),
 )
-// Les bandes qui patrouillent près du chemin depuis la cité.
+// Les bandes (et les raids) près du chemin depuis la cité.
 const dangers = computed(() =>
-  position.value
-    ? bandsNearPath(props.state, WORLD.city, position.value, props.target).map(
-        (band) => `${getBandKind(band.kind).name} (niv. ${band.level})`,
-      )
-    : [],
+  position.value ? bandsNearPath(props.state, WORLD.city, position.value, props.target).map(bandName) : [],
 )
 
 const available = computed(() => UNIT_IDS.filter((id) => props.state.troops[id] > 0))
@@ -200,7 +205,22 @@ const fieldArmies = computed(() =>
       </p>
     </template>
     <template v-else>
-      <p v-if="info.kind === 'band'" class="muted">
+      <template v-if="info.kind === 'band' && info.raid">
+        <p v-if="info.besieging" class="warning" role="status">
+          Ce raid assiège ta cité : tes troupes et les gardes des Remparts se battent aux portes.
+        </p>
+        <p v-else-if="info.arrival !== null" class="warning" role="status">
+          Ce raid marche sur ta cité : il l’atteindra dans <strong>{{ formatDuration(info.arrival - now) }}</strong>.
+        </p>
+        <p v-else class="warning" role="status">Ce raid se bat en chemin contre une de tes armées.</p>
+        <p class="muted">
+          Arrête-le en chemin avec une armée, ou laisse tes troupes et les gardes des Remparts le repousser aux
+          portes. En chemin, il attaque toute armée qui entre dans sa zone d’aggro.<template v-if="info.weakened">
+            Une bataille l’a affaibli : il n’est plus au complet.</template
+          >
+        </p>
+      </template>
+      <p v-else-if="info.kind === 'band'" class="muted">
         Une bande de monstres : elle patrouille autour de son repaire et attaque toute armée qui entre dans sa zone
         d’aggro, le cercle rouge sur la carte.<template v-if="info.weakened">
           Une bataille l’a affaiblie : elle n’est plus au complet.</template
@@ -222,8 +242,8 @@ const fieldArmies = computed(() =>
     </template>
 
     <p v-if="dangers.length" class="warning">
-      Attention : sur le chemin depuis la cité, des bandes patrouillent ({{ dangers.join(', ') }}). Elles
-      attaqueront ton armée si elle entre dans leur zone d’aggro.
+      Attention : des monstres rôdent sur le chemin depuis la cité ({{ dangers.join(', ') }}). Ils attaqueront
+      ton armée si elle entre dans leur zone d’aggro.
     </p>
 
     <section v-if="fieldArmies.length" class="field-armies" aria-labelledby="field-title">
@@ -281,7 +301,7 @@ const fieldArmies = computed(() =>
       </p>
       <p v-if="!check.ok" class="reason">{{ check.reason }}</p>
       <button class="btn" type="submit" :disabled="!check.ok">
-        {{ info.kind === 'node' ? 'Récolter' : 'Attaquer' }}
+        {{ info.kind === 'node' ? 'Récolter' : info.kind === 'band' && info.raid ? 'Intercepter' : 'Attaquer' }}
       </button>
     </form>
     <p v-else class="reason">{{ blocked }}</p>
