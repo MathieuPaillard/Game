@@ -860,7 +860,7 @@ export const WORLD_TICK_SECONDS = 1
 
 // --- Monstres et camps ---
 
-export type MonsterId = 'wolf' | 'goblin' | 'skeleton' | 'shaman' | 'troll'
+export type MonsterId = 'wolf' | 'goblin' | 'skeleton' | 'shaman' | 'troll' | 'boar' | 'wyvern'
 
 export interface MonsterDef {
   id: MonsterId
@@ -880,9 +880,13 @@ export const MONSTERS: MonsterDef[] = [
   { id: 'skeleton', name: 'Squelettes archers', icon: '💀', family: 'archer', attack: 11, health: 25, xp: 4 },
   { id: 'shaman', name: 'Chamans', icon: '🔥', family: 'mage', attack: 18, health: 20, xp: 6 },
   { id: 'troll', name: 'Trolls', icon: '👹', family: 'warrior', attack: 40, health: 400, xp: 30 },
+  // Les monstres de la fin de partie : des sangliers énormes, qui chargent comme des cavaliers, et
+  // les vouivres, des serpents ailés des vieilles légendes, dont le venin agit comme une magie.
+  { id: 'boar', name: 'Sangliers géants', icon: '🐗', family: 'rider', attack: 20, health: 110, xp: 10 },
+  { id: 'wyvern', name: 'Vouivres', icon: '🐍', family: 'mage', attack: 55, health: 260, xp: 40 },
 ]
 
-export type CampId = 'wolfDen' | 'goblinCamp' | 'hauntedRuins' | 'trollLair'
+export type CampId = 'wolfDen' | 'goblinCamp' | 'hauntedRuins' | 'trollLair' | 'wyvernNest'
 
 export interface CampDef {
   id: CampId
@@ -928,6 +932,15 @@ export const CAMPS: CampDef[] = [
     defenders: { troll: 2, goblin: 30, wolf: 15 },
     loot: { food: 1200, wood: 1200, stone: 900, gold: 450, mana: 200 },
   },
+  {
+    // Le plus redoutable des camps, de l'autre côté de la rivière : les vouivres y gardent leur nid.
+    id: 'wyvernNest',
+    name: 'Nid de la vouivre',
+    level: 5,
+    position: { x: 230, y: 160 },
+    defenders: { wyvern: 4, boar: 16, troll: 3 },
+    loot: { food: 1500, wood: 1500, stone: 1500, gold: 800, mana: 500 },
+  },
 ]
 
 // --- Les bandes de monstres ---
@@ -935,7 +948,7 @@ export const CAMPS: CampDef[] = [
 // de la cité, et patrouillent autour de leur repaire. Chacune a une zone autour d'elle (sa zone
 // d'aggro) : elle attaque toute armée qui y entre.
 
-export type BandKindId = 'wolves' | 'goblins' | 'skeletons' | 'trolls'
+export type BandKindId = 'wolves' | 'goblins' | 'skeletons' | 'trolls' | 'boars' | 'wyverns'
 
 export interface BandKindDef {
   id: BandKindId
@@ -973,6 +986,20 @@ export const BAND_KINDS: BandKindDef[] = [
     monsters: { troll: 1, goblin: 12 },
     loot: { food: 300, wood: 200, stone: 200, gold: 80, mana: 40 },
     minLevel: 4,
+  },
+  {
+    id: 'boars',
+    name: 'Harde de sangliers',
+    monsters: { boar: 4 },
+    loot: { food: 260, wood: 120 },
+    minLevel: 3,
+  },
+  {
+    id: 'wyverns',
+    name: 'Vol de vouivres',
+    monsters: { wyvern: 1, boar: 3 },
+    loot: { stone: 150, gold: 150, mana: 120 },
+    minLevel: 5,
   },
 ]
 
