@@ -606,8 +606,19 @@ export const COUNTER_BONUS = 1.5
 export const STARVATION_ATTACK_MALUS = 0.3
 /** Une manche de bataille se joue toutes les 2 secondes : une bataille dure un moment. */
 export const BATTLE_ROUND_SECONDS = 2
+/**
+ * À chaque manche, une troupe n'inflige que cette part de son attaque (0.15 = 15 %) : les coups
+ * se répartissent sur plusieurs manches. Les deux camps sont ralentis de la même façon, la bataille
+ * dure plus longtemps sans changer qui l'emporte.
+ */
+export const BATTLE_DAMAGE_SCALE = 0.15
+/**
+ * Une bataille dure au moins ce nombre de manches : en une manche, un camp ne perd jamais plus
+ * d'un dixième de sa vie du début. Même une armée écrasante met un moment à finir le combat.
+ */
+export const MIN_BATTLE_ROUNDS = 10
 /** Au-delà de ce nombre de manches, les deux camps se séparent sans vainqueur. */
-export const MAX_BATTLE_ROUNDS = 100
+export const MAX_BATTLE_ROUNDS = 150
 /** Troupes maximum par entraînement, pour chaque niveau de Caserne. */
 export const TRAINING_BATCH_PER_LEVEL = 20
 /** Chaque niveau de Caserne au-delà du premier réduit de 10 % la durée d'entraînement. */

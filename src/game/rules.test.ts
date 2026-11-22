@@ -11,6 +11,7 @@ import {
   MAX_BANDS,
   MAX_LEVEL,
   MAX_NODES,
+  MIN_BATTLE_ROUNDS,
   NODE_SPAWN_SECONDS,
   NODE_SPOTS,
   PATROL_RADIUS,
@@ -548,8 +549,9 @@ describe('entretien des troupes', () => {
   })
 
   it('une armée affamée se bat moins bien', () => {
+    // Un adversaire assez fort pour que l'attaque compte à chaque manche (voir MIN_BATTLE_ROUNDS).
     const attack = (game: GameState) => {
-      const start = startMarch(game, toCamp('goblinCamp'), army({ warrior: 60 }), T0)
+      const start = startMarch(game, toCamp('trollLair'), army({ warrior: 60 }), T0)
       return runUntil(start, (s) => s.reports.length > 0).reports[0]
     }
     const hungry = attack(withFood(0, { warrior: 2060 }))
@@ -650,6 +652,18 @@ describe('les armées dehors', () => {
 })
 
 describe('les batailles', () => {
+  it('même face à une armée écrasante, une bataille dure au moins MIN_BATTLE_ROUNDS manches', () => {
+    const start = startMarch(richGame({}, { warrior: 1000 }), toCamp('wolfDen'), army({ warrior: 1000 }), T0)
+    const report = runUntil(start, (s) => s.reports.length > 0).reports[0]
+    expect(report.outcome).toBe('victory')
+    expect(report.rounds.length).toBeGreaterThanOrEqual(MIN_BATTLE_ROUNDS)
+    // Les loups tombent peu à peu : jamais plus d'un dixième de la meute à chaque manche.
+    const wolves = getCamp('wolfDen').defenders.wolf ?? 0
+    for (const round of report.rounds) {
+      expect(round.enemyLost.wolf ?? 0).toBeLessThanOrEqual(Math.ceil(wolves / MIN_BATTLE_ROUNDS))
+    }
+  })
+
   it('une bataille dure un moment : une manche toutes les quelques secondes', () => {
     const den = getCamp('wolfDen')
     const start = startMarch(richGame({}, { warrior: 30 }), toCamp('wolfDen'), army({ warrior: 30 }), T0)
@@ -704,11 +718,11 @@ describe('les batailles', () => {
   it('on peut battre en retraite pendant la bataille', () => {
     const { game, id } = withBand(richGame({}, { warrior: 200 }), nearCity(350), { troll: 40 }, 3, 'trolls')
     const start = startMarch(game, toBand(id), army({ warrior: 200 }), T0)
-    const fighting = runUntil(start, (s) => s.battles[0]?.rounds.length === 1)
+    const fighting = runUntil(start, (s) => s.battles[0]?.rounds.length === 5)
     const fled = orderArmy(fighting, fighting.armies[0].id, CITY_TARGET, fighting.updatedAt)
     expect(fled.battles).toEqual([])
     expect(fled.reports[0]).toMatchObject({ outcome: 'retreat', loot: {} })
-    expect(fled.reports[0].rounds).toHaveLength(1)
+    expect(fled.reports[0].rounds).toHaveLength(5)
     // La bande garde ses pertes et reprend sa ronde…
     expect(total(fled.bands[0].monsters)).toBeLessThan(40)
     expect(fled.bands[0].since).toBe(fighting.updatedAt)
@@ -1254,8 +1268,10 @@ describe('les héros', () => {
     const troops = army({ warrior: 200 })
     const base = withHero(richGame({}, troops), 'ysolde')
     const strong = withHero(base, 'ysolde', { rally: 5, spears: 5, shieldWall: 5 })
+    // Une bande assez nombreuse pour que les coups de la première manche ne soient pas plafonnés.
     const firstRound = (game: GameState) => {
-      const start = startMarch(game, toCamp('trollLair'), troops, T0, 'ysolde')
+      const target = withBand(game, nearCity(300), { goblin: 2000 })
+      const start = startMarch(target.game, toBand(target.id), troops, T0, 'ysolde')
       const fighting = runUntil(start, (s) => (s.battles[0]?.rounds.length ?? 0) > 0)
       return fighting.battles[0]
     }
@@ -1395,8 +1411,10 @@ describe('les sorts', () => {
   it('les sorts de guerre renforcent toutes les armées', () => {
     const troops = army({ warrior: 200 })
     const game = richGame({ castle: 5, mageTower: 5 }, troops)
+    // Une bande assez nombreuse pour que les coups de la première manche ne soient pas plafonnés.
     const firstRound = (state: GameState) => {
-      const start = startMarch(state, toCamp('trollLair'), troops, T0)
+      const target = withBand(state, nearCity(300), { goblin: 2000 })
+      const start = startMarch(target.game, toBand(target.id), troops, T0)
       return runUntil(start, (s) => (s.battles[0]?.rounds.length ?? 0) > 0).battles[0]
     }
     const plain = firstRound(game)

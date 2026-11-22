@@ -2,7 +2,7 @@
 // Chaque fonction reçoit l'état de la partie (et l'heure) et renvoie un résultat sans rien modifier.
 // Le navigateur et le serveur utilisent exactement ces mêmes règles.
 
-import { counts, fightRound, total, type Stack } from './battle.ts'
+import { counts, fightRound, roundCap, total, type Stack } from './battle.ts'
 import {
   BAND_AGGRO_PER_LEVEL,
   BAND_AGGRO_RADIUS,
@@ -1372,6 +1372,18 @@ function battleStacks(state: GameState, battle: Battle): { attackers: Stack[]; d
   return { attackers, defenders, monsterIds }
 }
 
+/**
+ * Ce que chaque camp peut perdre au plus en une manche : une part de sa vie au début de la bataille
+ * (les troupes et les gardes d'un côté, les monstres de l'autre). La bataille dure ainsi un moment.
+ */
+function battleCaps(battle: Battle): { attackers: number; defenders: number } {
+  let army = battle.siege ? battle.siege.guards * WALL_GUARD.health : 0
+  for (const id of UNIT_IDS) army += battle.sent[id] * getUnit(id).health * battle.healthFactor
+  let foes = 0
+  for (const [id, count] of Object.entries(battle.enemies) as [MonsterId, number][]) foes += count * getMonster(id).health
+  return { attackers: roundCap(army), defenders: roundCap(foes) }
+}
+
 /** Les troupes, les monstres et (pendant un siège) les gardes des Remparts encore debout dans une bataille. */
 export function battleSurvivors(battle: Battle): { troops: Army; monsters: Monsters; guards: number } {
   const troops = emptyArmy()
@@ -1397,7 +1409,7 @@ function playRound(state: GameState, battleId: number, at: number): GameState {
   if (battle.siege) armyHealth.push(battle.siege.guardHealth)
   const foeHealth = monsterIds.map((id) => battle.foeHealth[id] ?? 0)
   const before = { attackers: counts(attackers, armyHealth), defenders: counts(defenders, foeHealth) }
-  const round = fightRound(attackers, defenders, armyHealth, foeHealth)
+  const round = fightRound(attackers, defenders, armyHealth, foeHealth, battleCaps(battle))
 
   const nextArmyHealth = emptyArmy()
   const lost = emptyArmy()

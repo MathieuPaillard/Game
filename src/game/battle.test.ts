@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { fight, type Stack } from './battle.ts'
-import { MAX_BATTLE_ROUNDS, UNITS, type Family } from './config.ts'
+import { fight, fightRound, roundCap, startingHealth, total, type Stack } from './battle.ts'
+import { MAX_BATTLE_ROUNDS, MIN_BATTLE_ROUNDS, UNITS, type Family } from './config.ts'
 
 /** Un groupe aux caractéristiques fixes, pour tester le combat sans dépendre de l'équilibrage. */
 function stack(family: Family, count: number, attack = 10, health = 50): Stack {
@@ -37,6 +37,24 @@ describe('bataille', () => {
     const army = [stack('warrior', 12), stack('archer', 7, 14, 30)]
     const foes = [stack('rider', 9, 12, 40), stack('mage', 4, 18, 20)]
     expect(fight(army, foes)).toEqual(fight(army, foes))
+  })
+
+  it('dure au moins MIN_BATTLE_ROUNDS manches, même quand un camp écrase l’autre', () => {
+    const outcome = fight([stack('warrior', 1000)], [stack('rider', 3)])
+    expect(outcome.winner).toBe('attacker')
+    expect(outcome.rounds).toBeGreaterThanOrEqual(MIN_BATTLE_ROUNDS)
+  })
+
+  it('un camp ne perd jamais plus d’une part de sa vie du début en une manche', () => {
+    const army = [stack('warrior', 300)]
+    const foes = [stack('rider', 20), stack('mage', 10, 18, 20)]
+    const start = startingHealth(foes)
+    const caps = { attackers: roundCap(total(startingHealth(army))), defenders: roundCap(total(start)) }
+    const round = fightRound(army, foes, startingHealth(army), start, caps)
+    expect(total(start) - total(round.defenderHealth)).toBeCloseTo(total(start) / MIN_BATTLE_ROUNDS)
+    // Sans limite, la même manche aurait coûté bien plus cher aux monstres.
+    const free = fightRound(army, foes, startingHealth(army), start)
+    expect(total(start) - total(free.defenderHealth)).toBeGreaterThan(total(start) / MIN_BATTLE_ROUNDS)
   })
 
   it('s’arrête au bout du nombre maximum de manches', () => {

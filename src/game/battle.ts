@@ -1,9 +1,18 @@
 // La bataille, en manches successives : les deux camps frappent en même temps.
 // Pas de hasard : les mêmes armées donnent toujours le même résultat.
 // Dans le jeu, une manche se joue toutes les quelques secondes (voir BATTLE_ROUND_SECONDS) :
-// une bataille dure donc un moment, et on peut battre en retraite avant la fin.
+// une bataille dure donc un moment, et on peut battre en retraite avant la fin. À chaque manche,
+// une troupe ne porte qu'une partie de ses coups (BATTLE_DAMAGE_SCALE), et un camp ne perd jamais
+// plus d'une part de sa vie du début (MIN_BATTLE_ROUNDS) : une bataille dure au moins dix manches.
 
-import { COUNTER_BONUS, MAX_BATTLE_ROUNDS, UNITS, type Family } from './config.ts'
+import {
+  BATTLE_DAMAGE_SCALE,
+  COUNTER_BONUS,
+  MAX_BATTLE_ROUNDS,
+  MIN_BATTLE_ROUNDS,
+  UNITS,
+  type Family,
+} from './config.ts'
 
 /** Un groupe de combattants identiques. */
 export interface Stack {
@@ -53,18 +62,31 @@ export function total(values: number[]): number {
   return values.reduce((sum, v) => sum + v, 0)
 }
 
+/** Les dégâts qu'un camp peut subir au plus en une manche : une part de sa vie au début de la bataille. */
+export function roundCap(startHealth: number): number {
+  return startHealth / MIN_BATTLE_ROUNDS
+}
+
+/** Ce que chaque camp peut perdre au plus pendant une manche (sans limite si rien n'est précisé). */
+export interface RoundCaps {
+  attackers: number
+  defenders: number
+}
+
 /**
  * Une manche : les deux camps frappent en même temps. Reçoit les points de vie de chaque groupe
- * au début de la manche, et renvoie ceux de la fin, avec le journal de la manche.
+ * au début de la manche, et renvoie ceux de la fin, avec le journal de la manche. `caps` limite
+ * les pertes de chaque camp pendant la manche (voir roundCap).
  */
 export function fightRound(
   attackers: Stack[],
   defenders: Stack[],
   attackerHealth: number[],
   defenderHealth: number[],
+  caps: RoundCaps = { attackers: Infinity, defenders: Infinity },
 ): { attackerHealth: number[]; defenderHealth: number[]; log: RoundLog } {
-  const toDefenders = damage(attackers, attackerHealth, defenders, defenderHealth)
-  const toAttackers = damage(defenders, defenderHealth, attackers, attackerHealth)
+  const toDefenders = limit(damage(attackers, attackerHealth, defenders, defenderHealth), caps.defenders)
+  const toAttackers = limit(damage(defenders, defenderHealth, attackers, attackerHealth), caps.attackers)
   const nextDefenders = defenderHealth.map((hp, i) => Math.max(0, hp - toDefenders[i]))
   const nextAttackers = attackerHealth.map((hp, i) => Math.max(0, hp - toAttackers[i]))
   return {
@@ -83,6 +105,7 @@ export function fightRound(
 export function fight(attackers: Stack[], defenders: Stack[], maxRounds = MAX_BATTLE_ROUNDS): BattleOutcome {
   let attackerHealth = startingHealth(attackers)
   let defenderHealth = startingHealth(defenders)
+  const caps = { attackers: roundCap(total(attackerHealth)), defenders: roundCap(total(defenderHealth)) }
   const log: RoundLog[] = []
 
   while (
@@ -90,7 +113,7 @@ export function fight(attackers: Stack[], defenders: Stack[], maxRounds = MAX_BA
     total(counts(attackers, attackerHealth)) > 0 &&
     total(counts(defenders, defenderHealth)) > 0
   ) {
-    const round = fightRound(attackers, defenders, attackerHealth, defenderHealth)
+    const round = fightRound(attackers, defenders, attackerHealth, defenderHealth, caps)
     attackerHealth = round.attackerHealth
     defenderHealth = round.defenderHealth
     log.push(round.log)
@@ -102,7 +125,10 @@ export function fight(attackers: Stack[], defenders: Stack[], maxRounds = MAX_BA
   return { winner, rounds: log.length, attackers: attackersLeft, defenders: defendersLeft, log }
 }
 
-/** Dégâts reçus par chaque groupe adverse : chaque groupe frappe tous les ennemis, au prorata de leur nombre. */
+/**
+ * Dégâts reçus par chaque groupe adverse : chaque groupe frappe tous les ennemis, au prorata de
+ * leur nombre, avec la part de son attaque qui revient à une manche.
+ */
 function damage(from: Stack[], fromHealth: number[], to: Stack[], toHealth: number[]): number[] {
   const fromCounts = counts(from, fromHealth)
   const toCounts = counts(to, toHealth)
@@ -112,7 +138,13 @@ function damage(from: Stack[], fromHealth: number[], to: Stack[], toHealth: numb
     const share = toCounts[j] / targets
     return from.reduce((sum, f, i) => {
       const bonus = isStrongAgainst(f.family, target.family) ? COUNTER_BONUS : 1
-      return sum + fromCounts[i] * f.attack * share * bonus
+      return sum + fromCounts[i] * f.attack * share * bonus * BATTLE_DAMAGE_SCALE
     }, 0)
   })
+}
+
+/** Ramène les dégâts d'une manche à `cap` au plus, en gardant leur répartition entre les groupes. */
+function limit(hits: number[], cap: number): number[] {
+  const sum = total(hits)
+  return sum <= cap ? hits : hits.map((hit) => (hit * cap) / sum)
 }

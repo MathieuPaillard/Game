@@ -72,7 +72,9 @@ Boucle de jeu : récolter des ressources → construire et améliorer → entra�
 - **[Proposition]** Les forces et faiblesses forment un cycle : Guerriers > Cavaliers > Archers > Mages > Guerriers. Une troupe inflige 50 % de dégâts en plus à la famille qu'elle domine.
 - **[Décidé]** On peut entraîner plusieurs troupes en même temps.
 - **[Proposition]** À la Caserne, chaque type de troupe s'entraîne de son côté : un entraînement à la fois par type, donc jusqu'à quatre en parallèle. Le niveau de la Caserne débloque les Cavaliers (niveau 2) et les Mages (niveau 3), augmente le nombre de troupes par entraînement et accélère l'entraînement.
-- **[Proposition]** Les batailles se jouent en manches, sans hasard : les mêmes armées donnent toujours le même résultat. Une manche toutes les 2 secondes ; après 100 manches sans vainqueur, les deux camps se séparent.
+- **[Proposition]** Les batailles se jouent en manches, sans hasard : les mêmes armées donnent toujours le même résultat. Une manche toutes les 2 secondes ; après 150 manches sans vainqueur, les deux camps se séparent.
+- **[Décidé]** Une bataille dure au moins une dizaine de manches : on a le temps de la regarder, et de battre en retraite.
+- **[Proposition]** Pour cela, à chaque manche, une troupe n'inflige que 15 % de son attaque, et un camp ne perd jamais plus d'un dixième de sa vie du début. Une bataille dure donc au moins 10 manches (20 secondes), même quand une armée en écrase une autre ; une bataille serrée dure plus longtemps. Les deux camps sont ralentis de la même façon : c'est toujours le plus fort qui gagne.
 - **[Proposition]** Pendant une bataille, on peut battre en retraite : l'armée quitte le combat avec ses survivants, sans butin, et cette bande ne l'attaquera plus.
 - **[Décidé]** Chaque rapport de bataille contient le journal du combat : qui avait l'avantage, puis chaque manche (dégâts infligés de chaque côté, pertes, troupes restantes), puis l'issue.
 - **[Décidé]** Les troupes mangent : chaque troupe consomme de la nourriture chaque heure, dans la cité comme sur la carte. Une grosse armée coûte donc cher à garder.
