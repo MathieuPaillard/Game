@@ -32,6 +32,32 @@ export function mountainLight(m: Mountain): string {
   return `${m.x},${m.y - m.h} ${m.x + m.w / 2},${m.y} ${m.x + m.w * 0.08},${m.y}`
 }
 
+/** La neige au sommet d'une montagne, avec un bord irrégulier. */
+export function mountainSnow(m: Mountain): string {
+  const at = (dx: number, dy: number) => `${m.x + m.w * dx},${m.y - m.h * dy}`
+  return [at(-0.14, 0.72), at(0, 1), at(0.14, 0.72), at(0.06, 0.65), at(-0.02, 0.71), at(-0.08, 0.64)].join(' ')
+}
+
+/** Une tache de terrain, plus claire ou plus sombre que le sol, pour que la campagne ne soit pas unie. */
+export interface Patch {
+  cx: number
+  cy: number
+  rx: number
+  ry: number
+  light: boolean
+}
+
+/** Des taches de terrain réparties sur toute la carte, toujours les mêmes. */
+function patches(seed: number, count: number, width: number, height: number): Patch[] {
+  return scatter(seed, count, 0, 0, width, height).map((point, i) => ({
+    cx: Math.round(point.x),
+    cy: Math.round(point.y),
+    rx: Math.round(110 * point.size),
+    ry: Math.round(55 * point.size),
+    light: i % 2 === 0,
+  }))
+}
+
 // --- La cité ---
 
 export const CITY_MAP = { width: 1400, height: 1000, center: { x: 700, y: 472 } }
@@ -71,6 +97,7 @@ function outsideWall(p: Point) {
 
 export const CITY_DECOR = {
   river: 'M 0 800 C 300 740 560 880 780 830 S 1120 760 1400 820',
+  patches: patches(17, 18, 1400, 1000),
   fields: [
     { x: 400, y: 635, w: 120, h: 70 },
     { x: 530, y: 650, w: 80, h: 55 },
@@ -102,6 +129,7 @@ export const WORLD_MAP = { width: WORLD.width, height: WORLD.height, center: WOR
 
 export const WORLD_DECOR = {
   river: 'M 660 0 C 620 120 540 210 430 250 S 170 330 0 370',
+  patches: patches(23, 30, WORLD.width, WORLD.height),
   lake: { cx: 1360, cy: 190, rx: 150, ry: 80 },
   marshes: [
     { cx: 1320, cy: 940, rx: 140, ry: 60 },

@@ -1373,15 +1373,32 @@ function battleStacks(state: GameState, battle: Battle): { attackers: Stack[]; d
 }
 
 /**
+ * La vie de chaque camp d'une bataille, au début et maintenant : d'un côté les troupes (avec les
+ * gardes des Remparts pendant un siège), de l'autre les monstres.
+ */
+export function battleHealth(battle: Battle): { army: { start: number; now: number }; foe: { start: number; now: number } } {
+  const army = battle.siege
+    ? { start: battle.siege.guards * WALL_GUARD.health, now: battle.siege.guardHealth }
+    : { start: 0, now: 0 }
+  for (const id of UNIT_IDS) {
+    army.start += battle.sent[id] * getUnit(id).health * battle.healthFactor
+    army.now += battle.armyHealth[id]
+  }
+  const foe = { start: 0, now: 0 }
+  for (const [id, count] of Object.entries(battle.enemies) as [MonsterId, number][]) {
+    foe.start += count * getMonster(id).health
+    foe.now += battle.foeHealth[id] ?? 0
+  }
+  return { army, foe }
+}
+
+/**
  * Ce que chaque camp peut perdre au plus en une manche : une part de sa vie au début de la bataille
  * (les troupes et les gardes d'un côté, les monstres de l'autre). La bataille dure ainsi un moment.
  */
 function battleCaps(battle: Battle): { attackers: number; defenders: number } {
-  let army = battle.siege ? battle.siege.guards * WALL_GUARD.health : 0
-  for (const id of UNIT_IDS) army += battle.sent[id] * getUnit(id).health * battle.healthFactor
-  let foes = 0
-  for (const [id, count] of Object.entries(battle.enemies) as [MonsterId, number][]) foes += count * getMonster(id).health
-  return { attackers: roundCap(army), defenders: roundCap(foes) }
+  const health = battleHealth(battle)
+  return { attackers: roundCap(health.army.start), defenders: roundCap(health.foe.start) }
 }
 
 /** Les troupes, les monstres et (pendant un siège) les gardes des Remparts encore debout dans une bataille. */

@@ -2,6 +2,7 @@
 
 import { NODE_KINDS, type MonsterId } from '../game/config'
 import {
+  battleHealth,
   getBand,
   getCamp,
   getMonster,
@@ -9,6 +10,7 @@ import {
   raidArrival,
   type ArmyStatus,
   type Band,
+  type Battle,
   type FieldArmy,
   type GameState,
   type Monsters,
@@ -40,6 +42,35 @@ export function incomingRaids(state: GameState): { band: Band; arrival: number |
     .filter((band) => band.raid)
     .map((band) => ({ band, arrival: raidArrival(band) }))
     .sort((a, b) => (a.arrival ?? Infinity) - (b.arrival ?? Infinity))
+}
+
+/**
+ * Ce qu'il faut pour animer une bataille sur la carte : la vie qui reste à chaque camp (de 0 à 1),
+ * le numéro de la dernière manche jouée, et les dégâts de cette manche, de chaque côté.
+ */
+export interface FightFx {
+  round: number
+  ally: number
+  foe: number
+  dealt: number
+  taken: number
+}
+
+export function fightFx(battle: Battle): FightFx {
+  const health = battleHealth(battle)
+  const last = battle.rounds[battle.rounds.length - 1]
+  return {
+    round: battle.rounds.length,
+    ally: health.army.start > 0 ? health.army.now / health.army.start : 0,
+    foe: health.foe.start > 0 ? health.foe.now / health.foe.start : 0,
+    dealt: last?.dealt ?? 0,
+    taken: last?.taken ?? 0,
+  }
+}
+
+/** Une étincelle lancée d'un combattant à l'autre : le chemin qu'elle parcourt, pour l'animation. */
+export function shot(from: { x: number; y: number }, to: { x: number; y: number }): Record<string, string> {
+  return { '--dx': `${to.x - from.x}px`, '--dy': `${to.y - from.y}px` }
 }
 
 /** L'icône d'un groupe de monstres : celle du premier monstre encore debout. */

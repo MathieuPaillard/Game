@@ -60,6 +60,7 @@ import {
   bandMonsters,
   bandPosition,
   bandsNearPath,
+  battleHealth,
   carryCapacity,
   castSpell,
   checkCast,
@@ -662,6 +663,19 @@ describe('les batailles', () => {
     for (const round of report.rounds) {
       expect(round.enemyLost.wolf ?? 0).toBeLessThanOrEqual(Math.ceil(wolves / MIN_BATTLE_ROUNDS))
     }
+  })
+
+  it('dit la vie qui reste à chaque camp', () => {
+    const start = startMarch(richGame({}, { warrior: 30 }), toCamp('wolfDen'), army({ warrior: 30 }), T0)
+    const fighting = runUntil(start, (s) => (s.battles[0]?.rounds.length ?? 0) === 2)
+    const health = battleHealth(fighting.battles[0])
+    const wolves = (getCamp('wolfDen').defenders.wolf ?? 0) * getMonster('wolf').health
+    expect(health.army.start).toBeCloseTo(30 * getUnit('warrior').health * fighting.battles[0].healthFactor)
+    expect(health.foe.start).toBe(wolves)
+    // Deux manches : chaque camp a perdu de la vie, jamais plus d'un dixième à chaque manche.
+    expect(health.foe.now).toBeLessThan(wolves)
+    expect(health.foe.now).toBeGreaterThanOrEqual(wolves * (1 - 2 / MIN_BATTLE_ROUNDS) - 1e-6)
+    expect(health.army.now).toBeLessThan(health.army.start)
   })
 
   it('une bataille dure un moment : une manche toutes les quelques secondes', () => {

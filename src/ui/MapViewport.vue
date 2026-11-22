@@ -225,6 +225,13 @@ defineExpose({ centerOn, toWorld })
         <slot />
       </g>
     </svg>
+    <!-- Par-dessus la carte : quelques nuages qui passent, et les bords assombris, comme vus de haut. -->
+    <div class="sky" aria-hidden="true">
+      <span class="cloud cloud-1"></span>
+      <span class="cloud cloud-2"></span>
+      <span class="cloud cloud-3"></span>
+    </div>
+    <div class="vignette" aria-hidden="true"></div>
     <div class="map-controls">
       <button type="button" aria-label="Recentrer la carte" @click="recenter">⌖</button>
       <button type="button" class="zoom" aria-label="Zoomer" @click="zoom(1.3)">+</button>
@@ -258,6 +265,62 @@ defineExpose({ centerOn, toWorld })
 
 .map {
   display: block;
+}
+
+/* Les nuages et le bord assombri ne gênent jamais le doigt. */
+.sky,
+.vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.sky {
+  overflow: hidden;
+}
+
+.vignette {
+  background: radial-gradient(ellipse at center, transparent 58%, rgba(6, 8, 14, 0.42) 100%);
+}
+
+/* Un nuage : une tache claire et floue qui traverse lentement la carte. */
+.cloud {
+  position: absolute;
+  left: 0;
+  width: 26rem;
+  height: 10rem;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0) 70%);
+  animation: drift 120s linear infinite;
+}
+
+.cloud-1 {
+  top: 8%;
+  animation-delay: -30s;
+}
+
+.cloud-2 {
+  top: 46%;
+  width: 34rem;
+  height: 12rem;
+  animation-duration: 160s;
+  animation-delay: -110s;
+}
+
+.cloud-3 {
+  top: 70%;
+  width: 22rem;
+  animation-duration: 140s;
+  animation-delay: -70s;
+}
+
+@keyframes drift {
+  from {
+    transform: translateX(-36rem);
+  }
+  to {
+    transform: translateX(calc(100vw + 4rem));
+  }
 }
 
 /* Les boutons de la carte : l'écran de jeu dit où les poser (voir GameScreen). */

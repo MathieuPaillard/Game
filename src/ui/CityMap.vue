@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { BUILDINGS } from '../game/config'
+import { BUILDINGS, RESOURCES } from '../game/config'
 import { armySize, battleSurvivors, checkUpgrade, constructionOf, siegeOf, skillPoints, type GameState } from '../game/rules'
+import HealthBar from './HealthBar.vue'
+import MapGround from './MapGround.vue'
 import MapViewport from './MapViewport.vue'
 import { formatShort } from './format'
 import {
@@ -13,9 +15,10 @@ import {
   CITY_WALL,
   mountainLight,
   mountainPoints,
+  mountainSnow,
 } from './maps'
 import type { CitySelection } from './screen'
-import { monstersIcon } from './world'
+import { fightFx, monstersIcon } from './world'
 
 // La cité vue d'en haut : chaque bâtiment sur son emplacement, la garnison et les héros. Toucher
 // l'un d'eux le choisit ; toucher le fond de la carte ne choisit rien. L'enceinte montre le niveau
@@ -37,7 +40,7 @@ onMounted(() => focus(props.selection))
 
 // Les bâtiments du bas de la carte sont dessinés en dernier, pour passer devant ceux du haut.
 const plots = computed(() =>
-  BUILDINGS.map((building) => {
+  BUILDINGS.map((building, index) => {
     const level = props.state.levels[building.id]
     const works = constructionOf(props.state, building.id) ?? null
     const progress = works ? Math.min(1, Math.max(0, (props.now - works.startedAt) / (works.endsAt - works.startedAt))) : 0
@@ -52,6 +55,10 @@ const plots = computed(() =>
       ready: checkUpgrade(props.state, building.id).ok,
       // Le Château est plus grand que les autres bâtiments.
       size: big ? 1.45 : 1,
+      // La vie du bâtiment : ce qu'il produit s'envole de temps en temps, et ce qui s'y fait se voit.
+      puff: level > 0 && building.produces ? RESOURCES[building.produces].icon : null,
+      puffDelay: `${-index * 1.3}s`,
+      busy: busy.value[building.id] ?? null,
     }
   }).sort((a, b) => a.y - b.y),
 )
@@ -70,6 +77,14 @@ const heroes = computed(() => ({
   ready: props.state.heroes.some((hero) => skillPoints(hero) > 0),
 }))
 
+// Ce qui s'active dans un bâtiment : un entraînement à la Caserne, une recherche à l'Académie, un sort
+// lancé depuis la Tour des mages.
+const busy = computed<Partial<Record<string, string>>>(() => ({
+  ...(props.state.trainings.length > 0 ? { barracks: '⚔️' } : {}),
+  ...(props.state.research ? { academy: '✨' } : {}),
+  ...(props.state.spells.length > 0 ? { mageTower: '✨' } : {}),
+}))
+
 // L'enceinte : une palissade tant que les Remparts ne sont pas construits, puis un mur de pierre,
 // plus épais à chaque niveau.
 const walls = computed(() => {
@@ -77,11 +92,15 @@ const walls = computed(() => {
   return { level, width: level > 0 ? 12 + 2 * level : 8 }
 })
 
-// Le siège en cours : où en est la bataille, et qui attaque.
+// Le siège en cours : où en est la bataille, qui attaque, et la vie qui reste à chaque camp.
 const siege = computed(() => {
   const battle = siegeOf(props.state)
   if (!battle) return null
-  return { round: battle.rounds.length + 1, icon: monstersIcon(battleSurvivors(battle).monsters) }
+  return {
+    round: battle.rounds.length + 1,
+    icon: monstersIcon(battleSurvivors(battle).monsters),
+    fx: fightFx(battle),
+  }
 })
 
 /** La largeur d'une étiquette de nombre, selon le nombre de chiffres. */
@@ -116,7 +135,7 @@ function describe(plot: (typeof plots.value)[number]): string {
     </defs>
 
     <!-- Le décor -->
-    <rect :width="CITY_MAP.width" :height="CITY_MAP.height" class="ground" />
+    <MapGround id="city" :width="CITY_MAP.width" :height="CITY_MAP.height" :patches="CITY_DECOR.patches" />
     <ellipse :cx="CITY_WALL.cx" :cy="CITY_WALL.cy" :rx="CITY_WALL.rx + 30" :ry="CITY_WALL.ry + 25" class="meadow" />
     <path :d="CITY_DECOR.river" class="river" />
     <path :d="CITY_DECOR.river" class="river-light" />
@@ -157,30 +176,20 @@ function describe(plot: (typeof plots.value)[number]): string {
       class="merlons"
       :style="{ strokeWidth: walls.width / 2 }"
     />
-    <line
-      v-for="road in roads"
-      :key="`road-${road.id}`"
-      :x1="road.from.x"
-      :y1="road.from.y"
-      :x2="road.to.x"
-      :y2="road.to.y"
-      class="road"
-    />
-    <g v-for="(mountain, i) in CITY_DECOR.mountains" :key="`mountain-${i}`">
+    <g v-for="road in roads" :key="`road-${road.id}`">
+      <line :x1="road.from.x" :y1="road.from.y" :x2="road.to.x" :y2="road.to.y" class="road-edge" />
+      <line :x1="road.from.x" :y1="road.from.y" :x2="road.to.x" :y2="road.to.y" class="road" />
+    </g>
+    <g v-for="(mountain, i) in CITY_DECOR.mountains" :key="`mountain-${i}`" aria-hidden="true">
+      <ellipse :cx="mountain.x + 10" :cy="mountain.y" :rx="mountain.w * 0.55" :ry="12" class="shade" />
       <polygon :points="mountainPoints(mountain)" class="rock" />
       <polygon :points="mountainLight(mountain)" class="rock-light" />
+      <polygon :points="mountainSnow(mountain)" class="snow" />
     </g>
-    <text
-      v-for="(tree, i) in CITY_DECOR.trees"
-      :key="`tree-${i}`"
-      :x="tree.x"
-      :y="tree.y"
-      :font-size="40 * tree.size"
-      class="emoji"
-      aria-hidden="true"
-    >
-      🌲
-    </text>
+    <g v-for="(tree, i) in CITY_DECOR.trees" :key="`tree-${i}`" aria-hidden="true">
+      <ellipse :cx="tree.x + 5" :cy="tree.y + 18 * tree.size" :rx="15 * tree.size" :ry="6 * tree.size" class="shade" />
+      <text :x="tree.x" :y="tree.y" :font-size="40 * tree.size" class="emoji">{{ i % 3 === 0 ? '🌳' : '🌲' }}</text>
+    </g>
 
     <!-- Les bâtiments -->
     <g
@@ -199,9 +208,14 @@ function describe(plot: (typeof plots.value)[number]): string {
     >
       <ellipse class="spot-base" rx="66" ry="26" cy="32" />
       <ellipse class="spot-ring" rx="78" ry="33" cy="32" />
+      <circle v-if="plot.building.id === 'manaWell' && plot.level > 0" r="46" cy="-4" class="mana-glow" />
       <text class="emoji spot-icon" font-size="70">{{ plot.building.icon }}</text>
       <text v-if="plot.locked" class="emoji" font-size="32">🔒</text>
-      <text v-if="plot.works" class="emoji" font-size="30" x="-44" y="-34">🔨</text>
+      <text v-if="plot.works" class="emoji hammer" font-size="30" x="-44" y="-34">🔨</text>
+      <text v-if="plot.puff" class="emoji puff" font-size="26" x="-30" y="-30" :style="{ animationDelay: plot.puffDelay }">
+        {{ plot.puff }}
+      </text>
+      <text v-if="plot.busy" class="emoji busy" font-size="28" x="-42" y="-30">{{ plot.busy }}</text>
       <g v-if="plot.level > 0 || plot.ready" transform="translate(38 -36)">
         <circle r="16" class="badge" :class="{ ready: plot.ready }" />
         <text class="badge-text">{{ plot.level > 0 ? plot.level : '+' }}</text>
@@ -276,9 +290,22 @@ function describe(plot: (typeof plots.value)[number]): string {
     >
       <ellipse class="spot-base siege-base" rx="70" ry="24" cy="26" />
       <ellipse class="spot-ring" rx="82" ry="31" cy="26" />
-      <text class="emoji" font-size="54" x="-28">{{ siege.icon }}</text>
-      <text class="emoji" font-size="40" x="34" y="-6">⚔️</text>
+      <g :key="`siege-hit-${siege.fx.round}`" :class="{ hit: siege.fx.round > 0 }">
+        <text class="emoji" font-size="54" x="-28">{{ siege.icon }}</text>
+      </g>
+      <g :key="`siege-bump-${siege.fx.round}`" class="bump">
+        <text class="emoji" font-size="40" x="34" y="-6">⚔️</text>
+      </g>
       <text class="map-label siege-label" y="66">Siège · manche {{ siege.round }}</text>
+      <!-- La vie des deux camps : tes défenseurs (en doré), puis les monstres (en rouge) -->
+      <HealthBar :ratio="siege.fx.ally" :y="-72" :width="104" />
+      <HealthBar :ratio="siege.fx.foe" :y="-57" :width="104" foe />
+      <text v-if="siege.fx.taken > 0" :key="`siege-taken-${siege.fx.round}`" class="float-damage ally" x="-36" y="-92">
+        −{{ formatShort(siege.fx.taken) }}
+      </text>
+      <text v-if="siege.fx.dealt > 0" :key="`siege-dealt-${siege.fx.round}`" class="float-damage foe" x="36" y="-92">
+        −{{ formatShort(siege.fx.dealt) }}
+      </text>
     </g>
   </MapViewport>
 </template>
@@ -296,12 +323,22 @@ function describe(plot: (typeof plots.value)[number]): string {
   stroke-dasharray: none;
 }
 
-/* Pendant un siège, une lueur rouge entoure le mur. */
+/* Pendant un siège, une lueur rouge bat autour du mur. */
 .wall-alarm {
   fill: none;
   stroke: var(--ember);
   opacity: 0.45;
   pointer-events: none;
+  animation: wall-alarm 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes wall-alarm {
+  from {
+    opacity: 0.2;
+  }
+  to {
+    opacity: 0.6;
+  }
 }
 
 /* Les créneaux, par-dessus le mur. */
@@ -327,6 +364,88 @@ function describe(plot: (typeof plots.value)[number]): string {
   stroke-width: 14;
   stroke-linecap: round;
   opacity: 0.85;
+}
+
+/* Les bas-côtés des routes. */
+.road-edge {
+  stroke: var(--map-road-edge);
+  stroke-width: 22;
+  stroke-linecap: round;
+  opacity: 0.5;
+}
+
+/* Le marteau d'un chantier frappe sans relâche. */
+.hammer {
+  transform-box: fill-box;
+  transform-origin: 85% 85%;
+  animation: hammer 0.7s ease-in-out infinite;
+}
+
+@keyframes hammer {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  45% {
+    transform: rotate(-38deg);
+  }
+}
+
+/* Ce qu'un bâtiment produit s'envole de temps en temps. */
+.puff {
+  opacity: 0;
+  pointer-events: none;
+  animation: puff 4.6s ease-out infinite;
+}
+
+@keyframes puff {
+  0% {
+    opacity: 0;
+    transform: translateY(0);
+  }
+  12% {
+    opacity: 0.95;
+  }
+  55%,
+  100% {
+    opacity: 0;
+    transform: translateY(-48px);
+  }
+}
+
+/* Le puits de mana luit doucement. */
+.mana-glow {
+  fill: #9a7bff;
+  opacity: 0.14;
+  animation: glow 2.6s ease-in-out infinite alternate;
+}
+
+@keyframes glow {
+  from {
+    opacity: 0.08;
+  }
+  to {
+    opacity: 0.3;
+  }
+}
+
+/* Un bâtiment au travail : les épées de la Caserne s'agitent, les étincelles de l'Académie et de la
+   Tour des mages brillent. */
+.busy {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: busy 1.1s ease-in-out infinite alternate;
+}
+
+@keyframes busy {
+  from {
+    transform: rotate(-12deg) scale(0.9);
+    opacity: 0.7;
+  }
+  to {
+    transform: rotate(12deg) scale(1.1);
+    opacity: 1;
+  }
 }
 
 .field {

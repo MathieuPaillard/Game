@@ -10,6 +10,7 @@ import {
   getArmy,
   getBand,
   getBandKind,
+  getCamp,
   getHeroDef,
   nodeGatherer,
   patrolLoop,
@@ -18,13 +19,16 @@ import {
   siegeOf,
   targetPosition,
   type Band,
+  type Battle,
   type GameState,
   type Target,
 } from '../game/rules'
+import HealthBar from './HealthBar.vue'
+import MapGround from './MapGround.vue'
 import MapViewport from './MapViewport.vue'
 import { formatClock, formatDuration, formatShort } from './format'
-import { WORLD_DECOR, WORLD_MAP, mountainLight, mountainPoints, type Point } from './maps'
-import { STATUS_ICONS, monstersIcon, type Selection } from './world'
+import { WORLD_DECOR, WORLD_MAP, mountainLight, mountainPoints, mountainSnow, type Point } from './maps'
+import { STATUS_ICONS, fightFx, monstersIcon, shot, type Selection } from './world'
 
 // Les alentours de la cité : les camps, les gisements, les bandes qui patrouillent (avec leur zone
 // d'aggro), les raids qui marchent sur la cité, tes armées et leurs batailles. Toucher un repère le
@@ -55,6 +59,39 @@ function drawnPosition(band: Band, at: number): Point {
     x: city.x + ((band.home.x - city.x) / length) * GATE_DISTANCE,
     y: city.y + ((band.home.y - city.y) / length) * GATE_DISTANCE,
   }
+}
+
+/** Pendant une bataille, l'armée se tient à cette distance de son adversaire : les deux restent bien visibles. */
+const FIGHT_GAP = 115
+
+/** L'endroit où dessiner l'adversaire d'une bataille : la bande (ou le raid), ou le camp. */
+function foePosition(battle: Battle): Point | null {
+  if (battle.band !== null) {
+    const band = getBand(props.state, battle.band)
+    return band ? drawnPosition(band, props.now) : null
+  }
+  return battle.foe.type === 'camp' ? getCamp(battle.foe.camp).position : null
+}
+
+/**
+ * L'endroit où dessiner une armée qui se bat : à côté de son adversaire, à la même hauteur, du côté
+ * d'où elle vient (celui de la cité quand elle se bat sur le camp même). Ainsi, les noms (dessous)
+ * et les barres de vie (dessus) des deux combattants ne se chevauchent pas.
+ */
+function apart(position: Point, foe: Point): Point {
+  const from = distance(position, foe) > 1 ? position : city
+  let side = from.x < foe.x ? -1 : 1
+  // Pas en dehors de la carte.
+  if (foe.x + side * FIGHT_GAP < 0 || foe.x + side * FIGHT_GAP > WORLD_MAP.width) side = -side
+  return { x: foe.x + side * FIGHT_GAP, y: foe.y }
+}
+
+/** Où dessiner une armée : là où elle est, ou en face de son adversaire pendant une bataille. */
+function armyPosition(army: { id: number; position: Point; status: string }): Point {
+  if (army.status !== 'fighting') return army.position
+  const battle = props.state.battles.find((b) => b.army === army.id)
+  const foe = battle ? foePosition(battle) : null
+  return foe ? apart(army.position, foe) : army.position
 }
 
 // Ce qu'on vient de choisir vient au milieu de la carte (une fois le panneau ouvert à côté), y compris
@@ -208,6 +245,7 @@ const bands = computed(() => {
   const besieging = siege?.band
   return props.state.bands.map((band) => {
     const target: Target = { type: 'band', band: band.id }
+    const battle = props.state.battles.find((b) => b.band === band.id)
     const name = getBandKind(band.kind).name
     const arrival = raidArrival(band)
     const left = arrival === null ? null : Math.max(0, arrival - props.now)
@@ -238,6 +276,9 @@ const bands = computed(() => {
       icon: monstersIcon(band.monsters),
       danger: dangers.value.has(band.id),
       selected: isSelectedTarget(target) || isOrdered(target),
+      fight: battle ? fightFx(battle) : null,
+      // Elle avance : sur sa ronde, ou vers la cité.
+      walking: band.since !== null && band.since <= props.now,
     }
   })
 })
@@ -245,26 +286,36 @@ const patrols = computed(() => bands.value.filter((band) => !band.raid))
 const raids = computed(() => bands.value.filter((band) => band.raid))
 
 const armies = computed(() =>
-  props.state.armies.map((army) => ({
-    key: army.id,
-    ...army.position,
-    icon: STATUS_ICONS[army.status],
-    hero: army.hero === null ? null : getHeroDef(army.hero),
-    size: armySize(army.troops),
-    selected: props.selection?.kind === 'army' && props.selection.id === army.id,
-    dragged: aim.value?.id === army.id,
-  })),
+  props.state.armies.map((army) => {
+    const battle = props.state.battles.find((b) => b.army === army.id)
+    return {
+      key: army.id,
+      ...armyPosition(army),
+      icon: STATUS_ICONS[army.status],
+      hero: army.hero === null ? null : getHeroDef(army.hero),
+      size: armySize(army.troops),
+      selected: props.selection?.kind === 'army' && props.selection.id === army.id,
+      dragged: aim.value?.id === army.id,
+      status: army.status,
+      fight: battle ? fightFx(battle) : null,
+    }
+  }),
 )
 
-// Les batailles en cours : une ligne entre l'armée et la bande, et le numéro de la manche. Pendant
-// un siège, seulement la ligne entre la cité et le raid : le raid dit lui-même où en est le siège.
+// Pendant un siège, les défenseurs de la cité : leur vie, et les coups qu'ils reçoivent.
+const cityFight = computed(() => {
+  const siege = siegeOf(props.state)
+  return siege ? fightFx(siege) : null
+})
+
+// Les batailles en cours : une ligne entre l'armée et son adversaire, et le numéro de la manche.
+// Pendant un siège, seulement la ligne entre la cité et le raid : le raid dit où en est le siège.
 const battles = computed(() =>
   props.state.battles.flatMap((battle) => {
     const army = battle.army === null ? undefined : getArmy(props.state, battle.army)
-    const from = battle.siege ? city : army?.position
+    const from = battle.siege ? city : army && armyPosition(army)
     if (!from) return []
-    const band = battle.band === null ? undefined : getBand(props.state, battle.band)
-    const foe = band ? drawnPosition(band, props.now) : from
+    const foe = foePosition(battle) ?? from
     return [
       {
         key: battle.id,
@@ -273,7 +324,7 @@ const battles = computed(() =>
         x: (from.x + foe.x) / 2,
         y: (from.y + foe.y) / 2,
         siege: battle.siege !== null,
-        label: `Manche ${battle.rounds.length + 1}`,
+        round: battle.rounds.length,
       },
     ]
   }),
@@ -292,21 +343,23 @@ const battles = computed(() =>
     @tap="onTap"
   >
     <!-- Le décor -->
-    <rect :width="WORLD_MAP.width" :height="WORLD_MAP.height" class="ground" />
+    <MapGround id="world" :width="WORLD_MAP.width" :height="WORLD_MAP.height" :patches="WORLD_DECOR.patches" />
     <ellipse :cx="city.x" :cy="city.y" rx="260" ry="190" class="meadow" />
     <path :d="WORLD_DECOR.river" class="river" />
     <path :d="WORLD_DECOR.river" class="river-light" />
     <ellipse v-bind="WORLD_DECOR.lake" class="water" />
-    <ellipse v-for="(marsh, i) in WORLD_DECOR.marshes" :key="`marsh-${i}`" v-bind="marsh" class="marsh" />
-    <line
-      v-for="camp in CAMPS"
-      :key="`road-${camp.id}`"
-      :x1="city.x"
-      :y1="city.y"
-      :x2="camp.position.x"
-      :y2="camp.position.y"
-      class="trail"
+    <ellipse
+      :cx="WORLD_DECOR.lake.cx - 20"
+      :cy="WORLD_DECOR.lake.cy - 12"
+      :rx="WORLD_DECOR.lake.rx * 0.6"
+      :ry="WORLD_DECOR.lake.ry * 0.45"
+      class="water-shine"
     />
+    <ellipse v-for="(marsh, i) in WORLD_DECOR.marshes" :key="`marsh-${i}`" v-bind="marsh" class="marsh" />
+    <g v-for="camp in CAMPS" :key="`road-${camp.id}`">
+      <line :x1="city.x" :y1="city.y" :x2="camp.position.x" :y2="camp.position.y" class="trail-edge" />
+      <line :x1="city.x" :y1="city.y" :x2="camp.position.x" :y2="camp.position.y" class="trail" />
+    </g>
     <!-- Les rondes des bandes, et le chemin des raids jusqu'à la cité -->
     <polygon v-for="band in patrols" :key="`loop-${band.key}`" :points="band.loop" class="patrol" />
     <line
@@ -318,21 +371,16 @@ const battles = computed(() =>
       :y2="city.y"
       class="raid-path"
     />
-    <g v-for="(mountain, i) in WORLD_DECOR.mountains" :key="`mountain-${i}`">
+    <g v-for="(mountain, i) in WORLD_DECOR.mountains" :key="`mountain-${i}`" aria-hidden="true">
+      <ellipse :cx="mountain.x + 10" :cy="mountain.y" :rx="mountain.w * 0.55" :ry="12" class="shade" />
       <polygon :points="mountainPoints(mountain)" class="rock" />
       <polygon :points="mountainLight(mountain)" class="rock-light" />
+      <polygon :points="mountainSnow(mountain)" class="snow" />
     </g>
-    <text
-      v-for="(tree, i) in WORLD_DECOR.trees"
-      :key="`tree-${i}`"
-      :x="tree.x"
-      :y="tree.y"
-      :font-size="44 * tree.size"
-      class="emoji"
-      aria-hidden="true"
-    >
-      🌲
-    </text>
+    <g v-for="(tree, i) in WORLD_DECOR.trees" :key="`tree-${i}`" aria-hidden="true">
+      <ellipse :cx="tree.x + 5" :cy="tree.y + 20 * tree.size" :rx="16 * tree.size" :ry="6 * tree.size" class="shade" />
+      <text :x="tree.x" :y="tree.y" :font-size="44 * tree.size" class="emoji">{{ i % 3 === 0 ? '🌳' : '🌲' }}</text>
+    </g>
 
     <!-- Le chemin : de l'armée vers son but, ou de la cité vers la cible choisie -->
     <line
@@ -364,8 +412,16 @@ const battles = computed(() =>
     >
       <ellipse class="spot-base" rx="84" ry="32" cy="46" />
       <ellipse class="spot-ring" rx="96" ry="40" cy="46" />
-      <text class="emoji" font-size="104">🏰</text>
+      <g :key="`city-${cityFight?.round ?? 0}`" :class="{ hit: (cityFight?.round ?? 0) > 0 }">
+        <text class="emoji" font-size="104">🏰</text>
+      </g>
       <text class="map-label" y="100">{{ cityName }}</text>
+      <template v-if="cityFight">
+        <HealthBar :ratio="cityFight.ally" :y="-78" :width="96" />
+        <text v-if="cityFight.taken > 0" :key="`city-taken-${cityFight.round}`" class="float-damage ally" y="-96">
+          −{{ formatShort(cityFight.taken) }}
+        </text>
+      </template>
     </g>
 
     <!-- Les gisements -->
@@ -414,6 +470,7 @@ const battles = computed(() =>
     >
       <ellipse class="spot-base camp-base" rx="66" ry="26" cy="32" />
       <ellipse class="spot-ring" rx="78" ry="33" cy="32" />
+      <text class="emoji campfire" font-size="26" x="-58" y="22" aria-hidden="true">🔥</text>
       <text class="emoji" font-size="70">{{ camp.icon }}</text>
       <text class="map-label" y="74">{{ camp.name }}</text>
       <text class="map-sublabel" y="98">Niveau {{ camp.level }}</text>
@@ -438,13 +495,23 @@ const battles = computed(() =>
       <circle :r="band.radius" class="aggro" :class="{ danger: band.danger }" />
       <ellipse class="spot-base band-base" rx="34" ry="13" cy="20" />
       <ellipse class="spot-ring" rx="44" ry="19" cy="20" />
-      <text class="emoji" font-size="44">{{ band.icon }}</text>
+      <g class="walker" :class="{ walking: band.walking, hurry: band.raid }">
+        <g :key="`band-hit-${band.fight?.round ?? 0}`" :class="{ hit: (band.fight?.round ?? 0) > 0 }">
+          <text class="emoji" font-size="44">{{ band.icon }}</text>
+        </g>
+      </g>
       <g transform="translate(26 -22)">
         <circle r="14" class="badge level" />
         <text class="badge-text">{{ band.level }}</text>
       </g>
       <text class="map-label" y="50">{{ band.name }}</text>
       <text v-if="band.sublabel" class="map-sublabel raid-state" y="72">{{ band.sublabel }}</text>
+      <template v-if="band.fight">
+        <HealthBar :ratio="band.fight.foe" :y="-54" foe />
+        <text v-if="band.fight.dealt > 0" :key="`band-dealt-${band.fight.round}`" class="float-damage foe" y="-70">
+          −{{ formatShort(band.fight.dealt) }}
+        </text>
+      </template>
     </g>
 
     <!-- Tes armées : on les touche pour les choisir, ou on les tire jusqu'à leur destination -->
@@ -465,22 +532,42 @@ const battles = computed(() =>
       @keydown.space.prevent="select({ kind: 'army', id: army.key })"
     >
       <circle r="34" class="spot-ring army-ring" />
-      <circle r="26" class="army-dot" />
-      <text class="emoji" font-size="28">{{ army.icon }}</text>
+      <g class="walker" :class="{ walking: army.status === 'marching' }">
+        <g :key="`army-hit-${army.fight?.round ?? 0}`" :class="{ hit: (army.fight?.round ?? 0) > 0 }">
+          <circle r="26" class="army-dot" />
+          <text class="emoji" :class="{ swing: army.status === 'gathering' }" font-size="28">{{ army.icon }}</text>
+        </g>
+      </g>
       <g v-if="army.hero" transform="translate(28 -24)">
         <circle r="17" class="badge" />
         <text class="emoji" font-size="20">{{ army.hero.icon }}</text>
       </g>
       <text class="map-label" y="-44">{{ army.size }}</text>
+      <template v-if="army.fight">
+        <HealthBar :ratio="army.fight.ally" :y="-74" />
+        <text v-if="army.fight.taken > 0" :key="`army-taken-${army.fight.round}`" class="float-damage ally" y="-90">
+          −{{ formatShort(army.fight.taken) }}
+        </text>
+      </template>
     </g>
 
     <!-- Les batailles en cours -->
     <g v-for="battle in battles" :key="`battle-${battle.key}`" class="battle" aria-hidden="true">
       <line :x1="battle.from.x" :y1="battle.from.y" :x2="battle.to.x" :y2="battle.to.y" class="clash" />
+      <g v-if="battle.round > 0" :key="`sparks-${battle.round}`">
+        <circle r="6" class="spark ally" :cx="battle.from.x" :cy="battle.from.y" :style="shot(battle.from, battle.to)" />
+        <circle r="6" class="spark foe" :cx="battle.to.x" :cy="battle.to.y" :style="shot(battle.to, battle.from)" />
+      </g>
       <g v-if="!battle.siege" :transform="`translate(${battle.x} ${battle.y})`">
-        <circle r="24" class="clash-mark" />
-        <text class="emoji" font-size="26">⚔️</text>
-        <text class="map-label" y="40">{{ battle.label }}</text>
+        <g :key="`bump-${battle.round}`" class="bump">
+          <circle r="19" class="clash-mark" />
+          <text class="emoji" font-size="21">⚔️</text>
+        </g>
+        <!-- La manche en cours, en petit, sur les épées croisées -->
+        <g transform="translate(16 -15)">
+          <circle :r="battle.round + 1 > 9 ? 13 : 11" class="badge level" />
+          <text class="badge-text round-number">{{ battle.round + 1 }}</text>
+        </g>
       </g>
     </g>
   </MapViewport>
@@ -511,6 +598,62 @@ const battles = computed(() =>
 .node-base {
   fill: var(--map-camp);
   opacity: 0.85;
+}
+
+/* Les chemins de terre, avec leurs bas-côtés. */
+.trail-edge {
+  stroke: var(--map-road-edge);
+  stroke-width: 14;
+  stroke-linecap: round;
+  opacity: 0.45;
+}
+
+/* Le reflet du ciel sur le lac, qui miroite doucement. */
+.water-shine {
+  fill: var(--map-water-light);
+  opacity: 0.25;
+  animation: shimmer 5s ease-in-out infinite alternate;
+}
+
+@keyframes shimmer {
+  from {
+    opacity: 0.12;
+  }
+  to {
+    opacity: 0.32;
+  }
+}
+
+/* Un feu de camp qui vacille. */
+.campfire {
+  transform-box: fill-box;
+  transform-origin: 50% 90%;
+  animation: flicker 0.9s ease-in-out infinite alternate;
+}
+
+@keyframes flicker {
+  from {
+    transform: scale(0.88, 0.8);
+    opacity: 0.75;
+  }
+  to {
+    transform: scale(1.05, 1.12);
+    opacity: 1;
+  }
+}
+
+/* Un raid : sa zone d'aggro bat comme une alarme. */
+.band.raid .aggro {
+  animation: alarm 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes alarm {
+  from {
+    opacity: 0.5;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 /* La ronde d'une bande, en pointillés discrets. */
@@ -621,6 +764,10 @@ const battles = computed(() =>
   stroke: var(--ember);
   stroke-width: 4;
   stroke-dasharray: 8 6;
+}
+
+.round-number {
+  font-size: 14px;
 }
 
 .clash-mark {

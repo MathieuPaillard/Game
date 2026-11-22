@@ -34,6 +34,13 @@
   --map-field-line: #a3924c;
   --map-wall: #7a5c3a;
   --map-halo: rgba(12, 14, 20, 0.78);
+  /* Le détail du terrain : touffes d'herbe, taches plus claires ou plus sombres, neige, ombres. */
+  --map-grass: #56653f;
+  --map-patch-light: #4d5c3c;
+  --map-patch-dark: #2f3a29;
+  --map-snow: #e9e6dd;
+  --map-shade: rgba(8, 10, 6, 0.32);
+  --map-road-edge: #4f4430;
   /* Les zones d'aggro des bandes de monstres. */
   --map-aggro: rgba(240, 139, 112, 0.22);
   --map-aggro-badge: #4a2a24;
@@ -342,6 +349,33 @@ button:focus-visible {
   fill: var(--map-ground);
 }
 
+/* Le sol : des taches plus claires ou plus sombres, et des touffes d'herbe en motif. */
+.patch-light {
+  fill: var(--map-patch-light);
+  opacity: 0.4;
+}
+
+.patch-dark {
+  fill: var(--map-patch-dark);
+  opacity: 0.35;
+}
+
+.tuft {
+  fill: none;
+  stroke: var(--map-grass);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+}
+
+.speck {
+  fill: var(--map-grass);
+}
+
+.grass {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
 .meadow {
   fill: var(--map-meadow);
 }
@@ -353,6 +387,7 @@ button:focus-visible {
   stroke-linecap: round;
 }
 
+/* Les reflets de la rivière filent avec le courant (par petits pas, pour ménager les téléphones). */
 .river-light {
   fill: none;
   stroke: var(--map-water-light);
@@ -360,6 +395,13 @@ button:focus-visible {
   stroke-linecap: round;
   stroke-dasharray: 40 60;
   opacity: 0.6;
+  animation: flow 6s steps(60) infinite;
+}
+
+@keyframes flow {
+  to {
+    stroke-dashoffset: -100;
+  }
 }
 
 .rock {
@@ -368,6 +410,16 @@ button:focus-visible {
 
 .rock-light {
   fill: var(--map-rock-light);
+}
+
+.snow {
+  fill: var(--map-snow);
+  opacity: 0.9;
+}
+
+/* L'ombre d'un arbre ou d'une montagne sur le sol. */
+.shade {
+  fill: var(--map-shade);
 }
 
 .emoji {
@@ -418,6 +470,18 @@ button:focus-visible {
 
 .spot.selected .spot-ring {
   stroke: var(--gilt);
+  animation: selected 1.6s ease-in-out infinite;
+}
+
+/* Ce qu'on a choisi sur la carte : son anneau doré respire. */
+@keyframes selected {
+  0%,
+  100% {
+    stroke-opacity: 1;
+  }
+  50% {
+    stroke-opacity: 0.4;
+  }
 }
 
 .spot:focus-visible .spot-ring {
@@ -462,6 +526,165 @@ button:focus-visible {
 .bar-fill {
   fill: var(--gilt);
   transition: width 1s linear;
+}
+
+/* --- Les batailles, animées --- */
+
+/* La barre de vie d'un combattant : dorée pour tes troupes, rouge pour les monstres. */
+.health-back {
+  fill: rgba(8, 10, 16, 0.78);
+  stroke: var(--map-halo);
+  stroke-width: 2;
+}
+
+.health-fill {
+  fill: var(--gilt);
+  transform-box: fill-box;
+  transform-origin: left center;
+  transition: transform 0.8s ease-out;
+}
+
+.health-fill.foe {
+  fill: var(--ember);
+}
+
+/* Les dégâts d'une manche s'envolent au-dessus de celui qui les reçoit. */
+.float-damage {
+  font: 700 22px var(--font-body);
+  text-anchor: middle;
+  dominant-baseline: central;
+  paint-order: stroke;
+  stroke: var(--map-halo);
+  stroke-width: 5px;
+  stroke-linejoin: round;
+  pointer-events: none;
+  animation: float-up 1.8s ease-out forwards;
+}
+
+.float-damage.ally {
+  fill: var(--ember);
+}
+
+.float-damage.foe {
+  fill: var(--parchment);
+}
+
+@keyframes float-up {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  15%,
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-34px);
+  }
+}
+
+/* Celui qui reçoit des coups tremble un instant. */
+.hit {
+  animation: hit 0.4s ease-out;
+}
+
+@keyframes hit {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  20% {
+    transform: translate(-5px, 1px);
+  }
+  45% {
+    transform: translate(5px, -1px);
+  }
+  70% {
+    transform: translate(-3px, 0);
+  }
+}
+
+/* Les épées croisées tressautent à chaque manche. */
+.bump {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: bump 0.5s ease-out;
+}
+
+@keyframes bump {
+  0% {
+    transform: scale(1.45);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* Des étincelles volent d'un combattant à l'autre (le chemin vient de --dx et --dy). */
+.spark {
+  pointer-events: none;
+  animation: shot 0.75s ease-in forwards;
+}
+
+.spark.ally {
+  fill: var(--gilt);
+}
+
+.spark.foe {
+  fill: var(--ember);
+}
+
+@keyframes shot {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0);
+  }
+  15% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--dx), var(--dy));
+  }
+}
+
+/* --- La vie des cartes : ce qui marche, récolte ou travaille bouge un peu --- */
+
+/* Une armée ou une bande en marche avance d'un pas balancé ; un raid, d'un pas pressé. */
+.walker.walking {
+  animation: walk 0.7s ease-in-out infinite;
+}
+
+.walker.walking.hurry {
+  animation-duration: 0.5s;
+}
+
+@keyframes walk {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+/* Une armée qui récolte : la pioche va et vient. */
+.swing {
+  transform-box: fill-box;
+  transform-origin: 50% 85%;
+  animation: swing 0.9s ease-in-out infinite;
+}
+
+@keyframes swing {
+  0%,
+  100% {
+    transform: rotate(-18deg);
+  }
+  50% {
+    transform: rotate(18deg);
+  }
 }
 
 /* --- Les pastilles : la liste rapide des bâtiments ou des camps, sous la carte --- */
