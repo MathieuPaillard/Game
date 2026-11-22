@@ -131,6 +131,8 @@ export const WORLD_MAP = { width: WORLD.width, height: WORLD.height, center: WOR
 
 export const WORLD_DECOR = {
   river: 'M 660 0 C 620 120 540 210 430 250 S 170 330 0 370',
+  /** Le pont du chemin qui mène au Nid de la vouivre, là où il franchit la rivière (et son angle, en degrés). */
+  bridge: { x: 368, y: 271, angle: 38.9 },
   patches: patches(23, 30, WORLD.width, WORLD.height),
   lake: { cx: 1360, cy: 190, rx: 150, ry: 80 },
   marshes: [

@@ -361,6 +361,16 @@ const battles = computed(() =>
       <line :x1="city.x" :y1="city.y" :x2="camp.position.x" :y2="camp.position.y" class="trail-edge" />
       <line :x1="city.x" :y1="city.y" :x2="camp.position.x" :y2="camp.position.y" class="trail" />
     </g>
+    <!-- Le pont de bois sur la rivière, vers le Nid de la vouivre -->
+    <g
+      :transform="`translate(${WORLD_DECOR.bridge.x} ${WORLD_DECOR.bridge.y}) rotate(${WORLD_DECOR.bridge.angle})`"
+      aria-hidden="true"
+    >
+      <rect x="-46" y="-17" width="92" height="34" rx="5" class="bridge" />
+      <line v-for="plank in 7" :key="`plank-${plank}`" :x1="-46 + plank * 11.5" y1="-17" :x2="-46 + plank * 11.5" y2="17" class="plank" />
+      <line x1="-46" y1="-17" x2="46" y2="-17" class="rail" />
+      <line x1="-46" y1="17" x2="46" y2="17" class="rail" />
+    </g>
     <!-- Les rondes des bandes, et le chemin des raids jusqu'à la cité -->
     <polygon v-for="band in patrols" :key="`loop-${band.key}`" :points="band.loop" class="patrol" />
     <line
@@ -603,6 +613,22 @@ const battles = computed(() =>
 .node-base {
   fill: var(--map-camp);
   opacity: 0.85;
+}
+
+/* Le pont de bois, ses planches et ses rambardes. */
+.bridge {
+  fill: #7a5a3a;
+}
+
+.plank {
+  stroke: #5b4029;
+  stroke-width: 2;
+}
+
+.rail {
+  stroke: #4a3220;
+  stroke-width: 5;
+  stroke-linecap: round;
 }
 
 /* Les chemins de terre, avec leurs bas-côtés. */

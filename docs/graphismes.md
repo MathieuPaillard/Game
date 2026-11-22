@@ -95,7 +95,7 @@ Pour chaque image : le nom du fichier à utiliser, puis ce qu'il faut écrire ap
 ### Créatures légendaires
 
 | Fichier | Description |
-|---------|-------------|
+|---|---|
 | `dragon.png` | Créature en pied : un jeune dragon aux écailles rouge sombre et or, ailes à demi déployées, une flamme au coin de la gueule. |
 | `dragon-oeuf.png` | Objet : un gros œuf écailleux, rouge sombre veiné d'or, posé sur des braises. |
 
