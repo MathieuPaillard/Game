@@ -4,6 +4,7 @@ import { RESOURCES, RESOURCE_IDS, type MonsterId } from '../game/config'
 import {
   battleSurvivors,
   carryCapacity,
+  dragonLevel,
   getHero,
   getHeroDef,
   getMonster,
@@ -76,6 +77,7 @@ const load = computed(() =>
       Menée par <span aria-hidden="true">{{ hero.def.icon }}</span> <strong>{{ hero.def.name }}</strong>
       (niveau {{ hero.level }})
     </p>
+    <p v-if="army.dragon"><span aria-hidden="true">🐉</span> Le dragon l’accompagne (niveau {{ dragonLevel(state) }}).</p>
     <p v-if="eta !== null">Arrivée dans {{ formatDuration(eta) }}.</p>
     <div v-if="fight" class="fight" role="status">
       <p>

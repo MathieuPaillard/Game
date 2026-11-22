@@ -3,6 +3,7 @@
 import { RESOURCES, RESOURCE_IDS, type Resources } from '../game/config'
 import {
   currentQuest,
+  dragonLevel,
   emptyResources,
   getBuilding,
   getHeroDef,
@@ -66,6 +67,12 @@ export function makeAwayReport(before: GameState, after: GameState): AwayReport 
     if (was && hero.level > was.level) {
       events.push(`${getHeroDef(hero.id).name} atteint le niveau ${hero.level} : des points de compétence à placer.`)
     }
+  }
+  // Le dragon : il est né, ou il a grandi.
+  if (before.dragon?.stage !== 'grown' && after.dragon?.stage === 'grown') {
+    events.push('Ton dragon est né ! Il t’attend dans son aire.')
+  } else if (dragonLevel(after) > dragonLevel(before)) {
+    events.push(`Ton dragon atteint le niveau ${dragonLevel(after)}.`)
   }
   for (const active of before.spells) {
     if (!after.spells.some((s) => s.spell === active.spell)) events.push(`Le sort ${getSpell(active.spell).name} a pris fin.`)

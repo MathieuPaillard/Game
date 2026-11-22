@@ -240,9 +240,10 @@ export function useGame() {
     learn: (hero: HeroId, skill: string) => perform({ type: 'skill', hero, skill }),
     claim: (quest: string) => perform({ type: 'claim', quest }),
     cast: (spell: SpellId) => perform({ type: 'cast', spell }),
-    /** Une armée sort de la cité ; sans héros, l'ordre ne parle pas de héros. */
-    march: (target: Target, troops: Army, hero: HeroId | null) =>
-      perform(hero ? { type: 'march', target, troops, hero } : { type: 'march', target, troops }),
+    hatch: () => perform({ type: 'hatch' }),
+    /** Une armée sort de la cité ; sans héros ni dragon, l'ordre n'en parle pas. */
+    march: (target: Target, troops: Army, hero: HeroId | null, dragon = false) =>
+      perform({ type: 'march', target, troops, ...(hero ? { hero } : {}), ...(dragon ? { dragon: true } : {}) }),
     order: (army: number, target: Target) => perform({ type: 'order', army, target }),
     dismiss: (troops: Army) => perform({ type: 'dismiss', troops }),
     async restart() {

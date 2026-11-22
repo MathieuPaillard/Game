@@ -18,8 +18,10 @@ import {
   bandMonsters,
   bandsNearPath,
   carryCapacity,
+  checkDragon,
   checkMarch,
   checkMarchSlot,
+  dragonLevel,
   gatherRate,
   getBand,
   getBandKind,
@@ -48,7 +50,7 @@ import { STATUS_ICONS, armyStatusText, bandName } from './world'
 // gisement. On y compose une nouvelle armée, qui part aussitôt de la cité, ou on y envoie d'un geste
 // une armée déjà dehors.
 const props = defineProps<{ target: Target; state: GameState; now: number }>()
-const emit = defineEmits<{ march: [troops: Army, hero: HeroId | null]; order: [army: number] }>()
+const emit = defineEmits<{ march: [troops: Army, hero: HeroId | null, dragon: boolean]; order: [army: number] }>()
 
 function total(monsters: Monsters): number {
   return Object.values(monsters).reduce((sum, count) => sum + (count ?? 0), 0)
@@ -121,6 +123,15 @@ const hero = ref<HeroId | null>(
   (freeHeroes.value.find((h) => gathers(h.id) === gathering.value) ?? freeHeroes.value[0])?.id ?? null,
 )
 
+// Le dragon, s'il est né : il part par défaut pour un combat, s'il est dans son aire et en forme.
+const dragon = computed(() => {
+  if (props.state.dragon?.stage !== 'grown') return null
+  const check = checkDragon(props.state)
+  return { level: dragonLevel(props.state), ok: check.ok, reason: check.ok ? null : check.reason }
+})
+const withDragon = ref(!gathering.value && checkDragon(props.state).ok)
+const takeDragon = computed(() => withDragon.value && dragon.value?.ok === true)
+
 const position = computed(() => targetPosition(props.state, props.target))
 const march = computed(() => (position.value ? marchDuration(props.state, WORLD.city, position.value, hero.value) : 0))
 const foes = computed(() =>
@@ -161,10 +172,10 @@ const hungryOnArrival = computed(() => {
   return !gathering.value && famineIn !== null && famineIn < march.value
 })
 const malusPercent = Math.round(STARVATION_ATTACK_MALUS * 100)
-const check = computed(() => checkMarch(props.state, props.target, { ...selection }, hero.value))
+const check = computed(() => checkMarch(props.state, props.target, { ...selection }, hero.value, takeDragon.value))
 
 function send() {
-  if (check.value.ok) emit('march', { ...selection }, hero.value)
+  if (check.value.ok) emit('march', { ...selection }, hero.value, takeDragon.value)
 }
 
 // --- Les armées déjà dehors : un geste suffit pour les envoyer ici ---
@@ -279,6 +290,21 @@ const fieldArmies = computed(() =>
       </fieldset>
       <p v-else-if="state.heroes.length" class="muted">Tes héros mènent déjà d’autres armées.</p>
 
+      <div v-if="dragon" class="dragon-pick">
+        <button
+          type="button"
+          class="chip"
+          :aria-pressed="takeDragon"
+          :disabled="!dragon.ok"
+          @click="withDragon = !withDragon"
+        >
+          <span aria-hidden="true">🐉</span>
+          Emmener le dragon
+          <span class="chip-tag">niv. {{ dragon.level }}</span>
+        </button>
+        <p v-if="dragon.reason" class="muted">{{ dragon.reason }}.</p>
+      </div>
+
       <div v-for="id in available" :key="id" class="pick">
         <label :for="`send-${info.key}-${id}`">
           {{ getUnit(id).icon }} {{ getUnit(id).name }} <span class="muted">(max {{ state.troops[id] }})</span>
@@ -363,5 +389,12 @@ const fieldArmies = computed(() =>
   display: flex;
   flex-direction: column;
   gap: 0.15rem;
+}
+
+.dragon-pick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
 }
 </style>

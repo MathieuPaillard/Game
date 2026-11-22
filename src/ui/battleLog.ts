@@ -1,7 +1,7 @@
 // Raconte une bataille à partir de son rapport : qui avait l'avantage, chaque manche, puis l'issue.
 
 import { isStrongAgainst } from '../game/battle'
-import { COUNTER_BONUS, UNIT_IDS, WALL_GUARD, type BandKindId, type MonsterId } from '../game/config'
+import { COUNTER_BONUS, DRAGON_FAMILY, UNIT_IDS, WALL_GUARD, type BandKindId, type MonsterId } from '../game/config'
 import { getBandKind, getCamp, getMonster, getUnit, type BattleReport, type Foe, type Outcome } from '../game/rules'
 import { formatAmount } from './format'
 
@@ -60,6 +60,13 @@ export function describeBattle(report: BattleReport): BattleStory {
       if (isStrongAgainst(monster.family, family)) edges.push(`les ${monster.name} dominent tes ${getUnit(unit).name}`)
     }
   }
+  if (report.dragon) {
+    for (const id of monsters) {
+      const monster = getMonster(id)
+      if (isStrongAgainst(DRAGON_FAMILY, monster.family)) edges.push(`ton dragon domine les ${monster.name}`)
+      if (isStrongAgainst(monster.family, DRAGON_FAMILY)) edges.push(`les ${monster.name} dominent ton dragon`)
+    }
+  }
   if (guards > 0) {
     for (const id of monsters) {
       const monster = getMonster(id)
@@ -99,11 +106,12 @@ export function describeBattle(report: BattleReport): BattleStory {
     const dealt = foeLosses.length ? ` : ${foeLosses.join(', ')}` : ', sans abattre personne'
     const taken = ownLosses.length ? ` : ${ownLosses.join(', ')}` : ', sans abattre personne'
     const side = siege ? 'Tes défenseurs infligent' : 'Ton armée inflige'
+    const dragonFell = round.dragonFell ? ' Blessé, le dragon quitte le combat.' : ''
     return {
       title: `Manche ${i + 1}`,
       text:
         `${side} ${formatAmount(round.dealt)} dégâts${dealt}. ` +
-        `Les monstres infligent ${formatAmount(round.taken)} dégâts${taken}.`,
+        `Les monstres infligent ${formatAmount(round.taken)} dégâts${taken}.${dragonFell}`,
     }
   })
 

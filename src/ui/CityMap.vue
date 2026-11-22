@@ -1,7 +1,18 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { BUILDINGS, RESOURCES } from '../game/config'
-import { armySize, battleSurvivors, checkUpgrade, constructionOf, siegeOf, skillPoints, type GameState } from '../game/rules'
+import { BUILDINGS, DRAGON_EGG_ICON, DRAGON_HATCH_SECONDS, DRAGON_ICON, RESOURCES } from '../game/config'
+import {
+  armySize,
+  battleSurvivors,
+  checkUpgrade,
+  constructionOf,
+  dragonArmy,
+  dragonLevel,
+  dragonResting,
+  siegeOf,
+  skillPoints,
+  type GameState,
+} from '../game/rules'
 import HealthBar from './HealthBar.vue'
 import MapGround from './MapGround.vue'
 import MapViewport from './MapViewport.vue'
@@ -77,6 +88,21 @@ const heroes = computed(() => ({
   ready: props.state.heroes.some((hero) => skillPoints(hero) > 0),
 }))
 
+// L'Aire du dragon : l'œuf qui attend ou éclôt, ou le dragon quand il est chez lui (endormi s'il se repose).
+const lair = computed(() => {
+  const dragon = props.state.dragon
+  if (!dragon) return null
+  if (dragon.stage !== 'grown') {
+    const at = dragon.stage === 'hatching' ? dragon.hatchAt : null
+    const progress =
+      at === null ? null : Math.min(1, Math.max(0, 1 - (at - props.now) / (DRAGON_HATCH_SECONDS * 1000)))
+    return { icon: DRAGON_EGG_ICON, egg: true, resting: false, progress }
+  }
+  // Parti avec une armée, il n'est pas dans son aire.
+  if (dragonArmy(props.state)) return null
+  return { icon: DRAGON_ICON, egg: false, resting: dragonResting(props.state, props.now), progress: null }
+})
+
 // Ce qui s'active dans un bâtiment : un entraînement à la Caserne, une recherche à l'Académie, un sort
 // lancé depuis la Tour des mages.
 const busy = computed<Partial<Record<string, string>>>(() => ({
@@ -111,8 +137,18 @@ function pill(text: string | number): number {
 function describe(plot: (typeof plots.value)[number]): string {
   const name = plot.building.name
   if (plot.locked) return `${name} : se débloque au Château niveau ${plot.building.unlockedAtCastleLevel}`
-  if (plot.level === 0) return `${name} : pas encore construit`
-  return `${name} : niveau ${plot.level}${plot.works ? ', en construction' : ''}`
+  if (plot.level === 0) return `${name} : pas encore construit${lairText(plot.building.id)}`
+  return `${name} : niveau ${plot.level}${plot.works ? ', en construction' : ''}${lairText(plot.building.id)}`
+}
+
+/** Ce que l'on voit sur l'Aire du dragon, pour les lecteurs d'écran. */
+function lairText(id: string): string {
+  const dragon = props.state.dragon
+  if (id !== 'dragonRoost' || !dragon) return ''
+  if (dragon.stage === 'egg') return ', un œuf de dragon attend d’être couvé'
+  if (dragon.stage === 'hatching') return ', l’œuf de dragon est en train d’éclore'
+  if (!lair.value) return ', le dragon est parti avec une armée'
+  return `, le dragon de niveau ${dragonLevel(props.state)}${lair.value.resting ? ' s’y repose, blessé' : ' est là'}`
 }
 </script>
 
@@ -216,6 +252,10 @@ function describe(plot: (typeof plots.value)[number]): string {
         {{ plot.puff }}
       </text>
       <text v-if="plot.busy" class="emoji busy" font-size="28" x="-42" y="-30">{{ plot.busy }}</text>
+      <g v-if="plot.building.id === 'dragonRoost' && lair" class="lair" transform="translate(-62 0)">
+        <text class="emoji" :class="lair.egg ? 'wobble' : 'breathe'" :font-size="lair.egg ? 34 : 48">{{ lair.icon }}</text>
+        <text v-if="lair.resting" class="emoji zzz" font-size="22" x="20" y="-28">💤</text>
+      </g>
       <g v-if="plot.level > 0 || plot.ready" transform="translate(38 -36)">
         <circle r="16" class="badge" :class="{ ready: plot.ready }" />
         <text class="badge-text">{{ plot.level > 0 ? plot.level : '+' }}</text>
@@ -224,6 +264,10 @@ function describe(plot: (typeof plots.value)[number]): string {
       <g v-if="plot.works" transform="translate(-50 88)">
         <rect width="100" height="9" rx="4.5" class="bar" />
         <rect :width="100 * plot.progress" height="9" rx="4.5" class="bar-fill" />
+      </g>
+      <g v-else-if="plot.building.id === 'dragonRoost' && lair?.progress != null" transform="translate(-50 88)">
+        <rect width="100" height="9" rx="4.5" class="bar" />
+        <rect :width="100 * lair.progress" height="9" rx="4.5" class="bar-fill hatch" />
       </g>
       <text v-else-if="plot.locked" class="map-sublabel" y="96">
         Château niv. {{ plot.building.unlockedAtCastleLevel }}
@@ -411,6 +455,54 @@ function describe(plot: (typeof plots.value)[number]): string {
     opacity: 0;
     transform: translateY(-48px);
   }
+}
+
+/* L'œuf de dragon remue ; le dragon respire, endormi s'il se repose. */
+.wobble {
+  transform-box: fill-box;
+  transform-origin: 50% 90%;
+  animation: wobble 1.6s ease-in-out infinite;
+}
+
+@keyframes wobble {
+  0%,
+  60%,
+  100% {
+    transform: rotate(0deg);
+  }
+  70% {
+    transform: rotate(-12deg);
+  }
+  80% {
+    transform: rotate(10deg);
+  }
+  90% {
+    transform: rotate(-5deg);
+  }
+}
+
+.breathe {
+  transform-box: fill-box;
+  transform-origin: 50% 80%;
+  animation: breathe 3s ease-in-out infinite;
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.06);
+  }
+}
+
+.zzz {
+  animation: glow 2.6s ease-in-out infinite alternate;
+}
+
+.bar-fill.hatch {
+  fill: var(--ember);
 }
 
 /* Le puits de mana luit doucement. */

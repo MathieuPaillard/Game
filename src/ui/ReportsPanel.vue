@@ -1,7 +1,15 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { RESOURCES, RESOURCE_IDS, STARVATION_ATTACK_MALUS, type MonsterId, type Resources } from '../game/config'
-import { armySize, getHeroDef, getMonster, type BattleReport, type GameState, type HeroGain } from '../game/rules'
+import {
+  armySize,
+  getHeroDef,
+  getMonster,
+  type BattleReport,
+  type DragonGain,
+  type GameState,
+  type HeroGain,
+} from '../game/rules'
 import { describeBattle, foeName, reportTitle } from './battleLog'
 import { formatAgo, formatAmount, formatArmy, formatDuration } from './format'
 
@@ -25,6 +33,13 @@ function heroText(gain: HeroGain): string {
   const hero = getHeroDef(gain.hero)
   const levelUp = gain.levelsGained > 0 ? ` et passe au niveau ${gain.level} !` : '.'
   return `${hero.icon} ${hero.name} gagne ${formatAmount(gain.xp)} XP${levelUp}`
+}
+
+/** Ce qu'a vécu le dragon : « 🐉 Le dragon gagne 120 XP et passe au niveau 2 ! » */
+function dragonText(gain: DragonGain): string {
+  const levelUp = gain.levelsGained > 0 ? ` et passe au niveau ${gain.level} !` : '.'
+  const wounded = gain.wounded ? ' Blessé, il regagne son aire pour se reposer.' : ''
+  return `🐉 Le dragon gagne ${formatAmount(gain.xp)} XP${levelUp}${wounded}`
 }
 
 /** Qui défendait la cité : « 🛡️ Guerriers 30 + 🧱 16 gardes des Remparts ». */
@@ -92,6 +107,9 @@ function lootText(loot: Partial<Resources>): string {
           Pillé : {{ lootText(report.siege.plunder) }}
         </p>
         <p v-if="report.hero" :class="{ won: report.hero.levelsGained > 0 }">{{ heroText(report.hero) }}</p>
+        <p v-if="report.dragon" :class="{ won: report.dragon.levelsGained > 0, lost: report.dragon.wounded }">
+          {{ dragonText(report.dragon) }}
+        </p>
         <p v-if="report.starving" class="lost">Tes troupes avaient faim : {{ malusPercent }} % d’attaque en moins.</p>
         <details v-if="report.rounds.length" class="journal">
           <summary>Journal du combat</summary>

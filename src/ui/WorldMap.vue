@@ -298,6 +298,7 @@ const armies = computed(() =>
       dragged: aim.value?.id === army.id,
       status: army.status,
       fight: battle ? fightFx(battle) : null,
+      dragon: army.dragon,
     }
   }),
 )
@@ -523,7 +524,7 @@ const battles = computed(() =>
       :style="{ transform: `translate(${army.x}px, ${army.y}px)` }"
       role="button"
       tabindex="0"
-      :aria-label="`Ton armée de ${army.size} troupes${army.hero ? `, menée par ${army.hero.name}` : ''}`"
+      :aria-label="`Ton armée de ${army.size} troupes${army.hero ? `, menée par ${army.hero.name}` : ''}${army.dragon ? ', avec le dragon' : ''}`"
       :aria-pressed="army.selected"
       :data-army="army.key"
       @pointerdown="onArmyPointerDown(army.key, $event)"
@@ -541,6 +542,10 @@ const battles = computed(() =>
       <g v-if="army.hero" transform="translate(28 -24)">
         <circle r="17" class="badge" />
         <text class="emoji" font-size="20">{{ army.hero.icon }}</text>
+      </g>
+      <g v-if="army.dragon" transform="translate(-28 -24)">
+        <circle r="17" class="badge dragon-badge" />
+        <text class="emoji" font-size="20">🐉</text>
       </g>
       <text class="map-label" y="-44">{{ army.size }}</text>
       <template v-if="army.fight">
@@ -764,6 +769,10 @@ const battles = computed(() =>
   stroke: var(--ember);
   stroke-width: 4;
   stroke-dasharray: 8 6;
+}
+
+.dragon-badge {
+  stroke: var(--ember);
 }
 
 .round-number {

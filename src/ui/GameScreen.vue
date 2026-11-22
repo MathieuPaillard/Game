@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
+  DRAGON_EGG_ICON,
   RESOURCES,
   RESOURCE_IDS,
   SECOND_CONSTRUCTION_CASTLE_LEVEL,
@@ -40,6 +41,7 @@ import type { AwayReport } from './away'
 import BuildingCard from './BuildingCard.vue'
 import CityMap from './CityMap.vue'
 import DefenseCard from './DefenseCard.vue'
+import DragonCard from './DragonCard.vue'
 import GarrisonCard from './GarrisonCard.vue'
 import HeroPanel from './HeroPanel.vue'
 import NoticeBar from './NoticeBar.vue'
@@ -77,7 +79,8 @@ const emit = defineEmits<{
   learn: [hero: HeroId, skill: string]
   claim: [quest: string]
   cast: [spell: SpellId]
-  march: [target: Target, troops: Army, hero: HeroId | null]
+  hatch: []
+  march: [target: Target, troops: Army, hero: HeroId | null, dragon: boolean]
   order: [army: number, target: Target]
   dismiss: [troops: Army]
   restart: []
@@ -228,9 +231,9 @@ function tapWorld(point: Point) {
 
 // Une nouvelle armée sort de la cité : on la choisit dès qu'elle apparaît, pour la suivre et la diriger.
 let knownArmies: number[] | null = null
-function march(to: Target, troops: Army, hero: HeroId | null) {
+function march(to: Target, troops: Army, hero: HeroId | null, dragon: boolean) {
   knownArmies = props.state.armies.map((army) => army.id)
-  emit('march', to, troops, hero)
+  emit('march', to, troops, hero, dragon)
   void nextTick(() => (knownArmies = null))
 }
 watch(
@@ -337,6 +340,17 @@ const activities = computed(() => {
       label: `Entraînement : ${unit.name} +${training.count}`,
       endsAt: training.endsAt,
       building: 'barracks',
+    })
+  }
+  // L'œuf de dragon qui éclôt.
+  const hatchAt = state.dragon?.stage === 'hatching' ? state.dragon.hatchAt : null
+  if (hatchAt !== null && hatchAt !== undefined) {
+    list.push({
+      key: 'dragon-hatch',
+      icon: DRAGON_EGG_ICON,
+      label: 'Éclosion du dragon',
+      endsAt: hatchAt,
+      building: 'dragonRoost',
     })
   }
   for (const active of state.spells) {
@@ -629,6 +643,13 @@ onBeforeUnmount(() => {
             @cast="(spell) => emit('cast', spell)"
           />
           <DefenseCard v-else-if="buildingId === 'walls'" :state="state" :now="now" @show-raid="showRaid" />
+          <DragonCard
+            v-else-if="buildingId === 'dragonRoost'"
+            :state="state"
+            :now="now"
+            @hatch="emit('hatch')"
+            @show-army="(id) => open({ kind: 'army', id })"
+          />
         </template>
 
         <GarrisonCard
@@ -651,7 +672,7 @@ onBeforeUnmount(() => {
           :target="target"
           :state="state"
           :now="now"
-          @march="(troops, hero) => march(target!, troops, hero)"
+          @march="(troops, hero, dragon) => march(target!, troops, hero, dragon)"
           @order="(army) => command(army, target!)"
         />
 
