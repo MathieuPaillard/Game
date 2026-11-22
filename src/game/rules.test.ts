@@ -1,10 +1,18 @@
 import { describe, expect, it } from 'vitest'
+import { isStrongAgainst } from './battle.ts'
 import {
   BAND_KINDS,
   BAND_SPAWN_SECONDS,
   BAND_SPOTS,
+  BATTLE_DAMAGE_SCALE,
   BATTLE_ROUND_SECONDS,
   COUNTER_BONUS,
+  DRAGON_FAMILY,
+  DRAGON_HATCH_COST,
+  DRAGON_HATCH_SECONDS,
+  DRAGON_MAX_LEVEL,
+  DRAGON_REST_SECONDS,
+  DRAGON_UPKEEP_PER_LEVEL,
   HEROES,
   HERO_MAX_LEVEL,
   MAX_BAND_LEVEL,
@@ -66,6 +74,8 @@ import {
   checkCast,
   checkClaim,
   checkDismiss,
+  checkDragon,
+  checkHatch,
   checkMarch,
   checkMarchSlot,
   checkOrder,
@@ -78,6 +88,11 @@ import {
   currentQuest,
   dismissTroops,
   distance,
+  dragonArmy,
+  dragonAttack,
+  dragonHealth,
+  dragonLevel,
+  dragonXpForLevel,
   emptyArmy,
   emptyResources,
   gainXp,
@@ -92,6 +107,7 @@ import {
   getSpell,
   getTech,
   getUnit,
+  hatchEgg,
   heroArmy,
   isStarving,
   learnSkill,
@@ -236,6 +252,15 @@ function withRaid(
     raid: true,
   }
   return { game: { ...game, bands: [...game.bands, band], nextId: game.nextId + 1 }, id: band.id }
+}
+
+/** Donne à la partie un dragon de ce niveau, et l'aire qu'il lui faut (sans dépendre de ses combats). */
+function withDragon(game: GameState, level = 1): GameState {
+  return {
+    ...game,
+    levels: { ...game.levels, dragonRoost: Math.max(game.levels.dragonRoost, level) },
+    dragon: { stage: 'grown', hatchAt: null, xp: dragonXpForLevel(level), restUntil: null },
+  }
 }
 
 /** Recrute un héros, avec ses compétences déjà apprises (sans dépendre de son expérience). */
@@ -1184,6 +1209,131 @@ describe('les raids et la défense de la cité', () => {
   })
 })
 
+describe('le dragon', () => {
+  it('une quête donne un œuf ; couvé dans l’Aire du dragon, il éclôt', () => {
+    const quest = QUESTS.find((q) => q.gift === 'dragonEgg')!
+    // Tous les objectifs d'avant sont reçus : celui de l'œuf est l'objectif du moment.
+    const before = { ...reach(richGame(), quest), quests: QUESTS.slice(0, QUESTS.indexOf(quest)).map((q) => q.id) }
+    const egg = claimQuest(before, quest.id, T0)
+    expect(egg.dragon).toEqual({ stage: 'egg', hatchAt: null, xp: 0, restUntil: null })
+    expect(dragonLevel(egg)).toBe(0)
+    expect(checkHatch(egg)).toEqual({ ok: false, reason: 'Construis d’abord l’Aire du dragon' })
+    const roost = { ...egg, levels: { ...egg.levels, dragonRoost: 1 } }
+    const hatching = hatchEgg(roost, T0)
+    for (const id of RESOURCE_IDS) {
+      expect(hatching.resources[id]).toBeCloseTo(roost.resources[id] - (DRAGON_HATCH_COST[id] ?? 0))
+    }
+    expect(hatching.dragon?.stage).toBe('hatching')
+    expect(checkHatch(hatching)).toEqual({ ok: false, reason: 'L’œuf est déjà en train d’éclore' })
+    const at = T0 + DRAGON_HATCH_SECONDS * 1000
+    expect(advance(hatching, at - 1).dragon?.stage).toBe('hatching')
+    const born = advance(hatching, at)
+    expect(born.dragon).toEqual({ stage: 'grown', hatchAt: null, xp: 0, restUntil: null })
+    expect(dragonLevel(born)).toBe(1)
+    expect(checkHatch(born)).toEqual({ ok: false, reason: 'Le dragon est déjà né' })
+    expect(checkHatch(richGame())).toEqual({ ok: false, reason: 'Il te faut d’abord un œuf de dragon' })
+  })
+
+  it('le dragon grandit avec l’expérience, sans jamais dépasser le niveau de son aire', () => {
+    const young = withDragon(richGame(), 1)
+    const seasoned = { ...young, dragon: { ...young.dragon!, xp: dragonXpForLevel(4) } }
+    expect(dragonXpForLevel(2)).toBeLessThan(dragonXpForLevel(3))
+    expect(dragonLevel(seasoned)).toBe(1)
+    expect(dragonLevel({ ...seasoned, levels: { ...seasoned.levels, dragonRoost: 3 } })).toBe(3)
+    expect(dragonLevel({ ...seasoned, levels: { ...seasoned.levels, dragonRoost: 10 } })).toBe(4)
+    const legend = { ...seasoned, levels: { ...seasoned.levels, dragonRoost: 10 }, dragon: { ...young.dragon!, xp: 1e12 } }
+    expect(dragonLevel(legend)).toBe(DRAGON_MAX_LEVEL)
+    expect(dragonAttack(2)).toBeGreaterThan(dragonAttack(1))
+    expect(dragonHealth(2)).toBeGreaterThan(dragonHealth(1))
+  })
+
+  it('le dragon accompagne une armée, se bat avec elle et gagne de l’expérience', () => {
+    const { game, id } = withBand(withDragon(richGame({}, { warrior: 50 }), 1), nearCity(300), { goblin: 40 }, 2, 'goblins')
+    const start = startMarch(game, toBand(id), army({ warrior: 50 }), T0, null, true)
+    expect(start.armies[0].dragon).toBe(true)
+    expect(dragonArmy(start)?.id).toBe(start.armies[0].id)
+    expect(checkDragon(start)).toEqual({ ok: false, reason: 'Le dragon accompagne déjà une armée' })
+    const fighting = runUntil(start, (s) => (s.battles[0]?.rounds.length ?? 0) > 0)
+    expect(fighting.battles[0].dragon?.start).toBeCloseTo(dragonHealth(1) * fighting.battles[0].healthFactor)
+    const won = runUntil(fighting, (s) => s.reports.length > 0)
+    const xp = 40 * getMonster('goblin').xp
+    expect(won.reports[0]).toMatchObject({ outcome: 'victory', dragon: { xp, level: 1, wounded: false } })
+    expect(won.dragon?.xp).toBe(xp)
+    expect(won.armies[0].dragon).toBe(true)
+    // L'armée rentre : le dragon regagne son aire, prêt à repartir.
+    const home = runUntil(orderArmy(won, won.armies[0].id, CITY_TARGET, won.updatedAt), (s) => s.armies.length === 0)
+    expect(checkDragon(home)).toEqual({ ok: true })
+  })
+
+  it('le dragon frappe fort, avec les forces des mages', () => {
+    const firstRound = (game: GameState, dragon: boolean) => {
+      // Une bande assez nombreuse pour que les coups de la première manche ne soient pas plafonnés.
+      const target = withBand(game, nearCity(300), { goblin: 2000 })
+      const start = startMarch(target.game, toBand(target.id), army({ warrior: 50 }), T0, null, dragon)
+      return runUntil(start, (s) => (s.battles[0]?.rounds.length ?? 0) > 0).battles[0].rounds[0]
+    }
+    const game = withDragon(richGame({}, { warrior: 50 }), 2)
+    const bonus = isStrongAgainst(DRAGON_FAMILY, getMonster('goblin').family) ? COUNTER_BONUS : 1
+    const extra = firstRound(game, true).dealt - firstRound(game, false).dealt
+    expect(extra).toBeCloseTo(dragonAttack(2) * BATTLE_DAMAGE_SCALE * bonus, -1)
+  })
+
+  it('blessé, le dragon regagne son aire et s’y repose', () => {
+    // Une escorte minuscule face à une armée de trolls : le dragon finit par tomber.
+    const { game, id } = withBand(withDragon(richGame({}, { warrior: 1 }), 1), nearCity(300), { troll: 400 }, 5, 'trolls')
+    const start = startMarch(game, toBand(id), army({ warrior: 1 }), T0, null, true)
+    const lost = runUntil(start, (s) => s.reports.length > 0)
+    const report = lost.reports[0]
+    expect(report).toMatchObject({ outcome: 'defeat', dragon: { wounded: true } })
+    expect(report.rounds.some((round) => round.dragonFell)).toBe(true)
+    expect(lost.armies).toEqual([])
+    expect(lost.dragon?.restUntil).toBe(report.at + DRAGON_REST_SECONDS * 1000)
+    expect(checkDragon(lost)).toEqual({ ok: false, reason: 'Le dragon, blessé, se repose dans son aire' })
+    expect(checkDragon(advance(lost, report.at + DRAGON_REST_SECONDS * 1000))).toEqual({ ok: true })
+  })
+
+  it('dans son aire, le dragon défend la cité pendant un siège ; parti, il ne la défend pas', () => {
+    const home = withRaid(withDragon(richGame({}, { warrior: 10 }), 2), { goblin: 30 }, RAID_SPEED)
+    const besieged = advance(home.game, raidArrival(home.game.bands[0])!)
+    expect(siegeOf(besieged)?.dragon).not.toBeNull()
+    const won = runUntil(besieged, (s) => s.reports.length > 0)
+    expect(won.reports[0]).toMatchObject({ outcome: 'victory', dragon: { wounded: false } })
+    expect(won.reports[0].dragon!.xp).toBeGreaterThan(0)
+
+    const out = startMarch(withDragon(richGame({}, { warrior: 20 }), 2), toPoint(nearCity(600)), army({ warrior: 10 }), T0, null, true)
+    const raid = withRaid(out, { goblin: 30 }, 300)
+    expect(siegeOf(advance(raid.game, raidArrival(raid.game.bands[0])!))?.dragon).toBeNull()
+  })
+
+  it('le dragon mange, d’autant plus qu’il est grand', () => {
+    const game = richGame({}, { warrior: 10 })
+    expect(upkeepPerHour(withDragon(game, 3)) - upkeepPerHour(game)).toBe(3 * DRAGON_UPKEEP_PER_LEVEL)
+  })
+
+  it('sans dragon, il ne part pas ; et il lui faut toujours une escorte', () => {
+    const game = richGame({}, { warrior: 10 })
+    expect(checkMarch(game, toCamp('wolfDen'), army({ warrior: 1 }), null, true)).toEqual({
+      ok: false,
+      reason: 'Tu n’as pas encore de dragon',
+    })
+    expect(checkMarch(withDragon(game), toCamp('wolfDen'), army({}), null, true).ok).toBe(false)
+    expect(checkMarch(withDragon(game), toCamp('wolfDen'), army({ warrior: 1 }), null, true)).toEqual({ ok: true })
+  })
+
+  it('donne le même résultat d’un coup ou seconde par seconde, avec le dragon', () => {
+    const { game, id } = withBand(withDragon(richGame({}, { warrior: 40 }), 2), nearCity(300), { troll: 20 }, 4, 'trolls')
+    const start = startMarch(game, toBand(id), army({ warrior: 40 }), T0, null, true)
+    const end = T0 + 30 * 60 * 1000
+    const oneShot = advance(start, end)
+    let stepped = start
+    for (let t = T0 + 1000; t <= end; t += 1000) stepped = advance(stepped, t)
+    expect(oneShot.reports.length).toBeGreaterThan(0)
+    expect(stepped.reports).toEqual(oneShot.reports)
+    expect(stepped.dragon).toEqual(oneShot.dragon)
+    expect(stepped.armies).toEqual(oneShot.armies)
+  })
+})
+
 describe('les héros', () => {
   it('on recrute un héros avec ses ressources, à partir d’un niveau du Château', () => {
     const ysolde = getHeroDef('ysolde')
@@ -1335,6 +1485,10 @@ function reach(game: GameState, quest: QuestDef): GameState {
       return { ...game, stats: { ...game.stats, gathered: goal.amount } }
     case 'raids':
       return { ...game, stats: { ...game.stats, raidsRepelled: goal.count } }
+    case 'camp':
+      return { ...game, stats: { ...game.stats, campsDefeated: { ...game.stats.campsDefeated, [goal.camp]: goal.count } } }
+    case 'dragonLevel':
+      return withDragon(game, goal.level)
   }
 }
 
@@ -1378,7 +1532,7 @@ describe('les quêtes', () => {
     const camp = runUntil(startMarch(home, toCamp('wolfDen'), army({ warrior: 500 }), home.updatedAt), (s) =>
       s.reports.length > 1,
     )
-    expect(camp.stats).toMatchObject({ victories: 2, bandsDefeated: 1 })
+    expect(camp.stats).toMatchObject({ victories: 2, bandsDefeated: 1, campsDefeated: { wolfDen: 1 } })
 
     const troops = army({ warrior: 10 })
     const { game: withWood, id: node } = withNode(richGame({}, troops), nearCity(200), 'wood', 1e6)

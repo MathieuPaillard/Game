@@ -92,6 +92,7 @@ export type BuildingId =
   | 'academy'
   | 'mageTower'
   | 'walls'
+  | 'dragonRoost'
 
 export interface BuildingDef {
   id: BuildingId
@@ -210,6 +211,15 @@ export const BUILDINGS: BuildingDef[] = [
     unlockedAtCastleLevel: 3,
     baseCost: { wood: 200, stone: 350, gold: 60 },
     baseDurationSeconds: 20,
+  },
+  {
+    id: 'dragonRoost',
+    name: 'Aire du dragon',
+    icon: '🌋',
+    description: 'Un œuf de dragon y éclôt, et le dragon y vit. Le dragon ne dépasse jamais le niveau de son aire.',
+    unlockedAtCastleLevel: 6,
+    baseCost: { wood: 900, stone: 1200, gold: 500, mana: 300 },
+    baseDurationSeconds: 60,
   },
 ]
 
@@ -1052,6 +1062,32 @@ export const BAND_SPOTS: Point[] = [
   { x: 1490, y: 110 },
 ]
 
+// --- Les créatures légendaires : le dragon ---
+// Un œuf de dragon se gagne par une quête. Couvé dans l'Aire du dragon, il éclôt. Le dragon grandit
+// en combattant (jamais au-delà du niveau de son aire), accompagne une armée ou défend la cité.
+// Blessé, il regagne son aire et s'y repose un moment ; il ne meurt jamais.
+
+/** Couver l'œuf coûte autant, et dure autant (en secondes). */
+export const DRAGON_HATCH_COST: Partial<Resources> = { food: 800, mana: 600 }
+export const DRAGON_HATCH_SECONDS = 15 * 60
+/** Le dragon au niveau 1 : son attaque et sa vie. Chaque niveau les multiplie par DRAGON_GROWTH. */
+export const DRAGON_ATTACK = 400
+export const DRAGON_HEALTH = 3000
+export const DRAGON_GROWTH = 1.3
+/** Il crache le feu : il se bat avec les forces et les faiblesses des mages (les archers le dominent). */
+export const DRAGON_FAMILY: Family = 'mage'
+/** L'expérience pour passer au niveau 2, puis 1,6 fois plus à chaque niveau, jusqu'au niveau 10. */
+export const DRAGON_BASE_XP = 300
+export const DRAGON_XP_GROWTH = 1.6
+export const DRAGON_MAX_LEVEL = 10
+/** Blessé au combat, il se repose ce temps dans son aire (en secondes). */
+export const DRAGON_REST_SECONDS = 20 * 60
+/** Il mange autant de nourriture par heure, pour chacun de ses niveaux. */
+export const DRAGON_UPKEEP_PER_LEVEL = 25
+/** Son icône, pour l'œuf et pour le dragon. */
+export const DRAGON_ICON = '🐉'
+export const DRAGON_EGG_ICON = '🥚'
+
 // --- Les raids et la défense de la cité ---
 // Quand la cité a grandi, des monstres viennent la piller : un raid part du bord de la carte et
 // marche droit sur elle. On peut l'intercepter avec une armée ; sinon, il assiège la cité, que
@@ -1176,6 +1212,10 @@ export type QuestGoal =
   | { kind: 'gathered'; amount: number }
   /** Autant de raids repoussés aux portes de la cité. */
   | { kind: 'raids'; count: number }
+  /** Autant de victoires contre ce camp de monstres. */
+  | { kind: 'camp'; camp: CampId; count: number }
+  /** Le dragon atteint ce niveau (le niveau 1 : il vient d'éclore). */
+  | { kind: 'dragonLevel'; level: number }
 
 export interface QuestDef {
   id: string
@@ -1184,6 +1224,8 @@ export interface QuestDef {
   description: string
   goal: QuestGoal
   reward: Partial<Resources>
+  /** Un présent de plus : un œuf de dragon. */
+  gift?: 'dragonEgg'
 }
 
 export const QUESTS: QuestDef[] = [
@@ -1306,6 +1348,65 @@ export const QUESTS: QuestDef[] = [
     goal: { kind: 'victories', count: 10 },
     reward: { gold: 1000, mana: 300 },
   },
+  // La légende du dragon : de nouveaux défis, jusqu'à la première créature légendaire.
+  {
+    id: 'castle6',
+    name: 'Une cité prospère',
+    description: 'Améliore le Château au niveau 6 : on parle de toi jusque dans les montagnes.',
+    goal: { kind: 'building', building: 'castle', level: 6 },
+    reward: { wood: 2000, stone: 2000, gold: 800 },
+  },
+  {
+    id: 'trollLair',
+    name: 'L’Antre du troll',
+    description: 'Remporte une victoire contre l’Antre du troll.',
+    goal: { kind: 'camp', camp: 'trollLair', count: 1 },
+    reward: { food: 1500, gold: 600 },
+  },
+  {
+    id: 'walls3',
+    name: 'Des murs de pierre',
+    description: 'Améliore les Remparts au niveau 3.',
+    goal: { kind: 'building', building: 'walls', level: 3 },
+    reward: { stone: 1500, gold: 500 },
+  },
+  {
+    id: 'dragonEgg',
+    name: 'La légende du dragon',
+    description:
+      'Les anciens parlent d’un œuf de dragon, gardé par les vouivres. Va le chercher au Nid de la vouivre, de l’autre côté de la rivière.',
+    goal: { kind: 'camp', camp: 'wyvernNest', count: 1 },
+    reward: { gold: 1000, mana: 800 },
+    gift: 'dragonEgg',
+  },
+  {
+    id: 'dragonRoost',
+    name: 'Un nid pour le dragon',
+    description: 'Construis l’Aire du dragon, pour y couver l’œuf.',
+    goal: { kind: 'building', building: 'dragonRoost', level: 1 },
+    reward: { food: 1500, mana: 600 },
+  },
+  {
+    id: 'dragonHatch',
+    name: 'L’éclosion',
+    description: 'Couve l’œuf dans l’Aire du dragon : un dragon va naître.',
+    goal: { kind: 'dragonLevel', level: 1 },
+    reward: { gold: 1000 },
+  },
+  {
+    id: 'raids3',
+    name: 'Les gardiens de la cité',
+    description: 'Repousse 3 raids de monstres.',
+    goal: { kind: 'raids', count: 3 },
+    reward: { food: 2000, stone: 2000 },
+  },
+  {
+    id: 'dragonLevel3',
+    name: 'Le dragon grandit',
+    description: 'Le dragon grandit en combattant, mais jamais au-delà du niveau de son aire : mène-le au niveau 3.',
+    goal: { kind: 'dragonLevel', level: 3 },
+    reward: { wood: 3000, stone: 3000, gold: 1500, mana: 1000 },
+  },
 ]
 
 // --- Départ ---
@@ -1323,4 +1424,5 @@ export const START_LEVELS: Record<BuildingId, number> = {
   academy: 0,
   mageTower: 0,
   walls: 0,
+  dragonRoost: 0,
 }

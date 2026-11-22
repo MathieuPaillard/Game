@@ -7,12 +7,15 @@
 //
 // Ce joueur est simple : il construit ce que demande l'objectif (et économise pour ça), entraîne des
 // guerriers, recrute Ysolde et Durgan, fait des recherches, et envoie son armée contre la bande la
-// plus proche (ou récolter quand l'objectif le demande). Quand un raid marche sur la cité, son armée
-// part l'intercepter. Un vrai joueur fera mieux, ou moins bien.
+// plus proche (ou récolter, ou attaquer un camp, quand l'objectif le demande). Quand un raid marche
+// sur la cité, son armée part l'intercepter. Il couve l'œuf de dragon dès qu'il peut, et emmène le
+// dragon à chaque combat. Un vrai joueur fera mieux, ou moins bien.
 
 import { CAMPS, QUESTS, RACES, WORLD, type BuildingId, type RaceId } from '../src/game/config.ts'
 import {
   advance,
+  checkDragon,
+  checkHatch,
   checkMarch,
   checkRecruit,
   checkResearch,
@@ -22,8 +25,10 @@ import {
   claimQuest,
   currentQuest,
   distance,
+  dragonLevel,
   emptyArmy,
   getHero,
+  hatchEgg,
   learnSkill,
   maxTrainingBatch,
   netPerHour,
@@ -72,6 +77,8 @@ function build(state: GameState, now: number): GameState {
   const goal = currentQuest(state)?.goal
   const wanted: BuildingId[] = []
   if (goal?.kind === 'building') wanted.push(nextStep(state, goal.building))
+  // Le dragon ne dépasse pas le niveau de son aire : pour le faire grandir, on agrandit l'aire.
+  if (goal?.kind === 'dragonLevel') wanted.push(nextStep(state, 'dragonRoost'))
   if (goal && ['troops', 'victories', 'bands', 'heroLevel'].includes(goal.kind)) wanted.push('barracks')
   if (goal?.kind === 'research') wanted.push('academy')
   // La nourriture d'abord, quand l'armée mange presque tout ce que les fermes produisent.
@@ -131,6 +138,9 @@ function play(state: GameState, now: number): GameState {
     if (tech) g = startResearch(g, tech, now)
   }
 
+  // L'œuf de dragon : on le couve dès que l'aire est construite.
+  if (checkHatch(g).ok) g = hatchEgg(g, now)
+
   // Des guerriers, en gardant de quoi manger.
   const count = Math.min(maxTrainingBatch(g), 20 + 15 * g.levels.castle - g.troops.warrior)
   if (count > 0 && g.resources.food > 600 && checkTraining(g, 'warrior', count).ok) {
@@ -145,12 +155,18 @@ function play(state: GameState, now: number): GameState {
   const raid = incomingRaid(g)
   const waitForRaid = currentQuest(g)?.goal.kind === 'raids' && !raid
   if (g.armies.length === 0 && g.troops.warrior >= 20 && !waitForRaid) {
-    const gathering = !raid && currentQuest(g)?.goal.kind === 'gathered'
+    const goal = currentQuest(g)?.goal
+    const gathering = !raid && goal?.kind === 'gathered'
     const nodes = [...g.nodes].sort((a, b) => distance(WORLD.city, a.position) - distance(WORLD.city, b.position))
-    const target: Target = raid ?? (gathering && nodes[0] ? { type: 'node', node: nodes[0].id } : nearestTarget(g))
+    // Un camp à vaincre : l'armée y va, avec assez de guerriers pour avoir ses chances.
+    const camp: Target | null =
+      goal?.kind === 'camp' && g.troops.warrior >= 40 * g.levels.castle ? { type: 'camp', camp: goal.camp } : null
+    const target: Target =
+      raid ?? camp ?? (gathering && nodes[0] ? { type: 'node', node: nodes[0].id } : nearestTarget(g))
     const troops = { ...emptyArmy(), warrior: g.troops.warrior }
     const hero = gathering ? (getHero(g, 'durgan') ? 'durgan' : null) : getHero(g, 'ysolde') ? 'ysolde' : null
-    if (checkMarch(g, target, troops, hero).ok) g = startMarch(g, target, troops, now, hero)
+    const dragon = !gathering && checkDragon(g).ok
+    if (checkMarch(g, target, troops, hero, dragon).ok) g = startMarch(g, target, troops, now, hero, dragon)
   }
   return g
 }
@@ -192,4 +208,5 @@ console.log('Bâtiments :', Object.entries(game.levels).map(([id, level]) => `${
 console.log('Héros :', game.heroes.map((hero) => `${hero.id} niv. ${hero.level}`).join(', ') || 'aucun')
 console.log(`Batailles gagnées : ${game.stats.victories} · bandes vaincues : ${game.stats.bandsDefeated}`)
 console.log(`Raids repoussés : ${game.stats.raidsRepelled} · pillages subis : ${pillages}`)
+console.log(`Dragon : ${game.dragon ? `${game.dragon.stage}, niveau ${dragonLevel(game)}` : 'aucun'}`)
 console.log(`Temps passé en famine : ${time(famine)}`)

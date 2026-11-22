@@ -61,6 +61,7 @@ Boucle de jeu : récolter des ressources → construire et améliorer → entra�
 - **[Décidé]** Un seul chantier à la fois au début, un second plus tard.
 - **[Proposition]** Le second chantier s'ouvre au Château niveau 5. Deux bâtiments différents peuvent alors s'améliorer en même temps, jamais le même deux fois.
 - **[Décidé]** Bâtiments suivants : Caserne (troupes), Académie (recherches), Tour des mages (sorts), Remparts (défense).
+- **[Proposition]** L'**Aire du dragon** se débloque au Château niveau 6 : on y couve l'œuf de dragon, et le dragon y vit. Son niveau limite celui du dragon.
 - **[Proposition]** Les **Remparts** se débloquent au Château niveau 3. Chaque niveau ajoute 8 gardes, qui défendent la cité à chaque siège, et donne +5 % de vie aux troupes qui la défendent (voir « Les raids et la défense de la cité »).
 - **[Proposition]** La **Tour des mages** se débloque au Château niveau 4. Elle lance des sorts : contre du mana, un bienfait de quelques minutes pour toute la cité ou toutes les armées. Un même sort ne se lance pas deux fois à la fois, et chaque niveau de la Tour en débloque un : Moisson abondante (+25 % de nourriture, 10 min), Sève vive (+25 % de bois et de pierre, 10 min), Fureur guerrière (+15 % d'attaque, 5 min), Vent porteur (−20 % de temps de marche, 5 min) et Peau de pierre (+15 % de vie dans les batailles qui commencent, 5 min).
 - **[Décidé]** L'**Académie** (débloquée au Château niveau 3) mène les recherches : une à la fois, et aucune recherche ne dépasse le niveau de l'Académie.
@@ -86,6 +87,10 @@ Boucle de jeu : récolter des ressources → construire et améliorer → entra�
 - **[Proposition]** Un héros gagne de l'expérience pour chaque monstre vaincu (de 4 pour un gobelin à 30 pour un troll), quelle que soit l'issue de la bataille. Il faut 100 points d'expérience pour passer au niveau 2, puis 1,5 fois plus à chaque niveau, jusqu'au niveau 10.
 - **[Proposition]** Chaque niveau donne un point de compétence. Chaque héros a trois compétences de 5 niveaux : avec 10 points pour 15 niveaux, il faut choisir. Les effets, pour l'armée qu'il mène : attaque ou vie de toute l'armée (+3 % par niveau), attaque d'une famille de troupes (+6 %), temps de marche (−6 %), vitesse de récolte ou charge (+10 %).
 - **[Décidé]** Des **créatures légendaires** (dragons…) : rares, très puissantes, obtenues par des quêtes.
+- **[Proposition]** La première créature légendaire est un **dragon**. Son œuf se gagne avec l'objectif « La légende du dragon » : vaincre le Nid de la vouivre, où les vouivres le gardent. On le couve dans l'Aire du dragon (800 de nourriture et 600 de mana) : 15 minutes plus tard, le dragon éclôt.
+- **[Proposition]** Le dragon gagne de l'expérience au combat, comme un héros (300 pour passer au niveau 2, puis 1,6 fois plus à chaque niveau), mais ne dépasse jamais le niveau de son aire, ni le niveau 10. Il crache le feu : il se bat comme un mage (les archers le dominent), avec 400 d'attaque et 3 000 de vie au niveau 1, et 30 % de plus à chaque niveau. Les bonus d'attaque et de vie de son camp comptent pour lui aussi. Il mange 25 de nourriture par heure et par niveau.
+- **[Proposition]** Le dragon peut accompagner une armée, une seule à la fois et jamais seul : il lui faut une escorte. Resté dans son aire, il défend la cité pendant les sièges. Il ne meurt jamais : blessé, il quitte le combat, regagne son aire et s'y repose 20 minutes.
+- **[À trancher]** D'autres créatures légendaires : une par race, ou d'autres quêtes pour d'autres créatures ?
 
 ## 7. Le monde
 
@@ -141,7 +146,8 @@ Boucle de jeu : récolter des ressources → construire et améliorer → entra�
 ## 10. Les quêtes
 
 - **[Proposition]** Une suite d'objectifs guide le joueur, du premier chantier aux grandes batailles : un objectif à la fois, dans l'ordre, comme une histoire. Chaque objectif atteint donne une récompense en ressources, à recevoir d'un geste. L'objectif du moment s'affiche sur l'écran de jeu : quand il est atteint, un toucher suffit pour recevoir sa récompense.
-- **[Proposition]** Dix-sept objectifs pour commencer : construire la Mine d'or, monter le Château au niveau 2, la Ferme au niveau 2, construire la Caserne, rassembler 20 guerriers, recruter un héros, remporter une bataille, récolter 500 ressources sur les gisements, Château niveau 3, construire les Remparts, construire l'Académie, terminer une recherche, vaincre 3 bandes de monstres, monter un héros au niveau 3, repousser un raid, Château niveau 5, et remporter 10 batailles.
+- **[Proposition]** Vingt-cinq objectifs pour commencer, environ trois heures et demie de jeu : construire la Mine d'or, monter le Château au niveau 2, la Ferme au niveau 2, construire la Caserne, rassembler 20 guerriers, recruter un héros, remporter une bataille, récolter 500 ressources sur les gisements, Château niveau 3, construire les Remparts, construire l'Académie, terminer une recherche, vaincre 3 bandes de monstres, monter un héros au niveau 3, repousser un raid, Château niveau 5 et remporter 10 batailles. Puis vient la légende du dragon : Château niveau 6, une victoire contre l'Antre du troll, les Remparts au niveau 3, le Nid de la vouivre (qui garde un œuf de dragon), l'Aire du dragon, l'éclosion, 3 raids repoussés, et le dragon au niveau 3.
+- **[Proposition]** Un objectif peut donner un présent en plus des ressources : « La légende du dragon » donne l'œuf de dragon.
 - **[À trancher]** La suite : des quêtes qui racontent l'histoire du royaume (avec des personnages), des quêtes quotidiennes, et les créatures légendaires, à gagner par des quêtes.
 
 ## 11. Les comptes et le serveur
@@ -160,6 +166,6 @@ Chaque étape donne un jeu jouable.
 2. **Armées** : troupes, recherches, combats contre des monstres. *En place* : Caserne, quatre troupes, Académie et recherches, cartes de la cité et des alentours, plusieurs armées qu'on dirige sur la carte, camps de monstres, bandes de monstres qui patrouillent (avec leurs niveaux et leurs zones d'aggro), batailles qui durent et leurs rapports, gisements de ressources à récolter, des héros qui mènent les armées, et les Remparts contre les raids de monstres sur la cité.
 3. **Serveur et comptes joueurs** : sauvegarde en ligne ; le serveur décide de tout. *En cours* : comptes (nom et mot de passe), parties gardées sur le serveur, qui applique les règles, et partie sans compte toujours possible. Reste à mettre le jeu en ligne chez un hébergeur, plus tard.
 4. **Monde partagé** : la carte commune, les attaques entre joueurs (contre leurs Remparts), les alliances.
-5. **Contenu et mobile** : quêtes, livre de sorts, créatures légendaires, puis l'appli Android. *Commencé* : une première suite de dix-sept objectifs, avec leurs récompenses, et les cinq premiers sorts de la Tour des mages.
+5. **Contenu et mobile** : quêtes, livre de sorts, créatures légendaires, puis l'appli Android. *Commencé* : une première suite de vingt-cinq objectifs, avec leurs récompenses, les cinq premiers sorts de la Tour des mages, et le dragon, première créature légendaire.
 
 Les chiffres du jeu (coûts, durées, production, bonus des races) sont regroupés dans `src/game/config.ts`, pour pouvoir équilibrer le jeu sans toucher au reste du code.

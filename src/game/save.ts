@@ -92,19 +92,23 @@ export function restoreState(saved: unknown): GameState | null {
       troops,
       trainings: state.trainings ?? (state.training ? [state.training] : []),
       heroes: state.heroes ?? [],
+      // Avant les créatures légendaires, personne n'avait de dragon.
+      dragon: state.dragon ?? null,
       // Avant les héros, les armées partaient sans héros. Et avant les troupes propres à chaque race,
       // une armée ne comptait que quatre types de troupes : les autres valent zéro.
       armies: (state.armies ?? []).map((army) => ({
         ...army,
         troops: { ...emptyArmy(), ...army.troops },
         hero: army.hero ?? null,
+        dragon: army.dragon ?? false,
       })),
       battles: (state.battles ?? []).map((battle) => ({
         ...battle,
         sent: { ...emptyArmy(), ...battle.sent },
         armyHealth: { ...emptyArmy(), ...battle.armyHealth },
-        // Avant les raids, toutes les batailles se livraient dehors.
+        // Avant les raids, toutes les batailles se livraient dehors ; et avant le dragon, sans lui.
         siege: battle.siege ?? null,
+        dragon: battle.dragon ?? null,
       })),
       reports: (state.reports ?? []).filter((report) => report.foe || report.camp).map(upgradeReport),
       // Avant les quêtes, rien n'était compté : les compteurs partent de zéro.
@@ -176,5 +180,6 @@ function upgradeReport(report: SavedReport): BattleReport {
     rounds: report.rounds ?? [],
     hero: report.hero ?? null,
     siege: report.siege ?? null,
+    dragon: report.dragon ?? null,
   } as BattleReport
 }

@@ -42,8 +42,10 @@ describe('restoreState', () => {
       heroes: [],
       armies: [],
       battles: [],
-      stats: { victories: 0, bandsDefeated: 0, gathered: 0, raidsRepelled: 0 },
+      stats: { victories: 0, bandsDefeated: 0, gathered: 0, raidsRepelled: 0, campsDefeated: {} },
       quests: [],
+      // Avant les créatures légendaires, personne n'avait de dragon.
+      dragon: null,
       // Un Château de niveau 2 n'attire pas encore les raids.
       nextRaidAt: null,
       constructions: [],
@@ -62,6 +64,7 @@ describe('restoreState', () => {
       rounds: [],
       hero: null,
       siege: null,
+      dragon: null,
     })
     // Avant les bandes et les gisements, la carte était vide : ils arrivent peu à peu.
     expect(state).toMatchObject({ bands: [], nextBandAt: T0, nodes: [], nextNodeAt: T0, nextId: 1 })
@@ -153,7 +156,7 @@ describe('restoreState', () => {
     }
     const state = restoreState({ ...newGame('orcs', T0), heroes: undefined, armies: [army] })!
     expect(state.heroes).toEqual([])
-    expect(state.armies).toEqual([{ ...army, hero: null }])
+    expect(state.armies).toEqual([{ ...army, hero: null, dragon: false }])
   })
 
   it('une cité d’avant les raids attire son premier raid si son Château est assez grand', () => {
@@ -168,7 +171,7 @@ describe('restoreState', () => {
     const state = restoreState(old)!
     expect(state.nextRaidAt).toBe(T0 + RAID_FIRST_SECONDS * 1000)
     expect(state.bands).toEqual(game.bands)
-    expect(state.stats).toEqual({ victories: 2, bandsDefeated: 1, gathered: 0, raidsRepelled: 0 })
+    expect(state.stats).toEqual({ victories: 2, bandsDefeated: 1, gathered: 0, raidsRepelled: 0, campsDefeated: {} })
     // La bataille d'une version d'avant les raids se livrait dehors.
     const battle = { ...game, battles: [{ id: 9, army: 5, band: null, rounds: [] }] }
     expect(restoreState(battle)!.battles[0].siege).toBeNull()

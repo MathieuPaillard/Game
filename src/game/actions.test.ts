@@ -43,6 +43,8 @@ describe('parseAction', () => {
       { type: 'march', target: { type: 'node', node: 4 }, troops: army({ rider: 6 }) },
       { type: 'march', target: { type: 'point', x: 120.5, y: 900 }, troops: army({ mage: 1 }) },
       { type: 'march', target: { type: 'camp', camp: 'wolfDen' }, troops: army({ warrior: 5 }), hero: 'ysolde' },
+      { type: 'march', target: { type: 'camp', camp: 'wyvernNest' }, troops: army({ warrior: 5 }), dragon: true },
+      { type: 'hatch' },
       { type: 'recruit', hero: 'durgan' },
       { type: 'skill', hero: 'thalia', skill: 'lightning' },
       { type: 'claim', quest: 'castle2' },
@@ -58,6 +60,15 @@ describe('parseAction', () => {
   it('une armée sans héros peut le dire avec null', () => {
     const target = { type: 'camp', camp: 'wolfDen' }
     expect(parseAction({ type: 'march', target, troops: { warrior: 1 }, hero: null })).toEqual({
+      type: 'march',
+      target,
+      troops: army({ warrior: 1 }),
+    })
+  })
+
+  it('une armée sans dragon peut le dire avec false', () => {
+    const target = { type: 'camp', camp: 'wolfDen' }
+    expect(parseAction({ type: 'march', target, troops: { warrior: 1 }, dragon: false })).toEqual({
       type: 'march',
       target,
       troops: army({ warrior: 1 }),
@@ -99,6 +110,8 @@ describe('parseAction', () => {
       { type: 'march', target: { type: 'camp', camp: 'wolfDen' }, troops: { warrior: 1, dragon: 1 } },
       { type: 'march', target: { type: 'camp', camp: 'wolfDen' }, troops: { warrior: 1 }, hero: 'merlin' },
       { type: 'march', target: { type: 'camp', camp: 'wolfDen' }, troops: { warrior: 1 }, hero: 3 },
+      { type: 'march', target: { type: 'camp', camp: 'wolfDen' }, troops: { warrior: 1 }, dragon: 'oui' },
+      { type: 'march', target: { type: 'camp', camp: 'wolfDen' }, troops: { warrior: 1 }, dragon: 1 },
       { type: 'recruit', hero: 'merlin' },
       { type: 'recruit' },
       { type: 'skill', hero: 'ysolde', skill: 'lightning' },

@@ -23,6 +23,7 @@ import {
   checkCast,
   checkClaim,
   checkDismiss,
+  checkHatch,
   checkMarch,
   checkOrder,
   checkRecruit,
@@ -34,6 +35,7 @@ import {
   dismissTroops,
   emptyArmy,
   getHeroDef,
+  hatchEgg,
   learnSkill,
   orderArmy,
   recruitHero,
@@ -59,10 +61,21 @@ export type Action =
   | { type: 'claim'; quest: string }
   /** Lancer un sort de la Tour des mages. */
   | { type: 'cast'; spell: SpellId }
-  /** Une armée sort de la cité, avec un premier ordre, et peut-être un héros à sa tête. */
-  | { type: 'march'; target: Target; troops: Army; hero?: HeroId | null }
+  /** Couver l'œuf de dragon dans l'Aire du dragon. */
+  | { type: 'hatch' }
+  /** Une armée sort de la cité, avec un premier ordre, peut-être un héros à sa tête, et peut-être le dragon. */
+  | MarchAction
   /** Un nouvel ordre pour une armée déjà dehors : aller ailleurs, attaquer, récolter, rentrer. */
   | { type: 'order'; army: number; target: Target }
+
+/** Une armée sort de la cité. Sans héros ni dragon, ces champs sont absents. */
+export interface MarchAction {
+  type: 'march'
+  target: Target
+  troops: Army
+  hero?: HeroId | null
+  dragon?: boolean
+}
 
 /** La partie après un ordre, et la raison du refus si l'ordre était impossible. */
 export type ActionResult = { ok: true; state: GameState } | { ok: false; reason: string; state: GameState }
@@ -86,8 +99,10 @@ export function checkAction(state: GameState, action: Action): Check {
       return checkClaim(state, action.quest)
     case 'cast':
       return checkCast(state, action.spell)
+    case 'hatch':
+      return checkHatch(state)
     case 'march':
-      return checkMarch(state, action.target, action.troops, action.hero ?? null)
+      return checkMarch(state, action.target, action.troops, action.hero ?? null, action.dragon ?? false)
     case 'order':
       return checkOrder(state, action.army, action.target)
   }
@@ -119,8 +134,10 @@ function run(state: GameState, action: Action, now: number): GameState {
       return claimQuest(state, action.quest, now)
     case 'cast':
       return castSpell(state, action.spell, now)
+    case 'hatch':
+      return hatchEgg(state, now)
     case 'march':
-      return startMarch(state, action.target, action.troops, now, action.hero ?? null)
+      return startMarch(state, action.target, action.troops, now, action.hero ?? null, action.dragon ?? false)
     case 'order':
       return orderArmy(state, action.army, action.target, now)
   }
@@ -168,13 +185,24 @@ export function parseAction(input: unknown): Action | null {
       const skills = getHeroDef(input.hero).skills.map((skill) => skill.id)
       return isOneOf(input.skill, skills) ? { type: 'skill', hero: input.hero, skill: input.skill } : null
     }
+    case 'hatch':
+      return { type: 'hatch' }
     case 'march': {
       const target = parseTarget(input.target)
       const troops = parseArmy(input.troops)
       if (!target || !troops) return null
+      const march: MarchAction = { type: 'march', target, troops }
       // Le héros est facultatif : absent ou null, l'armée part sans héros.
-      if (input.hero === undefined || input.hero === null) return { type: 'march', target, troops }
-      return isOneOf(input.hero, HERO_IDS) ? { type: 'march', target, troops, hero: input.hero } : null
+      if (input.hero !== undefined && input.hero !== null) {
+        if (!isOneOf(input.hero, HERO_IDS)) return null
+        march.hero = input.hero
+      }
+      // Le dragon aussi : absent ou false, il reste dans son aire.
+      if (input.dragon !== undefined && input.dragon !== false) {
+        if (input.dragon !== true) return null
+        march.dragon = true
+      }
+      return march
     }
     case 'order': {
       const target = parseTarget(input.target)

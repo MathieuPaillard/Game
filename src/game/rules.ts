@@ -19,6 +19,17 @@ import {
   BUILDINGS,
   CAMPS,
   COST_GROWTH,
+  DRAGON_ATTACK,
+  DRAGON_BASE_XP,
+  DRAGON_FAMILY,
+  DRAGON_GROWTH,
+  DRAGON_HATCH_COST,
+  DRAGON_HATCH_SECONDS,
+  DRAGON_HEALTH,
+  DRAGON_MAX_LEVEL,
+  DRAGON_REST_SECONDS,
+  DRAGON_UPKEEP_PER_LEVEL,
+  DRAGON_XP_GROWTH,
   DURATION_GROWTH,
   HEROES,
   HERO_BASE_XP,
@@ -200,6 +211,29 @@ export interface FieldArmy {
   fought: number[]
   /** Le héros qui la mène, ou null. */
   hero: HeroId | null
+  /** Le dragon l'accompagne. */
+  dragon: boolean
+}
+
+/**
+ * Le dragon, la créature légendaire de la cité. L'œuf attend d'être couvé (egg), il éclora à
+ * `hatchAt` (hatching), ou le dragon est né (grown).
+ */
+export interface Dragon {
+  stage: 'egg' | 'hatching' | 'grown'
+  hatchAt: number | null
+  /** L'expérience gagnée depuis sa naissance : son niveau en découle, dans la limite de son aire. */
+  xp: number
+  /** Blessé, il se repose dans son aire jusqu'à cette heure ; null quand il est en forme. */
+  restUntil: number | null
+}
+
+/** Ce qu'a gagné le dragon dans une bataille, et s'il en est sorti blessé. */
+export interface DragonGain {
+  xp: number
+  level: number
+  levelsGained: number
+  wounded: boolean
 }
 
 /** Un héros recruté : son niveau, son expérience, et ce qu'il a appris. */
@@ -231,6 +265,15 @@ export interface BattleRound {
   enemyLost: Monsters
   /** Pendant un siège : les gardes des Remparts tombés dans la manche. */
   guardsLost?: number
+  /** Le dragon est tombé pendant cette manche : blessé, il quitte le combat. */
+  dragonFell?: true
+}
+
+/** Le dragon dans une bataille : son attaque, sa vie au début de la bataille et ce qu'il en reste. */
+export interface BattleDragon {
+  attack: number
+  start: number
+  health: number
 }
 
 /** Un siège : la bataille se joue aux portes de la cité, avec les gardes des Remparts. */
@@ -264,6 +307,8 @@ export interface Battle {
   rounds: BattleRound[]
   /** Un raid assiège la cité ; null pour une bataille dehors. */
   siege: Siege | null
+  /** Le dragon se bat avec les troupes ; null s'il n'est pas là. */
+  dragon: BattleDragon | null
 }
 
 /** Comment une bataille s'est terminée, pour ton armée. */
@@ -303,6 +348,8 @@ export interface BattleReport {
   hero: HeroGain | null
   /** Un siège de la cité : ses gardes, ses blessés soignés, et ce qui a été pillé ; null pour une bataille dehors. */
   siege: SiegeReport | null
+  /** Le dragon s'est battu : l'expérience gagnée, et s'il a été blessé ; null s'il n'était pas là. */
+  dragon: DragonGain | null
 }
 
 /** Ce que le joueur a accompli depuis le début de la partie : les quêtes en tiennent compte. */
@@ -315,6 +362,8 @@ export interface Stats {
   gathered: number
   /** Raids repoussés : vaincus aux portes de la cité, ou interceptés en chemin. */
   raidsRepelled: number
+  /** Victoires contre chaque camp de monstres. */
+  campsDefeated: Partial<Record<CampId, number>>
 }
 
 /** Tout ce qu'il faut savoir sur une partie. Les heures sont en millisecondes (comme Date.now()). */
@@ -335,6 +384,8 @@ export interface GameState {
   trainings: Training[]
   /** Les héros recrutés, dans l'ordre de leur arrivée. */
   heroes: Hero[]
+  /** Le dragon (ou son œuf), une fois gagné par une quête ; null avant. */
+  dragon: Dragon | null
   /** Les armées sorties de la cité, sur la carte des alentours : pas plus que maxArmies(). */
   armies: FieldArmy[]
   /** Les batailles en cours. */
@@ -386,6 +437,7 @@ export function newGame(race: RaceId, now: number, seed = now): GameState {
     troops: emptyArmy(),
     trainings: [],
     heroes: [],
+    dragon: null,
     armies: [],
     battles: [],
     reports: [],
@@ -412,7 +464,7 @@ export function emptyResources(): Resources {
 }
 
 export function emptyStats(): Stats {
-  return { victories: 0, bandsDefeated: 0, gathered: 0, raidsRepelled: 0 }
+  return { victories: 0, bandsDefeated: 0, gathered: 0, raidsRepelled: 0, campsDefeated: {} }
 }
 
 export function emptyArmy(): Army {
@@ -524,9 +576,9 @@ function armyUpkeep(army: Army): number {
   return UNIT_IDS.reduce((sum, id) => sum + army[id] * getUnit(id).upkeepPerHour, 0)
 }
 
-/** Nourriture mangée chaque heure par les troupes, dans la cité comme en campagne. */
+/** Nourriture mangée chaque heure par les troupes (dans la cité comme en campagne) et par le dragon. */
 export function upkeepPerHour(state: GameState): number {
-  return armyUpkeep(allTroops(state))
+  return armyUpkeep(allTroops(state)) + DRAGON_UPKEEP_PER_LEVEL * dragonLevel(state)
 }
 
 /** Ce que la cité gagne vraiment chaque heure : la production, moins l'entretien des troupes. */
@@ -815,6 +867,10 @@ export function questProgress(state: GameState, quest: QuestDef): { current: num
       return { current: Math.floor(state.stats.gathered), target: goal.amount }
     case 'raids':
       return { current: state.stats.raidsRepelled, target: goal.count }
+    case 'camp':
+      return { current: state.stats.campsDefeated[goal.camp] ?? 0, target: goal.count }
+    case 'dragonLevel':
+      return { current: dragonLevel(state), target: goal.level }
   }
 }
 
@@ -840,11 +896,120 @@ export function claimQuest(state: GameState, questId: string, now: number): Game
   const current = advance(state, now)
   const check = checkClaim(current, questId)
   if (!check.ok) throw new Error(check.reason)
+  const quest = getQuest(questId)
+  // Un œuf de dragon : il attend dans la cité qu'on le couve.
+  const egg: Dragon | null =
+    quest.gift === 'dragonEgg' && current.dragon === null
+      ? { stage: 'egg', hatchAt: null, xp: 0, restUntil: null }
+      : current.dragon
   return {
     ...current,
-    resources: addResources(current.resources, getQuest(questId).reward),
+    resources: addResources(current.resources, quest.reward),
     quests: [...current.quests, questId],
+    dragon: egg,
   }
+}
+
+// --- Le dragon : on couve son œuf, il grandit en combattant, il accompagne une armée ---
+
+/** L'expérience totale qu'il faut au dragon pour atteindre ce niveau. */
+export function dragonXpForLevel(level: number): number {
+  let xp = 0
+  for (let l = 1; l < level; l++) xp += DRAGON_BASE_XP * DRAGON_XP_GROWTH ** (l - 1)
+  return Math.round(xp)
+}
+
+/** Le niveau du dragon : celui que lui vaut son expérience, sans dépasser son aire (0 avant sa naissance). */
+export function dragonLevel(state: GameState): number {
+  const dragon = state.dragon
+  if (!dragon || dragon.stage !== 'grown') return 0
+  let level = 1
+  while (level < DRAGON_MAX_LEVEL && dragon.xp >= dragonXpForLevel(level + 1)) level++
+  return Math.max(1, Math.min(level, state.levels.dragonRoost))
+}
+
+/** L'attaque et la vie du dragon à ce niveau. */
+export function dragonAttack(level: number): number {
+  return DRAGON_ATTACK * DRAGON_GROWTH ** (level - 1)
+}
+
+export function dragonHealth(level: number): number {
+  return DRAGON_HEALTH * DRAGON_GROWTH ** (level - 1)
+}
+
+/** L'armée que le dragon accompagne, s'il est dehors. */
+export function dragonArmy(state: GameState): FieldArmy | undefined {
+  return state.armies.find((army) => army.dragon)
+}
+
+/** Le dragon se repose-t-il dans son aire, blessé, à l'instant `at` ? */
+export function dragonResting(state: GameState, at = state.updatedAt): boolean {
+  const rest = state.dragon?.restUntil ?? null
+  return rest !== null && rest > at
+}
+
+/** Le dragon peut-il partir avec une nouvelle armée ? */
+export function checkDragon(state: GameState): Check {
+  if (state.dragon?.stage !== 'grown') return { ok: false, reason: 'Tu n’as pas encore de dragon' }
+  if (dragonArmy(state)) return { ok: false, reason: 'Le dragon accompagne déjà une armée' }
+  if (dragonResting(state)) return { ok: false, reason: 'Le dragon, blessé, se repose dans son aire' }
+  return { ok: true }
+}
+
+/** Le dragon est-il dans son aire, en forme, pour défendre la cité à l'instant `at` ? */
+function dragonAtHome(state: GameState, at: number): boolean {
+  return state.dragon?.stage === 'grown' && !dragonArmy(state) && !dragonResting(state, at)
+}
+
+export function checkHatch(state: GameState): Check {
+  const dragon = state.dragon
+  if (!dragon) return { ok: false, reason: 'Il te faut d’abord un œuf de dragon' }
+  if (dragon.stage === 'hatching') return { ok: false, reason: 'L’œuf est déjà en train d’éclore' }
+  if (dragon.stage === 'grown') return { ok: false, reason: 'Le dragon est déjà né' }
+  if (state.levels.dragonRoost < 1) return { ok: false, reason: 'Construis d’abord l’Aire du dragon' }
+  if (!canAfford(state.resources, DRAGON_HATCH_COST)) return { ok: false, reason: 'Ressources insuffisantes' }
+  return { ok: true }
+}
+
+/** On couve l'œuf dans l'Aire du dragon : il éclora dans DRAGON_HATCH_SECONDS. */
+export function hatchEgg(state: GameState, now: number): GameState {
+  const current = advance(state, now)
+  const check = checkHatch(current)
+  if (!check.ok) throw new Error(check.reason)
+  return {
+    ...current,
+    resources: addResources(current.resources, DRAGON_HATCH_COST, -1),
+    dragon: { stage: 'hatching', hatchAt: now + DRAGON_HATCH_SECONDS * SECOND, xp: 0, restUntil: null },
+  }
+}
+
+/**
+ * Le dragon d'une bataille gagne de l'expérience pour chaque monstre vaincu. S'il est tombé, il
+ * regagne son aire pour se reposer. Renvoie la partie, et ce qu'il a gagné.
+ */
+function dragonAfterBattle(
+  state: GameState,
+  battle: Battle,
+  xp: number,
+  at: number,
+): { state: GameState; gain: DragonGain | null } {
+  const dragon = state.dragon
+  if (!battle.dragon || !dragon) return { state, gain: null }
+  const before = dragonLevel(state)
+  const wounded = battle.dragon.health <= 1e-9
+  const next: GameState = {
+    ...state,
+    dragon: { ...dragon, xp: dragon.xp + xp, restUntil: wounded ? at + DRAGON_REST_SECONDS * SECOND : dragon.restUntil },
+  }
+  const level = dragonLevel(next)
+  return { state: next, gain: { xp, level, levelsGained: level - before, wounded } }
+}
+
+/** Le dragon, tel qu'il entre dans une bataille, avec les bonus de vie de son camp. */
+function battleDragon(state: GameState, healthFactor: number): BattleDragon {
+  const level = dragonLevel(state)
+  const health = dragonHealth(level) * healthFactor
+  return { attack: dragonAttack(level), start: health, health }
 }
 
 // --- Les héros : on les recrute, ils gagnent de l'expérience et apprennent des compétences ---
@@ -1080,11 +1245,20 @@ function checkHero(state: GameState, hero: HeroId | null): Check {
   return { ok: true }
 }
 
-export function checkMarch(state: GameState, target: Target, troops: Army, hero: HeroId | null = null): Check {
+export function checkMarch(
+  state: GameState,
+  target: Target,
+  troops: Army,
+  hero: HeroId | null = null,
+  dragon = false,
+): Check {
   const slot = checkMarchSlot(state, target)
   if (!slot.ok) return slot
   const selection = checkSelection(state, troops)
-  return selection.ok ? checkHero(state, hero) : selection
+  if (!selection.ok) return selection
+  const leader = checkHero(state, hero)
+  if (!leader.ok) return leader
+  return dragon ? checkDragon(state) : { ok: true }
 }
 
 /** Une armée sort de la cité, avec un premier ordre : aller quelque part, attaquer ou récolter. Un héros peut la mener. */
@@ -1094,9 +1268,10 @@ export function startMarch(
   troops: Army,
   now: number,
   hero: HeroId | null = null,
+  dragon = false,
 ): GameState {
   const current = advance(state, now)
-  const check = checkMarch(current, target, troops, hero)
+  const check = checkMarch(current, target, troops, hero, dragon)
   if (!check.ok) throw new Error(check.reason)
 
   const home = { ...current.troops }
@@ -1110,6 +1285,7 @@ export function startMarch(
     load: {},
     fought: [],
     hero,
+    dragon,
   }
   return { ...current, troops: home, armies: [...current.armies, army], nextId: current.nextId + 1 }
 }
@@ -1317,6 +1493,7 @@ function startBattle(
     starving: isStarving(state),
     rounds: [],
     siege: null,
+    dragon: army.dragon && state.dragon ? battleDragon(state, healthFactor) : null,
   }
   let next: GameState = { ...state, battles: [...state.battles, battle], nextId: state.nextId + 1 }
   next = updateArmy(next, { ...army, status: 'fighting' })
@@ -1328,6 +1505,14 @@ function bandFoe(band: Band): Foe {
   return band.raid
     ? { type: 'band', kind: band.kind, level: band.level, raid: true }
     : { type: 'band', kind: band.kind, level: band.level }
+}
+
+/** L'expérience que rapportent des monstres vaincus, au héros comme au dragon. */
+function battleXp(enemyLost: Monsters): number {
+  return (Object.entries(enemyLost) as [MonsterId, number][]).reduce(
+    (sum, [id, count]) => sum + count * getMonster(id).xp,
+    0,
+  )
 }
 
 /** Les monstres présents : on oublie les sortes dont il ne reste personne. */
@@ -1364,6 +1549,11 @@ function battleStacks(state: GameState, battle: Battle): { attackers: Stack[]; d
     return { family: unit.family, attack: unit.attack * factor, health: unit.health * battle.healthFactor, count: 0 }
   })
   if (battle.siege) attackers.push({ ...WALL_GUARD, count: 0 })
+  // Le dragon : le tout dernier groupe. Les bonus d'attaque de son camp, et la faim, comptent pour lui aussi.
+  if (battle.dragon) {
+    const attack = battle.dragon.attack * (1 + attackBonus) * hunger
+    attackers.push({ family: DRAGON_FAMILY, attack, health: battle.dragon.start, count: 0 })
+  }
   const monsterIds = Object.keys(battle.enemies) as MonsterId[]
   const defenders: Stack[] = monsterIds.map((id) => {
     const monster = getMonster(id)
@@ -1380,6 +1570,10 @@ export function battleHealth(battle: Battle): { army: { start: number; now: numb
   const army = battle.siege
     ? { start: battle.siege.guards * WALL_GUARD.health, now: battle.siege.guardHealth }
     : { start: 0, now: 0 }
+  if (battle.dragon) {
+    army.start += battle.dragon.start
+    army.now += battle.dragon.health
+  }
   for (const id of UNIT_IDS) {
     army.start += battle.sent[id] * getUnit(id).health * battle.healthFactor
     army.now += battle.armyHealth[id]
@@ -1402,7 +1596,7 @@ function battleCaps(battle: Battle): { attackers: number; defenders: number } {
 }
 
 /** Les troupes, les monstres et (pendant un siège) les gardes des Remparts encore debout dans une bataille. */
-export function battleSurvivors(battle: Battle): { troops: Army; monsters: Monsters; guards: number } {
+export function battleSurvivors(battle: Battle): { troops: Army; monsters: Monsters; guards: number; dragon: boolean } {
   const troops = emptyArmy()
   for (const id of UNIT_IDS) {
     troops[id] = Math.max(0, Math.ceil(battle.armyHealth[id] / (getUnit(id).health * battle.healthFactor) - 1e-9))
@@ -1412,7 +1606,8 @@ export function battleSurvivors(battle: Battle): { troops: Army; monsters: Monst
     monsters[id] = Math.max(0, Math.ceil((battle.foeHealth[id] ?? 0) / getMonster(id).health - 1e-9))
   }
   const guards = battle.siege ? Math.max(0, Math.ceil(battle.siege.guardHealth / WALL_GUARD.health - 1e-9)) : 0
-  return { troops, monsters, guards }
+  const dragon = battle.dragon !== null && battle.dragon.health > 1e-9
+  return { troops, monsters, guards, dragon }
 }
 
 /** Une manche : les deux camps frappent en même temps. La bataille s'arrête quand un camp tombe. */
@@ -1421,9 +1616,11 @@ function playRound(state: GameState, battleId: number, at: number): GameState {
   if (!battle) return state
   const { attackers, defenders, monsterIds } = battleStacks(state, battle)
   const armyHealth = UNIT_IDS.map((id) => battle.armyHealth[id])
-  // Les gardes des Remparts : le dernier groupe, après les troupes.
+  // Les gardes des Remparts : un groupe de plus, après les troupes ; puis le dragon.
   const guardIndex = UNIT_IDS.length
   if (battle.siege) armyHealth.push(battle.siege.guardHealth)
+  const dragonIndex = armyHealth.length
+  if (battle.dragon) armyHealth.push(battle.dragon.health)
   const foeHealth = monsterIds.map((id) => battle.foeHealth[id] ?? 0)
   const before = { attackers: counts(attackers, armyHealth), defenders: counts(defenders, foeHealth) }
   const round = fightRound(attackers, defenders, armyHealth, foeHealth, battleCaps(battle))
@@ -1447,12 +1644,16 @@ function playRound(state: GameState, battleId: number, at: number): GameState {
     enemyLost,
   }
   if (battle.siege) played.guardsLost = before.attackers[guardIndex] - round.log.attackers[guardIndex]
+  if (battle.dragon && before.attackers[dragonIndex] > 0 && round.log.attackers[dragonIndex] === 0) {
+    played.dragonFell = true
+  }
   const updated: Battle = {
     ...battle,
     armyHealth: nextArmyHealth,
     foeHealth: nextFoeHealth,
     rounds: [...battle.rounds, played],
     siege: battle.siege && { ...battle.siege, guardHealth: round.attackerHealth[guardIndex] },
+    dragon: battle.dragon && { ...battle.dragon, health: round.attackerHealth[dragonIndex] },
   }
   const next = { ...state, battles: state.battles.map((b) => (b.id === battleId ? updated : b)) }
   if (total(round.log.attackers) === 0) return endBattle(next, updated, at, 'defeat')
@@ -1489,6 +1690,8 @@ function endBattle(state: GameState, battle: Battle, at: number, outcome: Outcom
   let next: GameState = { ...state, battles: state.battles.filter((b) => b.id !== battle.id) }
   if (outcome === 'victory') {
     const stats = next.stats
+    const camps = { ...stats.campsDefeated }
+    if (foe.type === 'camp') camps[foe.camp] = (camps[foe.camp] ?? 0) + 1
     next = {
       ...next,
       stats: {
@@ -1497,19 +1700,19 @@ function endBattle(state: GameState, battle: Battle, at: number, outcome: Outcom
         bandsDefeated: stats.bandsDefeated + (battle.band === null ? 0 : 1),
         // Un raid arrêté en chemin n'atteindra jamais la cité : il est repoussé.
         raidsRepelled: stats.raidsRepelled + (raid ? 1 : 0),
+        campsDefeated: camps,
       },
     }
   }
 
-  // Le héros de l'armée gagne de l'expérience pour chaque monstre vaincu, quelle que soit l'issue.
+  // Le héros et le dragon de l'armée gagnent de l'expérience pour chaque monstre vaincu, quelle que soit l'issue.
+  const xp = battleXp(enemyLost)
+  const withDragon = dragonAfterBattle(next, battle, xp, at)
+  next = withDragon.state
   const heroId = battleArmy(state, battle)?.hero ?? null
   const hero = heroId === null ? undefined : getHero(state, heroId)
   let heroGain: HeroGain | null = null
   if (hero) {
-    const xp = (Object.entries(enemyLost) as [MonsterId, number][]).reduce(
-      (sum, [id, count]) => sum + count * getMonster(id).xp,
-      0,
-    )
     const after = gainXp(hero, xp)
     next = updateHero(next, after)
     heroGain = { hero: hero.id, xp, level: after.level, levelsGained: after.level - hero.level }
@@ -1531,6 +1734,7 @@ function endBattle(state: GameState, battle: Battle, at: number, outcome: Outcom
     rounds: battle.rounds,
     hero: heroGain,
     siege: null,
+    dragon: withDragon.gain,
   }
   next = { ...next, reports: [report, ...next.reports].slice(0, MAX_REPORTS) }
 
@@ -1542,7 +1746,9 @@ function endBattle(state: GameState, battle: Battle, at: number, outcome: Outcom
   if (!army) return next
   if (armySize(survivors) === 0) return removeArmy(next, army.id)
   const fought = battle.band === null || army.fought.includes(battle.band) ? army.fought : [...army.fought, battle.band]
-  const after: FieldArmy = { ...army, troops: survivors, load: mergeLoot(army.load, loot), fought }
+  // Blessé, le dragon quitte l'armée pour regagner son aire.
+  const dragon = army.dragon && !withDragon.gain?.wounded
+  const after: FieldArmy = { ...army, troops: survivors, load: mergeLoot(army.load, loot), fought, dragon }
   const resume = battle.ambush && army.order !== null
   return updateArmy(next, resume ? { ...after, status: 'marching' } : { ...after, status: 'idle', order: null })
 }
@@ -1836,12 +2042,15 @@ function startSiege(state: GameState, bandId: number, at: number): GameState {
     starving: isStarving(state),
     rounds: [],
     siege,
+    // Le dragon, s'il est dans son aire, défend la cité.
+    dragon: dragonAtHome(state, at) ? battleDragon(state, healthFactor) : null,
   }
   const next = updateBand(
     { ...state, battles: [...state.battles, battle], nextId: state.nextId + 1 },
     { ...atGates, since: null },
   )
-  return armySize(state.troops) === 0 && guards === 0 ? endSiege(next, battle, siege, at, 'defeat') : next
+  const nobody = armySize(state.troops) === 0 && guards === 0 && battle.dragon === null
+  return nobody ? endSiege(next, battle, siege, at, 'defeat') : next
 }
 
 /** Ce qu'un raid victorieux emporte : une part de ce que le Château ne protège pas, dans la limite de ce que portent les monstres. */
@@ -1883,6 +2092,7 @@ function endSiege(state: GameState, battle: Battle, siege: Siege, at: number, ou
   const foe = battle.foe
   const loot = outcome === 'victory' && foe.type === 'band' ? raidLoot(foe.kind, foe.level) : {}
   const plunder = outcome === 'defeat' ? plunderOf(state, monstersLeft) : {}
+  const withDragon = dragonAfterBattle(state, battle, battleXp(enemyLost), at)
   const stats = state.stats
   const report: BattleReport = {
     at,
@@ -1900,9 +2110,10 @@ function endSiege(state: GameState, battle: Battle, siege: Siege, at: number, ou
     rounds: battle.rounds,
     hero: null,
     siege: { guards: siege.guards, guardsLost: siege.guards - guardsLeft, healed, plunder },
+    dragon: withDragon.gain,
   }
   const next: GameState = {
-    ...state,
+    ...withDragon.state,
     troops,
     resources: addResources(addResources(state.resources, loot), plunder, -1),
     battles: state.battles.filter((b) => b.id !== battle.id),
@@ -2047,6 +2258,10 @@ function nextEvent(state: GameState): PendingEvent | null {
   if (nextBandAt !== null) events.push({ at: nextBandAt, apply: (s) => spawnBand(s, nextBandAt) })
   if (nextNodeAt !== null) events.push({ at: nextNodeAt, apply: (s) => spawnNode(s, nextNodeAt) })
   if (nextRaidAt !== null) events.push({ at: nextRaidAt, apply: (s) => spawnRaid(s, nextRaidAt) })
+  const hatchAt = state.dragon?.stage === 'hatching' ? state.dragon.hatchAt : null
+  if (hatchAt !== null) {
+    events.push({ at: hatchAt, apply: (s) => ({ ...s, dragon: { stage: 'grown', hatchAt: null, xp: 0, restUntil: null } }) })
+  }
   for (const band of state.bands) {
     const arrival = raidArrival(band)
     if (arrival !== null) events.push({ at: arrival, apply: (s) => startSiege(s, band.id, arrival) })
