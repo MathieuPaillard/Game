@@ -9,7 +9,7 @@ import type { Army, BuildingId, HeroId, RaceId, SpellId, TechId, UnitId } from '
 import { advance, newGame, type GameState, type Target } from '../game/rules'
 import { ONLINE_AVAILABLE, server, ServerError, serverNow, type Session } from './api'
 import { makeAwayReport, type AwayReport } from './away'
-import { loadLocalGame, loadSession, saveLocalGame, saveSession } from './storage'
+import { loadLocalGame, loadSession, saveLocalGame, saveSession, setAsideLocalGame } from './storage'
 
 /** Ce que montre l'écran : la connexion au compte, l'attente du serveur, ou le jeu. */
 export type Screen = 'account' | 'connecting' | 'game'
@@ -19,18 +19,47 @@ const SYNC_INTERVAL_MS = 60 * 1000
 /** … et réessaie plus souvent quand le serveur ne répond plus. */
 const RETRY_INTERVAL_MS = 10 * 1000
 
+const DAMAGED_SAVE =
+  'Ta partie enregistrée sur cet appareil n’a pas pu être reprise : elle est abîmée, ou vient d’une version trop ' +
+  'ancienne du jeu. Une copie en est gardée ; tu peux commencer une nouvelle partie.'
+const STORAGE_REFUSED =
+  'Ce navigateur refuse de garder ta partie (stockage plein ou interdit) : elle sera perdue si tu fermes la page.'
+
+/**
+ * La partie sans compte, avancée jusqu'à `at`, avec le résumé de ce qui s'est passé depuis la dernière
+ * visite. Une partie qu'on ne peut pas reprendre est mise de côté (`damaged`) : mieux vaut en commencer
+ * une autre qu'une page qui reste blanche.
+ */
+function openLocalGame(at: number): { state: GameState | null; away: AwayReport | null; damaged: boolean } {
+  const saved = loadLocalGame()
+  if (saved === null || saved === 'damaged') return { state: null, away: null, damaged: saved === 'damaged' }
+  try {
+    const state = advance(saved, at)
+    return { state, away: makeAwayReport(saved, state), damaged: false }
+  } catch (error) {
+    console.error(error)
+    setAsideLocalGame()
+    return { state: null, away: null, damaged: true }
+  }
+}
+
 export function useGame() {
   let session: Session | null = loadSession()
-  const local = session ? null : loadLocalGame()
+  const local = session ? null : openLocalGame(Date.now())
 
-  const screen = shallowRef<Screen>(session ? 'connecting' : local || !ONLINE_AVAILABLE ? 'game' : 'account')
+  const screen = shallowRef<Screen>(
+    session ? 'connecting' : local?.state || local?.damaged || !ONLINE_AVAILABLE ? 'game' : 'account',
+  )
   /** Le nom du joueur connecté, ou null pour une partie sans compte. */
   const player = shallowRef(session?.player.name ?? null)
   const now = shallowRef(Date.now())
-  const state = shallowRef<GameState | null>(local && advance(local, now.value))
-  const awayReport = shallowRef<AwayReport | null>(local && state.value ? makeAwayReport(local, state.value) : null)
+  const state = shallowRef<GameState | null>(local?.state ?? null)
+  const awayReport = shallowRef<AwayReport | null>(local?.away ?? null)
   /** Un message pour le joueur : un ordre refusé par le serveur, un mot de passe faux… */
-  const notice = shallowRef<string | null>(null)
+  const notice = shallowRef<string | null>(local?.damaged ? DAMAGED_SAVE : null)
+  /** Sans compte, la même partie joue dans un autre onglet : celui-ci attend, sans rien enregistrer. */
+  const elsewhere = shallowRef(false)
+  let storageWarned = false
   /** La dernière demande n'a pas atteint le serveur. */
   const offline = shallowRef(false)
   /** Une demande attend sa réponse : connexion, création de compte, choix de la race. */
@@ -42,12 +71,36 @@ export function useGame() {
   /** Montre la partie ; sans compte, elle est aussi gardée dans le navigateur. */
   function show(next: GameState | null) {
     state.value = next
-    if (!session) saveLocalGame(next)
+    if (session || elsewhere.value || saveLocalGame(next) || storageWarned) return
+    storageWarned = true
+    notice.value = STORAGE_REFUSED
   }
 
   function tick() {
     now.value = clock()
-    if (state.value) show(advance(state.value, now.value))
+    if (state.value && !elsewhere.value) show(advance(state.value, now.value))
+  }
+
+  // Deux onglets qui joueraient la même partie sans compte l'écraseraient chacun leur tour, à chaque
+  // seconde. L'onglet qui ouvre la partie prend donc la main : il prévient les autres, qui se mettent
+  // en pause sans plus rien enregistrer, jusqu'à ce que le joueur la leur rende (« Jouer ici »).
+  const tabs = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel('royaume-partie-sans-compte')
+  if (tabs) {
+    tabs.onmessage = () => {
+      if (!session && screen.value === 'game') elsewhere.value = true
+    }
+  }
+
+  /** Montre la partie sans compte, telle qu'elle est gardée sur l'appareil, et la reprend aux autres onglets. */
+  function showLocalGame() {
+    const opened = openLocalGame(Date.now())
+    now.value = Date.now()
+    state.value = opened.state
+    awayReport.value = opened.away
+    notice.value = opened.damaged ? DAMAGED_SAVE : null
+    elsewhere.value = false
+    screen.value = 'game'
+    tabs?.postMessage('à moi')
   }
 
   // --- Les demandes au serveur ---
@@ -111,7 +164,12 @@ export function useGame() {
 
   /** Applique un ordre du joueur, s'il est possible à cet instant. */
   function perform(action: Action) {
-    if (!state.value) return
+    if (!state.value || elsewhere.value) return
+    // Hors connexion, l'ordre ne pourrait pas partir : au retour du réseau, le serveur l'effacerait sans un mot.
+    if (session && offline.value) {
+      notice.value = 'Le serveur ne répond pas : ton ordre n’est pas parti. Réessaie quand la connexion sera revenue.'
+      return
+    }
     const result = performAction(state.value, action, clock())
     // Un ordre impossible ne part pas : l'écran montre déjà pourquoi.
     if (!result.ok) return
@@ -184,10 +242,12 @@ export function useGame() {
     ]
     document.addEventListener('visibilitychange', onVisibilityChange)
     if (session) void sync(true)
+    else if (screen.value === 'game') tabs?.postMessage('à moi')
   })
   onUnmounted(() => {
     timers.forEach((timer) => window.clearInterval(timer))
     document.removeEventListener('visibilitychange', onVisibilityChange)
+    tabs?.close()
   })
 
   return {
@@ -198,20 +258,16 @@ export function useGame() {
     awayReport,
     notice,
     offline,
+    elsewhere,
     busy,
     login: (name: string, password: string) => enter(() => server.login(name, password)),
     register: (name: string, password: string) => enter(() => server.register(name, password)),
     logout,
     retry: () => sync(true),
     /** Jouer sans compte : la partie est gardée sur cet appareil. */
-    playLocally() {
-      const saved = loadLocalGame()
-      now.value = Date.now()
-      state.value = saved && advance(saved, now.value)
-      awayReport.value = saved && state.value ? makeAwayReport(saved, state.value) : null
-      notice.value = null
-      screen.value = 'game'
-    },
+    playLocally: showLocalGame,
+    /** La partie sans compte jouait dans un autre onglet : la reprendre ici (l'autre se met en pause). */
+    playHere: showLocalGame,
     /** Depuis une partie sans compte : aller se connecter. */
     showAccount() {
       state.value = null

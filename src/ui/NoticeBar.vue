@@ -7,8 +7,8 @@ const emit = defineEmits<{ dismiss: [] }>()
 <template>
   <p v-if="offline" class="notice" role="status">
     <span>
-      <strong>Connexion perdue.</strong> Le serveur ne répond pas : le jeu réessaie tout seul. Tes derniers ordres
-      ne lui sont peut-être pas parvenus.
+      <strong>Connexion perdue.</strong> Le serveur ne répond pas : le jeu réessaie tout seul. En attendant, tes
+      ordres ne peuvent pas partir, et le dernier ne lui est peut-être pas parvenu.
     </span>
   </p>
   <p v-if="notice" class="notice" role="alert">
