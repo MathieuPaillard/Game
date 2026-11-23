@@ -60,6 +60,14 @@ export function createApp({ store, clock = Date.now, staticDir, hashing = PASSWO
 
   app.use(secureHeaders())
   app.use('/api/*', bodyLimit({ maxSize: 16 * 1024, onError: (c) => c.json({ error: 'Requête trop grosse.' }, 413) }))
+  // Ce qu'on envoie au serveur part en JSON. Un autre site ne peut pas faire envoyer du JSON par ses
+  // visiteurs sans l'accord du serveur : il ne pourra donc ni créer de comptes, ni essayer des mots de
+  // passe en leur nom.
+  app.use('/api/*', async (c, next) => {
+    const json = c.req.header('Content-Type')?.toLowerCase().startsWith('application/json')
+    if (c.req.method === 'POST' && !json) return c.json({ error: 'Envoie ta demande en JSON.' }, 415)
+    await next()
+  })
 
   app.get('/api/health', (c) => c.json({ ok: true }))
 
@@ -80,14 +88,18 @@ export function createApp({ store, clock = Date.now, staticDir, hashing = PASSWO
     const password = textField(body, 'password')
     const problem = checkName(name) ?? checkPassword(password)
     if (problem) return c.json({ error: problem }, 400)
+    // Un nom déjà pris est refusé tout de suite, avant de calculer l'empreinte du mot de passe, qui coûte cher.
+    if (store.findAccount(nameKey(name))) return c.json({ error: 'Ce nom est déjà pris.' }, 409)
 
     const passwordHash = await hashPassword(password, hashing)
     const account = store.createAccount(name, nameKey(name), passwordHash, clock())
+    // (Quelqu'un a pu prendre ce nom pendant le calcul.)
     if (!account) return c.json({ error: 'Ce nom est déjà pris.' }, 409)
     return c.json(openSession(account), 201)
   })
 
-  // Les mots de passe faux, par nom de joueur : de quoi freiner qui voudrait en deviner un.
+  // Les essais de connexion, par compte : de quoi freiner qui voudrait deviner un mot de passe. Seuls les
+  // comptes qui existent sont comptés, pour que des noms inventés ne remplissent pas la mémoire.
   const failures = new Map<string, { count: number; since: number }>()
 
   function isLocked(key: string, now: number): boolean {
@@ -108,11 +120,15 @@ export function createApp({ store, clock = Date.now, staticDir, hashing = PASSWO
   app.post('/api/sessions', async (c) => {
     const body = await readJson(c)
     const key = nameKey(textField(body, 'name'))
-    if (isLocked(key, clock())) return c.json({ error: 'Trop d’essais : réessaie dans un quart d’heure.' }, 429)
+    const now = clock()
+    if (isLocked(key, now)) return c.json({ error: 'Trop d’essais : réessaie dans un quart d’heure.' }, 429)
 
     const account = store.findAccount(key)
-    if (!account || !(await verifyPassword(textField(body, 'password'), account.passwordHash))) {
-      recordFailure(key, clock())
+    if (!account) return c.json({ error: 'Nom ou mot de passe incorrect.' }, 401)
+    // L'essai compte avant la vérification, qui prend du temps : des essais envoyés tous en même temps
+    // passeraient sinon sous le verrou. Un essai réussi efface le compte des essais.
+    recordFailure(key, now)
+    if (!(await verifyPassword(textField(body, 'password'), account.passwordHash))) {
       return c.json({ error: 'Nom ou mot de passe incorrect.' }, 401)
     }
     failures.delete(key)

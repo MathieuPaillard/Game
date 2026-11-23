@@ -40,6 +40,7 @@ function testServer(staticDir?: string) {
 
   return {
     store,
+    app,
     call,
     wait(ms: number) {
       time += ms
@@ -144,6 +145,37 @@ describe('les comptes', () => {
     expect((await attempt('excalibur')).status).toBe(429)
     server.wait(LOGIN_LOCK_MS)
     expect((await attempt('excalibur')).status).toBe(200)
+  })
+
+  it('compte les essais envoyés tous en même temps', async () => {
+    const server = testServer()
+    await server.register('Arthur', 'excalibur')
+    const attempts = Array.from({ length: 3 * LOGIN_MAX_FAILURES }, (_, i) =>
+      server.call('POST', '/api/sessions', { body: { name: 'Arthur', password: i === 25 ? 'excalibur' : `essai-${i}` } }),
+    )
+    const statuses = (await Promise.all(attempts)).map((response) => response.status)
+    // Seuls les dix premiers essais sont vérifiés : le bon mot de passe, envoyé plus tard, attend son tour.
+    expect(statuses.filter((status) => status === 401)).toHaveLength(LOGIN_MAX_FAILURES)
+    expect(statuses.filter((status) => status === 429)).toHaveLength(2 * LOGIN_MAX_FAILURES)
+  })
+
+  it('ne retient pas les essais pour des noms sans compte, et refuse vite un nom déjà pris', async () => {
+    const server = testServer()
+    await server.register('Arthur', 'excalibur')
+    for (let i = 0; i < 2 * LOGIN_MAX_FAILURES; i++) {
+      expect((await server.call('POST', '/api/sessions', { body: { name: 'Lancelot', password: `essai-${i}` } })).status).toBe(401)
+    }
+    expect((await server.call('POST', '/api/accounts', { body: { name: 'arthur', password: 'autre mot de passe' } })).status).toBe(409)
+  })
+
+  it('n’accepte que du JSON', async () => {
+    const server = testServer()
+    const response = await server.app.request('/api/accounts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ name: 'Arthur', password: 'excalibur' }),
+    })
+    expect(response.status).toBe(415)
   })
 
   it('réserve la partie aux joueurs connectés', async () => {
