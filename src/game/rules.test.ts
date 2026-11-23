@@ -73,6 +73,7 @@ import {
   castSpell,
   checkCast,
   checkClaim,
+  checkCost,
   checkDismiss,
   checkDragon,
   checkHatch,
@@ -450,9 +451,17 @@ describe('conditions de construction', () => {
     expect(checkUpgrade(richGame({ castle: unlock, manaWell: 0 }), 'manaWell').ok).toBe(true)
   })
 
+  it('dit quelles ressources manquent', () => {
+    const game = newGame('humans', T0)
+    const poor = { ...game, resources: { ...game.resources, wood: 0, gold: 0, mana: 10 } }
+    const cost = { wood: 120, gold: 30, mana: 77 }
+    expect(checkCost(poor.resources, cost)).toEqual({ ok: false, reason: 'Il manque 120 de bois, 30 d’or et 67 de mana' })
+    expect(checkCost(game.resources, {})).toEqual({ ok: true })
+  })
+
   it('refuse quand les ressources manquent', () => {
     const poor = { ...newGame('humans', T0), resources: emptyResources() }
-    expect(checkUpgrade(poor, 'castle')).toEqual({ ok: false, reason: 'Ressources insuffisantes' })
+    expect(checkUpgrade(poor, 'castle')).toMatchObject({ ok: false, reason: expect.stringMatching(/^Il manque \d+ /) })
   })
 
   it('s’arrête au niveau maximum', () => {
@@ -1402,7 +1411,7 @@ describe('les héros', () => {
       reason: `Nécessite le Château niveau ${ysolde.castleLevel}`,
     })
     const poor = { ...richGame({ castle: ysolde.castleLevel }), resources: emptyResources() }
-    expect(checkRecruit(poor, 'ysolde')).toEqual({ ok: false, reason: 'Ressources insuffisantes' })
+    expect(checkRecruit(poor, 'ysolde')).toMatchObject({ ok: false, reason: expect.stringMatching(/^Il manque \d+ /) })
 
     const game = richGame({ castle: ysolde.castleLevel })
     const recruited = recruitHero(game, 'ysolde', T0)
@@ -1613,7 +1622,7 @@ describe('les sorts', () => {
       reason: `Nécessite la Tour des mages niveau ${fury.towerLevel}`,
     })
     const poor = { ...richGame({ castle: 5, mageTower: 5 }), resources: emptyResources() }
-    expect(checkCast(poor, 'harvest')).toEqual({ ok: false, reason: 'Ressources insuffisantes' })
+    expect(checkCast(poor, 'harvest')).toMatchObject({ ok: false, reason: expect.stringMatching(/^Il manque \d+ /) })
   })
 
   it('un sort coûte son prix, agit pour sa durée, puis s’arrête à l’heure exacte', () => {

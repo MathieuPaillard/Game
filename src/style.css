@@ -737,4 +737,15 @@ button:focus-visible {
     transition-duration: 0ms !important;
     animation-duration: 0ms !important;
   }
+
+  /* Sans mouvement, les dégâts de chaque manche restent affichés, immobiles (leur animation finissait
+     invisible) ; les étincelles et les nuages, qui ne sont que du mouvement, disparaissent. */
+  .float-damage {
+    animation: none !important;
+  }
+
+  .spark,
+  .cloud {
+    display: none;
+  }
 }

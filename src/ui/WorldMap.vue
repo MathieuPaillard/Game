@@ -673,9 +673,9 @@ const battles = computed(() =>
   }
 }
 
-/* Un raid : sa zone d'aggro bat comme une alarme. */
+/* Un raid : sa zone d'aggro bat comme une alarme, en deux temps (moins coûteux à repeindre). */
 .band.raid .aggro {
-  animation: alarm 1.2s ease-in-out infinite alternate;
+  animation: alarm 1.2s steps(2, jump-none) infinite alternate;
 }
 
 @keyframes alarm {

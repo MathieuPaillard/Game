@@ -12,7 +12,7 @@ const emit = defineEmits<{ research: [tech: TechId] }>()
     <h2 id="research-title" class="section-title">Recherches</h2>
 
     <p v-if="state.levels.academy === 0" class="notice">
-      Pour faire des recherches, construis d’abord l’Académie dans l’onglet Cité. Elle se débloque au Château
+      Pour faire des recherches, construis d’abord l’Académie dans la cité. Elle se débloque au Château
       niveau 3.
     </p>
 

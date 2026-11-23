@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { RAID_CASTLE_LEVEL, RAID_FIRST_SECONDS, START_LEVELS } from './config.ts'
+import { QUESTS, RAID_CASTLE_LEVEL, RAID_FIRST_SECONDS, START_LEVELS } from './config.ts'
 import { advance, bandPosition, emptyArmy, emptyTechs, newGame } from './rules.ts'
 import { restoreState } from './save.ts'
 
@@ -35,6 +35,13 @@ describe('restoreState', () => {
       { ...game, dragon: { stage: 'grown', hatchAt: null, xp: 'beaucoup', restUntil: null } },
     ]
     for (const saved of broken) expect(restoreState(JSON.parse(JSON.stringify(saved)))).toBeNull()
+  })
+
+  it('compte comme réclamé un objectif ajouté plus tard au milieu de la chaîne', () => {
+    const ids = QUESTS.map((quest) => quest.id)
+    const chain = ids.slice(0, ids.indexOf('castle3') + 1)
+    const saved = { ...newGame('humans', T0), quests: chain.filter((id) => id !== 'manaWell') }
+    expect(restoreState(saved)!.quests).toEqual(chain)
   })
 
   it('oublie une bande sans monstres, qu’une ancienne version laissait parfois sur la carte', () => {

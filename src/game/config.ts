@@ -1267,7 +1267,7 @@ export const QUESTS: QuestDef[] = [
   {
     id: 'hero',
     name: 'Un chef pour tes troupes',
-    description: 'Recrute un héros, dans l’onglet Héros.',
+    description: 'Recrute un héros : touche « Héros », en bas à droite.',
     goal: { kind: 'heroes', count: 1 },
     reward: { gold: 150 },
   },
@@ -1284,6 +1284,13 @@ export const QUESTS: QuestDef[] = [
     description: 'Récolte 500 ressources sur les gisements.',
     goal: { kind: 'gathered', amount: 500 },
     reward: { gold: 200 },
+  },
+  {
+    id: 'manaWell',
+    name: 'La source des mages',
+    description: 'Construis le Puits de mana : le Château niveau 3 demande du mana.',
+    goal: { kind: 'building', building: 'manaWell', level: 1 },
+    reward: { food: 200, wood: 200, mana: 40 },
   },
   {
     id: 'castle3',

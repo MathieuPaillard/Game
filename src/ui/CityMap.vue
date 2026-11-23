@@ -47,7 +47,16 @@ function focus(selection: CitySelection | null) {
   viewport.value?.centerOn(selection.kind === 'building' ? CITY_PLOTS[selection.id] : CITY_SPOTS[selection.kind])
 }
 watch(() => props.selection, focus, { flush: 'post' })
-onMounted(() => focus(props.selection))
+
+// Un siège commence : la carte se tourne vers la porte sud, entre le mur et les monstres qui s'y pressent.
+// (Sinon, au cadrage de départ, on ne voyait que leurs barres de vie dépasser au bas de l'écran.)
+const siegeId = computed(() => siegeOf(props.state)?.id ?? null)
+function focusSiege() {
+  const wall = CITY_PLOTS.walls
+  viewport.value?.centerOn({ x: (wall.x + CITY_SIEGE.x) / 2, y: (wall.y + CITY_SIEGE.y) / 2 })
+}
+watch(siegeId, (id, before) => id !== null && before === null && focusSiege(), { flush: 'post' })
+onMounted(() => (props.selection ? focus(props.selection) : siegeId.value !== null && focusSiege()))
 
 // Les bâtiments du bas de la carte sont dessinés en dernier, pour passer devant ceux du haut.
 const plots = computed(() =>
@@ -367,13 +376,16 @@ function lairText(id: string): string {
   stroke-dasharray: none;
 }
 
-/* Pendant un siège, une lueur rouge bat autour du mur. */
+/*
+ * Pendant un siège, une lueur rouge bat autour du mur. Elle couvre presque toute la cité : en deux
+ * temps seulement (steps), sinon un téléphone modeste la repeint à chaque image et ralentit.
+ */
 .wall-alarm {
   fill: none;
   stroke: var(--ember);
   opacity: 0.45;
   pointer-events: none;
-  animation: wall-alarm 1.2s ease-in-out infinite alternate;
+  animation: wall-alarm 1.2s steps(2, jump-none) infinite alternate;
 }
 
 @keyframes wall-alarm {
@@ -497,8 +509,18 @@ function lairText(id: string): string {
   }
 }
 
+/* Le dragon blessé dort : ses 💤 vont et viennent, sans jamais disparaître. */
 .zzz {
-  animation: glow 2.6s ease-in-out infinite alternate;
+  animation: snooze 2.6s ease-in-out infinite alternate;
+}
+
+@keyframes snooze {
+  from {
+    opacity: 0.55;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .bar-fill.hatch {

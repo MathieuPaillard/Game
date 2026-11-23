@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { RESOURCES, RESOURCE_IDS, STARVATION_ATTACK_MALUS, type MonsterId, type Resources } from '../game/config'
+import { RESOURCES, RESOURCE_IDS, STARVATION_ATTACK_MALUS, UNIT_IDS, type Army, type MonsterId, type Resources } from '../game/config'
 import {
   armySize,
   foeLoot,
@@ -58,6 +58,13 @@ function lootLeft(report: BattleReport): string {
   return survivors ? 'ton armée n’a pas pu tout emporter' : 'personne n’a survécu pour l’emporter'
 }
 
+/** Les défenseurs tombés pendant un siège : ceux qu'on a relevés ensuite, et ceux perdus pour de bon. */
+function fallen(report: BattleReport): Army {
+  const army = { ...report.lost }
+  for (const id of UNIT_IDS) army[id] += report.siege?.healed[id] ?? 0
+  return army
+}
+
 /** Qui défendait la cité : « 🛡️ Guerriers 30 + 🧱 16 gardes des Remparts ». */
 function defendersText(report: BattleReport): string {
   const troops = formatArmy(report.sent)
@@ -99,12 +106,14 @@ function lootText(loot: Partial<Resources>): string {
         </p>
         <template v-if="report.siege">
           <p>Défenseurs : {{ defendersText(report) }}</p>
-          <p>
-            Pertes : {{ formatArmy(report.lost) || 'aucune' }}
-            <template v-if="armySize(report.siege.healed)">
-              <span class="muted">· soignés ensuite : {{ formatArmy(report.siege.healed) }}</span>
-            </template>
+          <p v-if="armySize(report.siege.healed)">
+            Tombés : {{ formatArmy(fallen(report)) }}
+            <span class="muted">
+              · relevés après le siège : {{ formatArmy(report.siege.healed) }} · perdus pour de bon :
+              {{ formatArmy(report.lost) || 'aucun' }}
+            </span>
           </p>
+          <p v-else>Pertes : {{ formatArmy(report.lost) || 'aucune' }}</p>
           <p v-if="report.siege.guardsLost">
             Gardes tombés : {{ report.siege.guardsLost }}
             <span class="muted">· d’autres les remplacent pour le prochain siège</span>

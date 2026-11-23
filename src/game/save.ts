@@ -2,6 +2,7 @@
 // version plus ancienne du jeu qui l'a enregistrée.
 
 import {
+  QUESTS,
   RACES,
   RAID_CASTLE_LEVEL,
   RAID_FIRST_SECONDS,
@@ -113,7 +114,7 @@ export function restoreState(saved: unknown): GameState | null {
       reports: (state.reports ?? []).filter((report) => isObject(report) && (report.foe || report.camp)).map(upgradeReport),
       // Avant les quêtes, rien n'était compté : les compteurs partent de zéro.
       stats: { ...emptyStats(), ...state.stats },
-      quests: state.quests ?? [],
+      quests: questChain(state.quests ?? []),
       // Une bande sans monstres (une ancienne version en laissait parfois) n'a plus rien à faire sur la carte.
       bands: (state.bands ?? []).map((band) => upgradeBand(band, state.updatedAt)).filter(hasMonsters),
       // Avant les bandes et les gisements, la carte était vide : ils arrivent peu à peu.
@@ -217,6 +218,15 @@ function isTarget(value: unknown): boolean {
     default:
       return false
   }
+}
+
+/**
+ * Les objectifs réclamés. Ils forment une chaîne, qu'on réclame dans l'ordre : un objectif ajouté plus
+ * tard au milieu de la chaîne compte comme réclamé quand un objectif qui le suit l'est déjà.
+ */
+function questChain(claimed: string[]): string[] {
+  const last = Math.max(-1, ...claimed.map((id) => QUESTS.findIndex((quest) => quest.id === id)))
+  return QUESTS.slice(0, last + 1).map((quest) => quest.id)
 }
 
 function hasMonsters(band: Band): boolean {

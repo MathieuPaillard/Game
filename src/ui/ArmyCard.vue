@@ -79,7 +79,7 @@ const load = computed(() =>
     </p>
     <p v-if="army.dragon"><span aria-hidden="true">🐉</span> Le dragon l’accompagne (niveau {{ dragonLevel(state) }}).</p>
     <p v-if="eta !== null">Arrivée dans {{ formatDuration(eta) }}.</p>
-    <div v-if="fight" class="fight" role="status">
+    <div v-if="fight" class="fight">
       <p>
         <strong>Manche {{ fight.round + 1 }}</strong> : une manche toutes les quelques secondes, jusqu’à ce qu’un camp
         tombe.

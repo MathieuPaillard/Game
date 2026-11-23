@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { QUESTS, RESOURCES, RESOURCE_IDS } from '../game/config'
+import { DRAGON_EGG_ICON, QUESTS, RESOURCES, RESOURCE_IDS } from '../game/config'
 import { currentQuest, questDone, questProgress, type GameState } from '../game/rules'
 import { formatAmount } from './format'
 
@@ -46,6 +46,9 @@ const reward = computed(() => {
         <span v-for="item in reward" :key="item.id" class="reward-item">
           <span aria-hidden="true">{{ RESOURCES[item.id].icon }}</span> {{ formatAmount(item.amount) }}
           <span class="sr-only">{{ RESOURCES[item.id].name }}</span>
+        </span>
+        <span v-if="quest.gift === 'dragonEgg'" class="reward-item gift">
+          <span aria-hidden="true">{{ DRAGON_EGG_ICON }}</span> un œuf de dragon !
         </span>
       </p>
       <button v-if="done" class="btn" type="button" @click="emit('claim', quest.id)">Recevoir la récompense</button>

@@ -62,6 +62,7 @@ import {
   RAID_RESPITE_SECONDS,
   RAID_SIZE,
   RAID_SPEED,
+  RESOURCES,
   RESOURCE_IDS,
   SECOND_CONSTRUCTION_CASTLE_LEVEL,
   SIEGE_HEALED_SHARE,
@@ -534,6 +535,18 @@ export function canAfford(resources: Resources, cost: Partial<Resources>): boole
   return RESOURCE_IDS.every((id) => resources[id] >= (cost[id] ?? 0))
 }
 
+/** Peut-on payer ? Sinon, ce qui manque : « Il manque 65 de mana et 120 de pierre ». */
+export function checkCost(resources: Resources, cost: Partial<Resources>): Check {
+  const missing = RESOURCE_IDS.filter((id) => resources[id] < (cost[id] ?? 0)).map((id) => {
+    const name = RESOURCES[id].name.toLowerCase()
+    const of = /^[aeiouh]/.test(name) ? 'd’' : 'de '
+    return `${Math.ceil((cost[id] ?? 0) - resources[id])} ${of}${name}`
+  })
+  if (missing.length === 0) return { ok: true }
+  const list = missing.length === 1 ? missing[0] : `${missing.slice(0, -1).join(', ')} et ${missing[missing.length - 1]}`
+  return { ok: false, reason: `Il manque ${list}` }
+}
+
 /** Ajoute (ou retire, avec sign = -1) des ressources. */
 export function addResources(resources: Resources, delta: Partial<Resources>, sign = 1): Resources {
   const result = { ...resources }
@@ -654,10 +667,7 @@ export function checkUpgrade(state: GameState, buildingId: BuildingId): Check {
   if (state.constructions.length >= slots) {
     return { ok: false, reason: slots === 1 ? 'Un chantier est déjà en cours' : `Tes ${slots} chantiers sont occupés` }
   }
-  if (!canAfford(state.resources, upgradeCost(building, level + 1))) {
-    return { ok: false, reason: 'Ressources insuffisantes' }
-  }
-  return { ok: true }
+  return checkCost(state.resources, upgradeCost(building, level + 1))
 }
 
 /** Lance l'amélioration d'un bâtiment : retire son coût et ouvre le chantier. */
@@ -715,10 +725,7 @@ export function checkResearch(state: GameState, techId: TechId): Check {
   if (level >= tech.maxLevel) return { ok: false, reason: 'Niveau maximum atteint' }
   if (level + 1 > academy) return { ok: false, reason: `Nécessite l’Académie niveau ${level + 1}` }
   if (state.research) return { ok: false, reason: 'Une recherche est déjà en cours' }
-  if (!canAfford(state.resources, researchCost(tech, level + 1))) {
-    return { ok: false, reason: 'Ressources insuffisantes' }
-  }
-  return { ok: true }
+  return checkCost(state.resources, researchCost(tech, level + 1))
 }
 
 /** Lance une recherche : retire son coût, le nouveau niveau s'applique à la fin. */
@@ -775,10 +782,7 @@ export function checkTraining(state: GameState, unitId: UnitId, count: number): 
   if (state.trainings.some((t) => t.unit === unitId)) {
     return { ok: false, reason: `Des ${unit.name} sont déjà à l’entraînement` }
   }
-  if (!canAfford(state.resources, trainingCost(unit, count))) {
-    return { ok: false, reason: 'Ressources insuffisantes' }
-  }
-  return { ok: true }
+  return checkCost(state.resources, trainingCost(unit, count))
 }
 
 /** Lance un entraînement : retire son coût, les troupes arrivent à la fin. */
@@ -822,8 +826,7 @@ export function checkCast(state: GameState, spellId: SpellId): Check {
   if (tower === 0) return { ok: false, reason: 'Construis d’abord la Tour des mages' }
   if (tower < spell.towerLevel) return { ok: false, reason: `Nécessite la Tour des mages niveau ${spell.towerLevel}` }
   if (state.spells.some((active) => active.spell === spellId)) return { ok: false, reason: 'Ce sort agit déjà' }
-  if (!canAfford(state.resources, spell.cost)) return { ok: false, reason: 'Ressources insuffisantes' }
-  return { ok: true }
+  return checkCost(state.resources, spell.cost)
 }
 
 /** Lance un sort : il coûte du mana, et agit tout de suite, pour sa durée. */
@@ -969,8 +972,7 @@ export function checkHatch(state: GameState): Check {
   if (dragon.stage === 'hatching') return { ok: false, reason: 'L’œuf est déjà en train d’éclore' }
   if (dragon.stage === 'grown') return { ok: false, reason: 'Le dragon est déjà né' }
   if (state.levels.dragonRoost < 1) return { ok: false, reason: 'Construis d’abord l’Aire du dragon' }
-  if (!canAfford(state.resources, DRAGON_HATCH_COST)) return { ok: false, reason: 'Ressources insuffisantes' }
-  return { ok: true }
+  return checkCost(state.resources, DRAGON_HATCH_COST)
 }
 
 /** On couve l'œuf dans l'Aire du dragon : il éclora dans DRAGON_HATCH_SECONDS. */
@@ -1079,8 +1081,7 @@ export function checkRecruit(state: GameState, heroId: HeroId): Check {
   if (state.levels.castle < hero.castleLevel) {
     return { ok: false, reason: `Nécessite le Château niveau ${hero.castleLevel}` }
   }
-  if (!canAfford(state.resources, hero.cost)) return { ok: false, reason: 'Ressources insuffisantes' }
-  return { ok: true }
+  return checkCost(state.resources, hero.cost)
 }
 
 /** Recrute un héros : il arrive au niveau 1, avec un point de compétence à placer. */

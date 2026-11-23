@@ -11,7 +11,7 @@ const emit = defineEmits<{ recruit: [hero: HeroId]; learn: [hero: HeroId, skill:
   <section class="heroes" aria-labelledby="heroes-title">
     <h2 id="heroes-title" class="section-title">Héros</h2>
     <p class="muted">
-      Un héros mène une armée : tu le choisis au moment d’envoyer tes troupes, depuis l’onglet Alentours. Il
+      Un héros mène une armée : tu le choisis au moment d’envoyer tes troupes, en touchant une cible aux alentours. Il
       gagne de l’expérience pour chaque monstre vaincu, et chaque niveau lui donne un point de compétence à
       placer. Il ne meurt jamais : si son armée tombe, il revient à la cité.
     </p>

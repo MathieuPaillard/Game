@@ -52,6 +52,12 @@ import { STATUS_ICONS, armyStatusText, bandName } from './world'
 const props = defineProps<{ target: Target; state: GameState; now: number }>()
 const emit = defineEmits<{ march: [troops: Army, hero: HeroId | null, dragon: boolean]; order: [army: number] }>()
 
+/** « de bois », « d’or » : le nom d'une ressource après « un gisement ». */
+function ofResource(id: keyof typeof RESOURCES): string {
+  const name = RESOURCES[id].name.toLowerCase()
+  return /^[aeiouh]/.test(name) ? `d’${name}` : `de ${name}`
+}
+
 function total(monsters: Monsters): number {
   return Object.values(monsters).reduce((sum, count) => sum + (count ?? 0), 0)
 }
@@ -207,7 +213,7 @@ const fieldArmies = computed(() =>
 
     <template v-if="info.kind === 'node'">
       <p>
-        Un gisement de {{ RESOURCES[info.resource].name.toLowerCase() }} : il en reste
+        Un gisement {{ ofResource(info.resource) }} : il en reste
         <strong>{{ formatAmount(info.remaining) }}</strong> {{ RESOURCES[info.resource].icon }}.
       </p>
       <p class="muted">
@@ -253,7 +259,7 @@ const fieldArmies = computed(() =>
     </template>
 
     <p v-if="dangers.length" class="warning">
-      Attention : des monstres rôdent sur le chemin depuis la cité ({{ dangers.join(', ') }}). Ils attaqueront
+      Attention, des monstres rôdent sur le chemin depuis la cité : {{ dangers.join(', ') }}. Ils attaqueront
       ton armée si elle entre dans leur zone d’aggro.
     </p>
 

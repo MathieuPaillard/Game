@@ -304,8 +304,9 @@ function onQuestChip() {
   const reward = RESOURCE_IDS.filter((id) => current.def.reward[id])
     .map((id) => `${RESOURCES[id].icon} ${formatAmount(current.def.reward[id] ?? 0)}`)
     .join('  ')
+  const gift = current.def.gift === 'dragonEgg' ? `, et ${DRAGON_EGG_ICON} un œuf de dragon !` : ''
   emit('claim', current.def.id)
-  flash(`Objectif atteint : ${current.def.name}. Récompense reçue : ${reward}`, true)
+  flash(`Objectif atteint : ${current.def.name}. Récompense reçue : ${reward}${gift}`, true)
 }
 
 /** Ce qui est en cours dans la cité : chaque étiquette ouvre le bâtiment concerné. */
@@ -818,8 +819,8 @@ onBeforeUnmount(() => {
   pointer-events: none;
 }
 
+/* Les messages qui passent (.toast) laissent passer le doigt vers la carte. */
 .hud button,
-.hud .toast,
 .hud :deep(.notice) {
   pointer-events: auto;
 }
@@ -924,9 +925,10 @@ onBeforeUnmount(() => {
   border-width: 2px;
 }
 
+/* Les messages se posent en bas de la carte, au-dessus des boutons : en haut, ils cachaient l'objectif et l'alerte de raid. */
 .hud-toasts {
   position: absolute;
-  top: 0.5rem;
+  bottom: 4.4rem;
   left: 50%;
   z-index: 3;
   width: min(26rem, calc(100% - 2rem));
