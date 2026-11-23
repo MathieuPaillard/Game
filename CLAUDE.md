@@ -66,7 +66,7 @@ A Vue 3 + TypeScript + Vite single-page app with a French UI, plus a Node.js ser
 
 ## Game Design
 
-Design decisions live in `docs/conception.md` (in French). It is the source of truth and supersedes the README where they differ. Read it before implementing gameplay, and update it whenever the owner settles a design question. Each item is tagged Décidé, Proposition or À trancher.
+Design decisions live in `docs/conception.md` (in French). It is the source of truth and supersedes the README where they differ. Ideas not yet decided (from the November 2026 review by a team of agents: interface, mechanics, design, server) live in `docs/pistes.md`, each with an id the owner can pick, and leave it once decided. Read it before implementing gameplay, and update it whenever the owner settles a design question. Each item is tagged Décidé, Proposition or À trancher.
 
 In short: a free-for-everyone (no pay-to-win) multiplayer kingdom-building strategy game, in the same genre as Rise of Kingdoms but with a medieval-fantasy setting (several playable races, magic, dragons). Everything runs in real time with durations, combat included: there is no turn-based mode. Progress continues while the player is offline. All content (name, races, heroes, art) must be original; never reuse Rise of Kingdoms' content.
 
