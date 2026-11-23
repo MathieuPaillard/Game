@@ -81,7 +81,7 @@ export function restoreState(saved: unknown): GameState | null {
       resources = addResources(resources, old.result?.loot ?? old.loot ?? {})
     }
     const levels = { ...START_LEVELS, ...state.levels }
-    return {
+    const restored: GameState = {
       race: state.race,
       resources,
       levels,
@@ -110,11 +110,12 @@ export function restoreState(saved: unknown): GameState | null {
         siege: battle.siege ?? null,
         dragon: battle.dragon ?? null,
       })),
-      reports: (state.reports ?? []).filter((report) => report.foe || report.camp).map(upgradeReport),
+      reports: (state.reports ?? []).filter((report) => isObject(report) && (report.foe || report.camp)).map(upgradeReport),
       // Avant les quêtes, rien n'était compté : les compteurs partent de zéro.
       stats: { ...emptyStats(), ...state.stats },
       quests: state.quests ?? [],
-      bands: (state.bands ?? []).map((band) => upgradeBand(band, state.updatedAt)),
+      // Une bande sans monstres (une ancienne version en laissait parfois) n'a plus rien à faire sur la carte.
+      bands: (state.bands ?? []).map((band) => upgradeBand(band, state.updatedAt)).filter(hasMonsters),
       // Avant les bandes et les gisements, la carte était vide : ils arrivent peu à peu.
       nextBandAt: state.nextBandAt === undefined ? state.updatedAt : state.nextBandAt,
       // Avant les raids, personne n'attaquait la cité : si son Château est déjà assez grand, un premier
@@ -132,10 +133,94 @@ export function restoreState(saved: unknown): GameState | null {
       tickedAt: state.tickedAt ?? Math.floor(state.updatedAt / TICK) * TICK,
       updatedAt: state.updatedAt,
     }
+    return isSound(restored) ? restored : null
   } catch {
     // Une partie abîmée (un champ qui n'a pas la bonne forme) : on ne peut pas la relire.
     return null
   }
+}
+
+/**
+ * La partie relue a-t-elle du sens ? Une heure, une position ou un nombre abîmé (pas un nombre, ou
+ * un champ qui manque) ferait planter le jeu, ou tourner `advance` sans fin : mieux vaut ne pas la
+ * reprendre que bloquer le joueur, ou le serveur.
+ */
+function isSound(state: GameState): boolean {
+  const works = [...state.constructions, ...state.trainings, ...state.spells, ...(state.research ? [state.research] : [])]
+  const dragon = state.dragon
+  return (
+    [state.updatedAt, state.tickedAt, state.seed, state.nextId].every(finite) &&
+    [state.nextBandAt, state.nextNodeAt, state.nextRaidAt].every(finiteOrNull) &&
+    [state.resources, state.levels, state.techs, state.troops].every(isCounts) &&
+    works.every((work) => isObject(work) && finite(work.endsAt)) &&
+    state.heroes.every((hero) => isObject(hero) && finite(hero.level) && finite(hero.xp)) &&
+    state.armies.every(
+      (army) =>
+        finite(army.id) &&
+        isPoint(army.position) &&
+        (army.order === null || isTarget(army.order)) &&
+        isCounts(army.troops) &&
+        isCounts(army.load) &&
+        Array.isArray(army.fought),
+    ) &&
+    state.battles.every(
+      (battle) =>
+        finite(battle.startedAt) &&
+        finite(battle.healthFactor) &&
+        [battle.sent, battle.enemies, battle.armyHealth, battle.foeHealth].every(isCounts) &&
+        Array.isArray(battle.rounds),
+    ) &&
+    state.bands.every(
+      (band) => finite(band.id) && finite(band.level) && isPoint(band.home) && finite(band.phase) && finiteOrNull(band.since),
+    ) &&
+    state.nodes.every((node) => isObject(node) && finite(node.id) && isPoint(node.position) && finite(node.remaining)) &&
+    (dragon === null || (isObject(dragon) && finite(dragon.xp) && finiteOrNull(dragon.hatchAt) && finiteOrNull(dragon.restUntil)))
+  )
+}
+
+/** Un nombre utilisable : ni « pas un nombre », ni l'infini. */
+function finite(value: unknown): boolean {
+  return typeof value === 'number' && Number.isFinite(value)
+}
+
+function finiteOrNull(value: unknown): boolean {
+  return value === null || finite(value)
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function isPoint(value: unknown): boolean {
+  return isObject(value) && finite(value.x) && finite(value.y)
+}
+
+/** Des nombres rangés par nom (ressources, troupes, monstres…), tous utilisables. */
+function isCounts(value: unknown): boolean {
+  return isObject(value) && Object.values(value).every(finite)
+}
+
+/** Un ordre d'armée complet : un endroit, un camp, une bande, un gisement ou la cité. */
+function isTarget(value: unknown): boolean {
+  if (!isObject(value)) return false
+  switch (value.type) {
+    case 'point':
+      return finite(value.x) && finite(value.y)
+    case 'band':
+      return finite(value.band)
+    case 'node':
+      return finite(value.node)
+    case 'camp':
+      return typeof value.camp === 'string'
+    case 'city':
+      return true
+    default:
+      return false
+  }
+}
+
+function hasMonsters(band: Band): boolean {
+  return isCounts(band.monsters) && Object.values(band.monsters).some((count) => (count ?? 0) > 0)
 }
 
 /**

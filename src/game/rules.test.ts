@@ -690,6 +690,53 @@ describe('les batailles', () => {
     }
   })
 
+  it('quand les deux camps tombent dans la même manche, la bande est vaincue, mais personne ne rapporte le butin', () => {
+    const { game, id } = withBand(richGame({}, { archer: 2 }), nearCity(300), { shaman: 3 }, 1, 'goblins')
+    const end = runUntil(startMarch(game, toBand(id), army({ archer: 2 }), T0), (s) => s.reports.length > 0)
+    expect(end.reports[0]).toMatchObject({ outcome: 'victory', loot: {}, lost: { archer: 2 }, enemyLost: { shaman: 3 } })
+    expect(end.bands).toEqual([])
+    expect(end.armies).toEqual([])
+    expect(end.stats).toMatchObject({ victories: 1, bandsDefeated: 1 })
+  })
+
+  it('un siège où les deux camps tombent ensemble repousse le raid', () => {
+    const { game } = withRaid(richGame({ walls: 0 }, { archer: 2 }), { shaman: 3 }, RAID_SPEED, 1, 'goblins')
+    const end = runUntil(advance(game, raidArrival(game.bands[0])!), (s) => s.reports.length > 0)
+    expect(end.reports[0]).toMatchObject({ outcome: 'victory', lost: { archer: 1 }, siege: { plunder: {} } })
+    expect(end.stats.raidsRepelled).toBe(1)
+    expect(end.bands).toEqual([])
+    expect(end.nextRaidAt).toBe(game.nextRaidAt)
+  })
+
+  it('une armée ne rapporte que le butin qu’elle peut porter', () => {
+    const start = startMarch(richGame({}, { warrior: 30 }), toCamp('wolfDen'), army({ warrior: 30 }), T0)
+    // Elle porte déjà presque tout ce qu'elle peut : il ne lui reste de la place que pour 200 ressources.
+    const capacity = carryCapacity(start, army({ warrior: 30 }))
+    const loaded = { ...start, armies: start.armies.map((a) => ({ ...a, load: { stone: capacity - 200 } })) }
+    const won = runUntil(loaded, (s) => s.reports.length > 0)
+    const report = won.reports[0]
+    expect(report.outcome).toBe('victory')
+    const taken = loadSize(report.loot)
+    expect(taken).toBeGreaterThan(0)
+    expect(taken).toBeLessThanOrEqual(200)
+    expect(taken).toBeLessThan(loadSize(getCamp('wolfDen').loot))
+    expect(loadSize(won.armies[0].load)).toBeLessThanOrEqual(carryCapacity(won, won.armies[0].troops) + 1e-9)
+  })
+
+  it('une armée qui se bat ne peut pas reprendre aussitôt le même combat', () => {
+    const { game, id } = withBand(richGame({}, { warrior: 50 }), nearCity(300), { goblin: 2000 })
+    const fighting = runUntil(startMarch(game, toBand(id), army({ warrior: 50 }), T0), (s) => s.battles.length > 0)
+    const armyId = fighting.armies[0].id
+    expect(checkOrder(fighting, armyId, toBand(id))).toEqual({ ok: false, reason: 'Ton armée combat déjà cette cible' })
+    expect(checkOrder(fighting, armyId, CITY_TARGET)).toEqual({ ok: true })
+  })
+
+  it('refuse une heure qui n’est pas un nombre, plutôt que de tourner sans fin', () => {
+    const game = richGame()
+    const broken: GameState = { ...game, constructions: [{ building: 'farm', targetLevel: 2, startedAt: T0, endsAt: NaN }] }
+    expect(() => advance(broken, T0 + 1000)).toThrow()
+  })
+
   it('dit la vie qui reste à chaque camp', () => {
     const start = startMarch(richGame({}, { warrior: 30 }), toCamp('wolfDen'), army({ warrior: 30 }), T0)
     const fighting = runUntil(start, (s) => (s.battles[0]?.rounds.length ?? 0) === 2)
@@ -1278,17 +1325,30 @@ describe('le dragon', () => {
     expect(extra).toBeCloseTo(dragonAttack(2) * BATTLE_DAMAGE_SCALE * bonus, -1)
   })
 
-  it('blessé, le dragon regagne son aire et s’y repose', () => {
-    // Une escorte minuscule face à une armée de trolls : le dragon finit par tomber.
+  it('le dragon ne se bat jamais seul : quand son escorte tombe, il rompt le combat et va se reposer', () => {
+    // Une escorte minuscule face à une armée de trolls : elle tombe vite, bien avant le dragon.
     const { game, id } = withBand(withDragon(richGame({}, { warrior: 1 }), 1), nearCity(300), { troll: 400 }, 5, 'trolls')
     const start = startMarch(game, toBand(id), army({ warrior: 1 }), T0, null, true)
     const lost = runUntil(start, (s) => s.reports.length > 0)
     const report = lost.reports[0]
-    expect(report).toMatchObject({ outcome: 'defeat', dragon: { wounded: true } })
-    expect(report.rounds.some((round) => round.dragonFell)).toBe(true)
+    expect(report).toMatchObject({ outcome: 'defeat', loot: {}, dragon: { wounded: true } })
+    expect(report.rounds.some((round) => round.dragonFell)).toBe(false)
     expect(lost.armies).toEqual([])
+    expect(lost.bands.map((band) => band.id)).toEqual([id])
     expect(lost.dragon?.restUntil).toBe(report.at + DRAGON_REST_SECONDS * 1000)
     expect(checkDragon(lost)).toEqual({ ok: false, reason: 'Le dragon, blessé, se repose dans son aire' })
+    expect(checkDragon(advance(lost, report.at + DRAGON_REST_SECONDS * 1000))).toEqual({ ok: true })
+  })
+
+  it('à la cité, le dragon défend jusqu’au bout ; tombé, il se repose dans son aire', () => {
+    // Personne d'autre pour défendre la cité face à une horde de trolls : le dragon finit par tomber.
+    const home = withRaid(withDragon(richGame({ walls: 0 }), 1), { troll: 400 }, RAID_SPEED, 5, 'trolls')
+    const besieged = advance(home.game, raidArrival(home.game.bands[0])!)
+    const lost = runUntil(besieged, (s) => s.reports.length > 0)
+    const report = lost.reports[0]
+    expect(report).toMatchObject({ outcome: 'defeat', dragon: { wounded: true } })
+    expect(report.rounds.some((round) => round.dragonFell)).toBe(true)
+    expect(lost.dragon?.restUntil).toBe(report.at + DRAGON_REST_SECONDS * 1000)
     expect(checkDragon(advance(lost, report.at + DRAGON_REST_SECONDS * 1000))).toEqual({ ok: true })
   })
 

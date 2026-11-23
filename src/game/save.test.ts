@@ -18,6 +18,31 @@ describe('restoreState', () => {
     expect(restoreState({ race: 'humans', updatedAt: T0, reports: 'abîmé' })).toBeNull()
   })
 
+  it('ne reprend pas une partie abîmée, qui ferait planter le jeu ou tourner sans fin', () => {
+    const game = newGame('humans', T0)
+    const band = game.bands[0]
+    const broken = [
+      { ...game, constructions: [null] },
+      { ...game, constructions: [{ building: 'farm', targetLevel: 2, startedAt: T0, endsAt: 'x' }] },
+      { ...game, armies: [{}] },
+      { ...game, armies: [{ id: 3, troops: {}, position: { x: 1, y: 2 }, order: { type: 'point' }, status: 'marching', load: {}, fought: [] }] },
+      { ...game, battles: [{}] },
+      { ...game, spells: [{}] },
+      { ...game, nodes: [{}] },
+      { ...game, resources: { ...game.resources, food: null } },
+      { ...game, bands: [{ ...band, since: undefined }] },
+      { ...game, nextRaidAt: 'bientôt' },
+      { ...game, dragon: { stage: 'grown', hatchAt: null, xp: 'beaucoup', restUntil: null } },
+    ]
+    for (const saved of broken) expect(restoreState(JSON.parse(JSON.stringify(saved)))).toBeNull()
+  })
+
+  it('oublie une bande sans monstres, qu’une ancienne version laissait parfois sur la carte', () => {
+    const game = newGame('humans', T0)
+    const empty = { ...game.bands[0], monsters: { wolf: 0 } }
+    expect(restoreState({ ...game, bands: [empty, ...game.bands.slice(1)] })!.bands).toEqual(game.bands.slice(1))
+  })
+
   it('complète une partie enregistrée par une version plus ancienne', () => {
     const training = { unit: 'warrior', count: 5, startedAt: T0, endsAt: T0 + 1000 }
     const old = {
@@ -173,7 +198,22 @@ describe('restoreState', () => {
     expect(state.bands).toEqual(game.bands)
     expect(state.stats).toEqual({ victories: 2, bandsDefeated: 1, gathered: 0, raidsRepelled: 0, campsDefeated: {} })
     // La bataille d'une version d'avant les raids se livrait dehors.
-    const battle = { ...game, battles: [{ id: 9, army: 5, band: null, rounds: [] }] }
+    const fight = {
+      id: 9,
+      army: 5,
+      band: null,
+      foe: { type: 'camp', camp: 'wolfDen' },
+      ambush: false,
+      startedAt: T0,
+      sent: { warrior: 10 },
+      enemies: { wolf: 6 },
+      armyHealth: { warrior: 400 },
+      foeHealth: { wolf: 300 },
+      healthFactor: 1,
+      starving: false,
+      rounds: [],
+    }
+    const battle = { ...game, battles: [fight] }
     expect(restoreState(battle)!.battles[0].siege).toBeNull()
     // Un rapport de siège garde son armée vide (null), un très vieux rapport reçoit l'armée 0.
     const reports = [

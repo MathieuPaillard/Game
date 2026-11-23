@@ -128,8 +128,12 @@ export function describeBattle(report: BattleReport): BattleStory {
         draw: `Après ${length}, le raid renonce et repart sans rien emporter.`,
       }
     : {
-        victory: `Victoire en ${length}.`,
-        defeat: `Défaite en ${length} : ton armée a été anéantie.`,
+        victory: UNIT_IDS.some((id) => report.sent[id] > report.lost[id])
+          ? `Victoire en ${length}.`
+          : `Victoire en ${length}, mais aucun de tes soldats n’a survécu pour rapporter le butin.`,
+        defeat: report.dragon
+          ? `Défaite en ${length} : ton escorte a été anéantie, et le dragon ne se bat jamais seul.`
+          : `Défaite en ${length} : ton armée a été anéantie.`,
         retreat: `Après ${length}, tu as ordonné la retraite.`,
         draw: `Après ${length}, les deux camps se séparent sans vainqueur.`,
       }

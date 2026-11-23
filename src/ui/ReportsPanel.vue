@@ -3,10 +3,11 @@ import { computed } from 'vue'
 import { RESOURCES, RESOURCE_IDS, STARVATION_ATTACK_MALUS, type MonsterId, type Resources } from '../game/config'
 import {
   armySize,
+  foeLoot,
   getHeroDef,
   getMonster,
+  loadSize,
   type BattleReport,
-  type DragonGain,
   type GameState,
   type HeroGain,
 } from '../game/rules'
@@ -36,10 +37,25 @@ function heroText(gain: HeroGain): string {
 }
 
 /** Ce qu'a vécu le dragon : « 🐉 Le dragon gagne 120 XP et passe au niveau 2 ! » */
-function dragonText(gain: DragonGain): string {
+function dragonText(report: BattleReport): string {
+  const gain = report.dragon
+  if (!gain) return ''
   const levelUp = gain.levelsGained > 0 ? ` et passe au niveau ${gain.level} !` : '.'
-  const wounded = gain.wounded ? ' Blessé, il regagne son aire pour se reposer.' : ''
-  return `🐉 Le dragon gagne ${formatAmount(gain.xp)} XP${levelUp}${wounded}`
+  // Il se repose quand il est tombé, ou quand il est resté seul : il ne se bat jamais sans escorte.
+  const fell = report.rounds.some((round) => round.dragonFell)
+  const rest = !gain.wounded
+    ? ''
+    : fell
+      ? ' Blessé, il regagne son aire pour se reposer.'
+      : ' Resté seul quand son escorte est tombée, il regagne son aire pour se reposer.'
+  return `🐉 Le dragon gagne ${formatAmount(gain.xp)} XP${levelUp}${rest}`
+}
+
+/** Pourquoi une victoire dehors n'a pas rapporté tout le butin, ou '' si l'armée a tout emporté. */
+function lootLeft(report: BattleReport): string {
+  if (report.siege || loadSize(report.loot) >= loadSize(foeLoot(report.foe)) - 0.5) return ''
+  const survivors = armySize(report.sent) > armySize(report.lost)
+  return survivors ? 'ton armée n’a pas pu tout emporter' : 'personne n’a survécu pour l’emporter'
 }
 
 /** Qui défendait la cité : « 🛡️ Guerriers 30 + 🧱 16 gardes des Remparts ». */
@@ -100,15 +116,16 @@ function lootText(loot: Partial<Resources>): string {
         </template>
         <p>Monstres vaincus : {{ monstersText(report.enemyLost) || 'aucun' }}</p>
         <p v-if="report.outcome === 'victory'">
-          Butin : {{ lootText(report.loot) }}
+          Butin : {{ lootText(report.loot) || 'rien' }}
           <span v-if="report.siege" class="muted">· déjà dans tes réserves</span>
+          <span v-else-if="lootLeft(report)" class="muted">· {{ lootLeft(report) }}</span>
         </p>
         <p v-if="report.siege && lootText(report.siege.plunder)" class="lost">
           Pillé : {{ lootText(report.siege.plunder) }}
         </p>
         <p v-if="report.hero" :class="{ won: report.hero.levelsGained > 0 }">{{ heroText(report.hero) }}</p>
         <p v-if="report.dragon" :class="{ won: report.dragon.levelsGained > 0, lost: report.dragon.wounded }">
-          {{ dragonText(report.dragon) }}
+          {{ dragonText(report) }}
         </p>
         <p v-if="report.starving" class="lost">Tes troupes avaient faim : {{ malusPercent }} % d’attaque en moins.</p>
         <details v-if="report.rounds.length" class="journal">

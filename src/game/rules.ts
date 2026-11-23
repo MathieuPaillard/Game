@@ -864,7 +864,9 @@ export function questProgress(state: GameState, quest: QuestDef): { current: num
     case 'bands':
       return { current: state.stats.bandsDefeated, target: goal.count }
     case 'gathered':
-      return { current: Math.floor(state.stats.gathered), target: goal.amount }
+      // Les petites quantités récoltées à chaque seconde s'additionnent avec des arrondis (379,9999…) :
+      // on ne veut ni afficher 379 pour 380, ni bloquer l'objectif à un cheveu du but.
+      return { current: Math.floor(state.stats.gathered + 1e-6), target: goal.amount }
     case 'raids':
       return { current: state.stats.raidsRepelled, target: goal.count }
     case 'camp':
@@ -992,11 +994,13 @@ function dragonAfterBattle(
   battle: Battle,
   xp: number,
   at: number,
+  outcome: Outcome,
 ): { state: GameState; gain: DragonGain | null } {
   const dragon = state.dragon
   if (!battle.dragon || !dragon) return { state, gain: null }
   const before = dragonLevel(state)
-  const wounded = battle.dragon.health <= 1e-9
+  // Tombé au combat, ou resté seul quand toute son escorte est tombée : il regagne son aire et s'y repose.
+  const wounded = battle.dragon.health <= 1e-9 || (battle.siege === null && outcome === 'defeat')
   const next: GameState = {
     ...state,
     dragon: { ...dragon, xp: dragon.xp + xp, restUntil: wounded ? at + DRAGON_REST_SECONDS * SECOND : dragon.restUntil },
@@ -1292,7 +1296,16 @@ export function startMarch(
 
 export function checkOrder(state: GameState, armyId: number, target: Target): Check {
   if (!getArmy(state, armyId)) return { ok: false, reason: 'Cette armée n’est plus dehors' }
+  // Sinon, elle battrait en retraite pour aussitôt reprendre le même combat, ses blessés remis sur pied.
+  const battle = state.battles.find((b) => b.army === armyId)
+  if (battle && fightsAgainst(battle, target)) return { ok: false, reason: 'Ton armée combat déjà cette cible' }
   return checkTarget(state, target, armyId)
+}
+
+/** La bataille se livre-t-elle contre cette cible ? */
+function fightsAgainst(battle: Battle, target: Target): boolean {
+  if (target.type === 'band') return battle.band === target.band
+  return target.type === 'camp' && battle.band === null && battle.foe.type === 'camp' && battle.foe.camp === target.camp
 }
 
 /** Un nouvel ordre pour une armée dehors. Si elle se bat, elle bat d'abord en retraite. */
@@ -1326,6 +1339,25 @@ function updateArmy(state: GameState, army: FieldArmy): GameState {
 
 function removeArmy(state: GameState, id: number): GameState {
   return { ...state, armies: state.armies.filter((a) => a.id !== id) }
+}
+
+/** Tout le butin que laisse un adversaire vaincu : un camp, une bande ou un raid. */
+export function foeLoot(foe: Foe): Partial<Resources> {
+  if (foe.type === 'camp') return { ...getCamp(foe.camp).loot }
+  return foe.raid ? raidLoot(foe.kind, foe.level) : bandLoot(foe.kind, foe.level)
+}
+
+/** Ce qu'une armée emporte d'un butin quand elle n'a de place que pour `room` ressources : un peu de chaque. */
+export function fitLoad(loot: Partial<Resources>, room: number): Partial<Resources> {
+  const size = loadSize(loot)
+  if (size <= room) return { ...loot }
+  const share = Math.max(0, room) / size
+  const taken: Partial<Resources> = {}
+  for (const id of RESOURCE_IDS) {
+    const amount = Math.floor((loot[id] ?? 0) * share + 1e-9)
+    if (amount > 0) taken[id] = amount
+  }
+  return taken
 }
 
 function mergeLoot(a: Partial<Resources>, b: Partial<Resources>): Partial<Resources> {
@@ -1656,8 +1688,12 @@ function playRound(state: GameState, battleId: number, at: number): GameState {
     dragon: battle.dragon && { ...battle.dragon, health: round.attackerHealth[dragonIndex] },
   }
   const next = { ...state, battles: state.battles.map((b) => (b.id === battleId ? updated : b)) }
-  if (total(round.log.attackers) === 0) return endBattle(next, updated, at, 'defeat')
+  // Plus aucun monstre debout : c'est une victoire, même si les derniers défenseurs tombent dans la
+  // même manche. Dehors, le dragon ne se bat jamais seul : quand toute son escorte est tombée, la
+  // bataille est perdue, et il regagne son aire. À la cité, lui et les gardes défendent jusqu'au bout.
+  const standing = battle.siege ? round.log.attackers : round.log.attackers.slice(0, UNIT_IDS.length)
   if (total(round.log.defenders) === 0) return endBattle(next, updated, at, 'victory')
+  if (total(standing) === 0) return endBattle(next, updated, at, 'defeat')
   if (updated.rounds.length >= MAX_BATTLE_ROUNDS) return endBattle(next, updated, at, 'draw')
   return next
 }
@@ -1679,14 +1715,11 @@ function endBattle(state: GameState, battle: Battle, at: number, outcome: Outcom
   }
   const foe = battle.foe
   const raid = foe.type === 'band' && foe.raid === true
-  const loot =
-    outcome !== 'victory'
-      ? {}
-      : foe.type === 'camp'
-        ? { ...getCamp(foe.camp).loot }
-        : raid
-          ? raidLoot(foe.kind, foe.level)
-          : bandLoot(foe.kind, foe.level)
+  // Le butin d'une victoire part avec l'armée, dans la limite de ce que portent ses survivants (en plus de
+  // ce qu'elle porte déjà) : le reste demeure sur place. Sans survivant, personne ne l'emporte.
+  const carrier = battleArmy(state, battle)
+  const room = carrier ? carryCapacity(state, survivors, carrier.hero) - loadSize(carrier.load) : 0
+  const loot = outcome === 'victory' ? fitLoad(foeLoot(foe), room) : {}
   let next: GameState = { ...state, battles: state.battles.filter((b) => b.id !== battle.id) }
   if (outcome === 'victory') {
     const stats = next.stats
@@ -1707,7 +1740,7 @@ function endBattle(state: GameState, battle: Battle, at: number, outcome: Outcom
 
   // Le héros et le dragon de l'armée gagnent de l'expérience pour chaque monstre vaincu, quelle que soit l'issue.
   const xp = battleXp(enemyLost)
-  const withDragon = dragonAfterBattle(next, battle, xp, at)
+  const withDragon = dragonAfterBattle(next, battle, xp, at, outcome)
   next = withDragon.state
   const heroId = battleArmy(state, battle)?.hero ?? null
   const hero = heroId === null ? undefined : getHero(state, heroId)
@@ -2092,7 +2125,7 @@ function endSiege(state: GameState, battle: Battle, siege: Siege, at: number, ou
   const foe = battle.foe
   const loot = outcome === 'victory' && foe.type === 'band' ? raidLoot(foe.kind, foe.level) : {}
   const plunder = outcome === 'defeat' ? plunderOf(state, monstersLeft) : {}
-  const withDragon = dragonAfterBattle(state, battle, battleXp(enemyLost), at)
+  const withDragon = dragonAfterBattle(state, battle, battleXp(enemyLost), at, outcome)
   const stats = state.stats
   const report: BattleReport = {
     at,
@@ -2307,6 +2340,8 @@ export function advance(state: GameState, now: number): GameState {
     const event = nextEvent(current)
     const tick = nextTick(current)
     const at = Math.min(event?.at ?? Infinity, tick ?? Infinity)
+    // Une heure qui n'est pas un nombre (une partie abîmée) ferait tourner la boucle sans fin.
+    if (Number.isNaN(at)) throw new Error('Une heure de la partie n’est pas un nombre')
     if (at > now) break
     const before = current.updatedAt
     // On produit avec l'état actuel jusqu'à l'événement (ou le pas du monde), puis on l'applique.
