@@ -11,7 +11,7 @@ import {
   type GameState,
   type HeroGain,
 } from '../game/rules'
-import { describeBattle, foeName, reportTitle } from './battleLog'
+import { describeBattle, foesName, reportTitle } from './battleLog'
 import { formatAgo, formatAmount, formatArmy, formatDuration } from './format'
 
 // Les derniers rapports de bataille, du plus récent au plus ancien, avec le journal de chaque combat.
@@ -107,7 +107,7 @@ function lootText(loot: Partial<Resources>): string {
         <template v-else>
           <p>
             <strong :class="report.outcome === 'victory' ? 'won' : 'lost'">{{ reportTitle(report) }}</strong>
-            · {{ foeName(report.foe) }}
+            · {{ foesName(report) }}
             <template v-if="report.ambush">· <strong class="lost">embuscade</strong></template>
             <span class="muted">· {{ formatAgo(now - report.at) }}</span>
           </p>

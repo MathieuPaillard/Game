@@ -3,7 +3,8 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { BUILDINGS, DRAGON_EGG_ICON, DRAGON_HATCH_SECONDS, DRAGON_ICON, RESOURCES } from '../game/config'
 import {
   armySize,
-  battleSurvivors,
+  fighterHealth,
+  foeSurvivors,
   checkUpgrade,
   constructionOf,
   dragonArmy,
@@ -127,14 +128,24 @@ const walls = computed(() => {
   return { level, width: level > 0 ? 12 + 2 * level : 8 }
 })
 
-// Le siège en cours : où en est la bataille, qui attaque, et la vie qui reste à chaque camp.
+// Le siège en cours : où en est la bataille, qui attaque (un raid, ou plusieurs), et la vie qui reste
+// à chaque camp : tes défenseurs, et tous les raids ensemble.
 const siege = computed(() => {
   const battle = siegeOf(props.state)
-  if (!battle) return null
+  const city = battle?.allies.find((ally) => ally.army === null)
+  if (!battle || !city) return null
+  const raids = battle.foes.map(fighterHealth)
+  const start = raids.reduce((sum, health) => sum + health.start, 0)
+  const now = raids.reduce((sum, health) => sum + health.now, 0)
   return {
-    round: battle.rounds.length + 1,
-    icon: monstersIcon(battleSurvivors(battle).monsters),
-    fx: fightFx(battle),
+    round: battle.round + 1,
+    raids: battle.foes.length,
+    icon: monstersIcon(battle.foes[0] ? foeSurvivors(battle.foes[0]) : {}),
+    city: fightFx(battle, city),
+    foe: {
+      ratio: start > 0 ? now / start : 0,
+      taken: battle.round > 0 ? battle.foes.reduce((sum, foe) => sum + foe.taken, 0) : 0,
+    },
   }
 })
 
@@ -343,21 +354,23 @@ function lairText(id: string): string {
     >
       <ellipse class="spot-base siege-base" rx="70" ry="24" cy="26" />
       <ellipse class="spot-ring" rx="82" ry="31" cy="26" />
-      <g :key="`siege-hit-${siege.fx.round}`" :class="{ hit: siege.fx.round > 0 }">
+      <g :key="`siege-hit-${siege.city.round}`" :class="{ hit: siege.city.round > 0 }">
         <text class="emoji" font-size="54" x="-28">{{ siege.icon }}</text>
       </g>
-      <g :key="`siege-bump-${siege.fx.round}`" class="bump">
+      <g :key="`siege-bump-${siege.city.round}`" class="bump">
         <text class="emoji" font-size="40" x="34" y="-6">⚔️</text>
       </g>
-      <text class="map-label siege-label" y="66">Siège · manche {{ siege.round }}</text>
-      <!-- La vie des deux camps : tes défenseurs (en doré), puis les monstres (en rouge) -->
-      <HealthBar :ratio="siege.fx.ally" :y="-72" :width="104" />
-      <HealthBar :ratio="siege.fx.foe" :y="-57" :width="104" foe />
-      <text v-if="siege.fx.taken > 0" :key="`siege-taken-${siege.fx.round}`" class="float-damage ally" x="-36" y="-92">
-        −{{ formatShort(siege.fx.taken) }}
+      <text class="map-label siege-label" y="66">
+        Siège · manche {{ siege.round }}{{ siege.raids > 1 ? ` · ${siege.raids} raids` : '' }}
       </text>
-      <text v-if="siege.fx.dealt > 0" :key="`siege-dealt-${siege.fx.round}`" class="float-damage foe" x="36" y="-92">
-        −{{ formatShort(siege.fx.dealt) }}
+      <!-- La vie des deux camps : tes défenseurs (en doré), puis les monstres (en rouge) -->
+      <HealthBar :ratio="siege.city.ratio" :y="-72" :width="104" />
+      <HealthBar :ratio="siege.foe.ratio" :y="-57" :width="104" foe />
+      <text v-if="siege.city.taken > 0" :key="`siege-taken-${siege.city.round}`" class="float-damage ally" x="-36" y="-92">
+        −{{ formatShort(siege.city.taken) }}
+      </text>
+      <text v-if="siege.foe.taken > 0" :key="`siege-dealt-${siege.city.round}`" class="float-damage foe" x="36" y="-92">
+        −{{ formatShort(siege.foe.taken) }}
       </text>
     </g>
   </MapViewport>

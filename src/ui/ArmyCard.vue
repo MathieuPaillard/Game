@@ -1,9 +1,16 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { RESOURCES, RESOURCE_IDS, type MonsterId } from '../game/config'
+import { ENCIRCLED_ATTACK_MALUS, REAR_ATTACK_BONUS, RESOURCES, RESOURCE_IDS, SIDE_ATTACK_BONUS, type MonsterId } from '../game/config'
 import {
-  battleSurvivors,
+  allySurvivors,
+  armyBattle,
+  attackersOf,
   carryCapacity,
+  encircled,
+  fighterOf,
+  flankOf,
+  foeSurvivors,
+  relativeSlot,
   dragonLevel,
   getHero,
   getHeroDef,
@@ -12,9 +19,12 @@ import {
   marchDuration,
   targetPosition,
   type FieldArmy,
+  type FoeFighter,
   type GameState,
+  type Monsters,
   type Target,
 } from '../game/rules'
+import { foeName } from './battleLog'
 import { formatAmount, formatArmy, formatDuration } from './format'
 import { STATUS_ICONS, armyStatusText, bandName, chasers } from './world'
 
@@ -32,11 +42,11 @@ const hero = computed(() => {
   const recruited = id === null ? undefined : getHero(props.state, id)
   return recruited ? { def: getHeroDef(recruited.id), level: recruited.level } : null
 })
-const battle = computed(() => props.state.battles.find((b) => b.army === props.army.id))
-// Les bandes qui la poursuivent (sans celle qu'elle combat).
+const fighting = computed(() => armyBattle(props.state, props.army.id))
+// Les bandes qui la poursuivent (sans celles de sa mêlée).
 const hunters = computed(() =>
   chasers(props.state, props.army.id)
-    .filter((band) => band.id !== battle.value?.band)
+    .filter((band) => !fighting.value?.battle.foes.some((foe) => foe.band === band.id))
     .map(bandName),
 )
 
@@ -48,15 +58,41 @@ const eta = computed(() => {
   return to ? marchDuration(props.state, props.army.position, to, props.army.hero) : null
 })
 
-// Au combat : ce qui reste de chaque côté.
-const fight = computed(() => {
-  if (!battle.value) return null
-  const { troops, monsters } = battleSurvivors(battle.value)
-  const foes = (Object.entries(monsters) as [MonsterId, number][])
+/** Les monstres encore debout, en quelques mots. */
+function monstersText(monsters: Monsters): string {
+  return (Object.entries(monsters) as [MonsterId, number][])
     .filter(([, count]) => count > 0)
     .map(([id, count]) => `${getMonster(id).icon} ${getMonster(id).name} ${count}`)
     .join(' · ')
-  return { round: battle.value.rounds.length, troops: formatArmy(troops), foes }
+}
+
+const FLANK_TEXTS = { front: 'de face', side: 'de côté', rear: 'de dos' }
+const sidePercent = Math.round(SIDE_ATTACK_BONUS * 100)
+const rearPercent = Math.round(REAR_ATTACK_BONUS * 100)
+const malusPercent = Math.round(ENCIRCLED_ATTACK_MALUS * 100)
+
+// Au combat : sa cible (et d'où elle la frappe), ceux qui la frappent (et d'où), et si elle est encerclée.
+const fight = computed(() => {
+  const current = fighting.value
+  if (!current) return null
+  const { battle, ally } = current
+  const target = fighterOf(battle, ally.target) as FoeFighter | undefined
+  const flank = target ? flankOf(relativeSlot(battle, ally)) : 'front'
+  const attackers = (attackersOf(battle, ally.ref) as FoeFighter[]).map((foe) => ({
+    key: foe.ref,
+    name: foeName(foe.foe),
+    from: FLANK_TEXTS[flankOf(relativeSlot(battle, foe))],
+  }))
+  return {
+    round: battle.round,
+    troops: formatArmy(allySurvivors(ally).troops),
+    target: target ? { name: foeName(target.foe), monsters: monstersText(foeSurvivors(target)) } : null,
+    flank,
+    attackers,
+    encircled: encircled(battle, ally.ref),
+    // D'autres adversaires dans la mêlée : on peut s'y tourner.
+    others: battle.foes.length > 1,
+  }
 })
 
 const capacity = computed(() => carryCapacity(props.state, props.army.troops, props.army.hero))
@@ -103,7 +139,25 @@ const load = computed(() =>
         tombe.
       </p>
       <p>Tes troupes : {{ fight.troops || 'aucune' }}</p>
-      <p>En face : {{ fight.foes || 'personne' }}</p>
+      <p v-if="fight.target">
+        Elle frappe {{ fight.target.name }}, {{ FLANK_TEXTS[fight.flank] }}<template v-if="fight.flank === 'side'">
+          (+{{ sidePercent }} % d’attaque)</template
+        ><template v-else-if="fight.flank === 'rear'"> (+{{ rearPercent }} % d’attaque)</template> :
+        {{ fight.target.monsters || 'plus personne' }}
+      </p>
+      <p v-else class="muted">Elle attend une place : huit troupes entourent déjà chaque adversaire.</p>
+      <p v-if="fight.attackers.length">
+        La frappent :
+        <template v-for="(attacker, i) in fight.attackers" :key="attacker.key"
+          >{{ i > 0 ? ', ' : '' }}{{ attacker.name }} ({{ attacker.from }})</template
+        >.
+      </p>
+      <p v-if="fight.encircled" class="warning" role="status">
+        Encerclée : frappée d’au moins trois côtés, elle perd {{ malusPercent }} % de son attaque.
+      </p>
+      <p v-if="fight.others" class="hint">
+        Touche un autre adversaire de la mêlée : ton armée se tourne vers lui, sans quitter le combat.
+      </p>
     </div>
     <p v-else>Troupes : {{ formatArmy(army.troops) }}</p>
     <p>

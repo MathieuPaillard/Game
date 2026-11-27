@@ -3,16 +3,20 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { CAMPS, ENCAMPMENT, ENCAMPMENT_GATE, ENCAMPMENT_TRAPS, MOUNTAINS, NODE_KINDS, WATCH_RADIUS, WORLD } from '../game/config'
 import {
   aggroRadius,
+  armyBattle,
   armySize,
+  bandBattle,
   bandPosition,
   bandsNearPath,
   campEmptyUntil,
   canChase,
   distance,
+  encircled,
+  fighterOf,
+  fighterPosition,
   getArmy,
   getBand,
   getBandKind,
-  getCamp,
   getHeroDef,
   nodeGatherer,
   patrolLoop,
@@ -93,37 +97,58 @@ function drawnPosition(band: Band, at: number): Point {
   }
 }
 
-/** Pendant une bataille, l'armée se tient à cette distance de son adversaire : les deux restent bien visibles. */
-const FIGHT_GAP = 115
-
-/** L'endroit où dessiner l'adversaire d'une bataille : la bande (ou le raid), ou le camp. */
-function foePosition(battle: Battle): Point | null {
-  if (battle.band !== null) {
-    const band = getBand(props.state, battle.band)
-    return band ? drawnPosition(band, props.now) : null
-  }
-  return battle.foe.type === 'camp' ? getCamp(battle.foe.camp).position : null
+/**
+ * Pendant une mêlée, chacun se tient à sa place autour de sa cible (l'une des huit directions), à
+ * cette distance : un peu plus loin en hauteur, pour que les noms (dessous) et les barres de vie
+ * (dessus) ne se chevauchent pas. Autour de la cité, les raids se tiennent devant ses murs.
+ */
+function slotOffsets(width: number, height: number): Point[] {
+  return [0, 1, 2, 3, 4, 5, 6, 7].map((slot) => ({
+    x: Math.round(Math.cos((slot * Math.PI) / 4) * width),
+    y: Math.round(Math.sin((slot * Math.PI) / 4) * height),
+  }))
 }
+const SLOT_OFFSETS = slotOffsets(130, 160)
+const CITY_SLOT_OFFSETS = slotOffsets(150, 150)
 
 /**
- * L'endroit où dessiner une armée qui se bat : à côté de son adversaire, à la même hauteur, du côté
- * d'où elle vient (celui de la cité quand elle se bat sur le camp même). Ainsi, les noms (dessous)
- * et les barres de vie (dessus) des deux combattants ne se chevauchent pas.
+ * Où dessiner chaque combattant d'une mêlée : chacun autour de sa cible, à sa place. Restent où ils
+ * sont : la cité, ceux qui attendent une place, et le monstre qui riposte contre une de tes armées
+ * (c'est elle qui se tient autour de lui).
  */
-function apart(position: Point, foe: Point): Point {
-  const from = distance(position, foe) > 1 ? position : city
-  let side = from.x < foe.x ? -1 : 1
-  // Pas en dehors de la carte.
-  if (foe.x + side * FIGHT_GAP < 0 || foe.x + side * FIGHT_GAP > WORLD_MAP.width) side = -side
-  return { x: foe.x + side * FIGHT_GAP, y: foe.y }
+function battleLayout(battle: Battle): Map<string, Point> {
+  const layout = new Map<string, Point>()
+  const place = (ref: string, visiting: Set<string>): Point => {
+    const known = layout.get(ref)
+    if (known) return known
+    const fighter = fighterOf(battle, ref)
+    const target = fighter && fighterOf(battle, fighter.target)
+    let point = fighterPosition(props.state, ref, props.now)
+    const stays =
+      !fighter || !target || ref === 'city' || visiting.has(ref) || (target.target === ref && target.ref !== 'city' && 'foe' in fighter)
+    if (!stays) {
+      visiting.add(ref)
+      const center = place(target.ref, visiting)
+      const offset = (target.ref === 'city' ? CITY_SLOT_OFFSETS : SLOT_OFFSETS)[fighter.slot]
+      point = { x: center.x + offset.x, y: center.y + offset.y }
+    }
+    layout.set(ref, point)
+    return point
+  }
+  for (const fighter of [...battle.allies, ...battle.foes]) place(fighter.ref, new Set())
+  return layout
 }
 
-/** Où dessiner une armée : là où elle est, ou en face de son adversaire pendant une bataille. */
-function armyPosition(army: { id: number; position: Point; status: string }): Point {
-  if (army.status !== 'fighting') return army.position
-  const battle = props.state.battles.find((b) => b.army === army.id)
-  const foe = battle ? foePosition(battle) : null
-  return foe ? apart(army.position, foe) : army.position
+/** La place de chaque combattant de chaque mêlée, par son nom (`army:12`, `band:34`, `camp:wolfDen`, `city`). */
+const placed = computed(() => {
+  const all = new Map<string, Point>()
+  for (const battle of props.state.battles) for (const [ref, point] of battleLayout(battle)) all.set(ref, point)
+  return all
+})
+
+/** Où dessiner une armée : là où elle est, ou à sa place dans sa mêlée. */
+function armyPosition(army: { id: number; position: Point }): Point {
+  return placed.value.get(`army:${army.id}`) ?? army.position
 }
 
 // Ce qu'on vient de choisir vient au milieu de la carte (une fois le panneau ouvert à côté), y compris
@@ -285,17 +310,18 @@ const nodes = computed(() =>
 
 const bands = computed(() => {
   const siege = siegeOf(props.state)
-  const besieging = siege?.band
   return props.state.bands.map((band) => {
     const target: Target = { type: 'band', band: band.id }
-    const battle = props.state.battles.find((b) => b.band === band.id)
+    const fighting = bandBattle(props.state, band.id)
+    const battle = fighting?.battle
+    const besieging = siege !== undefined && battle?.id === siege.id
     const name = getBandKind(band.kind).name
     const arrival = raidArrival(band)
     const left = arrival === null ? null : Math.max(0, arrival - props.now)
     // Un raid : son état en quelques mots, sous son nom.
     const raidState =
-      siege && besieging === band.id
-        ? `Siège · manche ${siege.rounds.length + 1}`
+      siege && besieging
+        ? `Siège · manche ${siege.round + 1}`
         : left === null
           ? 'au combat'
           : `arrive dans ${formatClock(left)}`
@@ -307,7 +333,7 @@ const bands = computed(() => {
     return {
       key: `band-${band.id}`,
       target,
-      ...drawnPosition(band, props.now),
+      ...(placed.value.get(`band:${band.id}`) ?? drawnPosition(band, props.now)),
       raid: band.raid,
       // Un chef du grand campement garde sa place : pas de ronde, mais un insigne.
       still: band.still,
@@ -324,7 +350,7 @@ const bands = computed(() => {
       name: band.raid ? `Raid : ${name}` : name,
       sublabel: band.raid ? raidState : hunting ? 'Te poursuit !' : returning ? 'Regagne sa ronde' : null,
       label: band.raid
-        ? `Raid : ${name}, niveau ${band.level}, ${besieging === band.id ? 'assiège la cité' : left === null ? 'au combat' : `arrive à la cité dans ${formatDuration(left)}`}`
+        ? `Raid : ${name}, niveau ${band.level}, ${besieging ? 'assiège la cité' : left === null ? 'au combat' : `arrive à la cité dans ${formatDuration(left)}`}`
         : band.still
           ? `${name}, ${chief}, niveau ${band.level}${battle ? ', au combat' : ''}`
           : `${name}, bande de niveau ${band.level}, ${doing}`,
@@ -332,7 +358,7 @@ const bands = computed(() => {
       icon: monstersIcon(band.monsters),
       danger: dangers.value.has(band.id),
       selected: isSelectedTarget(target) || isOrdered(target),
-      fight: battle ? fightFx(battle) : null,
+      fight: fighting ? fightFx(fighting.battle, fighting.foe) : null,
       hunting,
       // Au grand campement, les cercles se chevauchent tous : on n'en trace le bord que pour la bande
       // choisie, ou celles qui guettent le chemin.
@@ -349,7 +375,7 @@ const chases = computed(() =>
   props.state.bands.flatMap((band) => {
     const chase = band.chase
     const army = chase?.army === null || chase?.army === undefined ? undefined : getArmy(props.state, chase.army)
-    if (!chase || !army || props.state.battles.some((battle) => battle.band === band.id)) return []
+    if (!chase || !army || bandBattle(props.state, band.id)) return []
     return [{ key: band.id, from: chase.position, to: armyPosition(army) }]
   }),
 )
@@ -358,7 +384,7 @@ const raids = computed(() => bands.value.filter((band) => band.raid))
 
 const armies = computed(() =>
   props.state.armies.map((army) => {
-    const battle = props.state.battles.find((b) => b.army === army.id)
+    const fighting = armyBattle(props.state, army.id)
     return {
       key: army.id,
       ...armyPosition(army),
@@ -368,7 +394,9 @@ const armies = computed(() =>
       selected: props.selection?.kind === 'army' && props.selection.id === army.id,
       dragged: aim.value?.id === army.id,
       status: army.status,
-      fight: battle ? fightFx(battle) : null,
+      fight: fighting ? fightFx(fighting.battle, fighting.ally) : null,
+      // Attaquée d'au moins trois côtés : son attaque baisse.
+      surrounded: fighting ? encircled(fighting.battle, fighting.ally.ref) : false,
       dragon: army.dragon,
       hasKey: army.key,
     }
@@ -378,28 +406,39 @@ const armies = computed(() =>
 // Pendant un siège, les défenseurs de la cité : leur vie, et les coups qu'ils reçoivent.
 const cityFight = computed(() => {
   const siege = siegeOf(props.state)
-  return siege ? fightFx(siege) : null
+  const city = siege?.allies.find((ally) => ally.army === null)
+  return siege && city ? fightFx(siege, city) : null
 })
 
-// Les batailles en cours : une ligne entre l'armée et son adversaire, et le numéro de la manche.
-// Pendant un siège, seulement la ligne entre la cité et le raid : le raid dit où en est le siège.
+/**
+ * Les coups de chaque mêlée : une ligne entre chaque combattant et sa cible (une seule pour deux
+ * combattants qui se font face), où volent les étincelles.
+ */
+const clashes = computed(() =>
+  props.state.battles.flatMap((battle) =>
+    [...battle.allies, ...battle.foes].flatMap((fighter) => {
+      const target = fighterOf(battle, fighter.target)
+      if (!target) return []
+      // Deux combattants qui se font face : une seule ligne, tracée depuis le tien.
+      if (target.target === fighter.ref && 'foe' in fighter) return []
+      const from = placed.value.get(fighter.ref)
+      const to = placed.value.get(target.ref)
+      if (!from || !to) return []
+      return [{ key: `${battle.id}-${fighter.ref}`, from, to, round: battle.round }]
+    }),
+  ),
+)
+
+// Les épées croisées de chaque mêlée, avec le numéro de la manche : entre ta première troupe et sa
+// cible (pendant un siège, le raid dit déjà où en est le siège).
 const battles = computed(() =>
   props.state.battles.flatMap((battle) => {
-    const army = battle.army === null ? undefined : getArmy(props.state, battle.army)
-    const from = battle.siege ? city : army && armyPosition(army)
-    if (!from) return []
-    const foe = foePosition(battle) ?? from
-    return [
-      {
-        key: battle.id,
-        from,
-        to: foe,
-        x: (from.x + foe.x) / 2,
-        y: (from.y + foe.y) / 2,
-        siege: battle.siege !== null,
-        round: battle.rounds.length,
-      },
-    ]
+    const first = battle.allies[0]
+    const target = first && fighterOf(battle, first.target)
+    const from = first && placed.value.get(first.ref)
+    const to = target && placed.value.get(target.ref)
+    if (!first || first.army === null || !from || !to) return []
+    return [{ key: battle.id, x: (from.x + to.x) / 2, y: (from.y + to.y) / 2, round: battle.round }]
   }),
 )
 </script>
@@ -524,7 +563,7 @@ const battles = computed(() =>
       </g>
       <text class="map-label" y="100">{{ cityName }}</text>
       <template v-if="cityFight">
-        <HealthBar :ratio="cityFight.ally" :y="-78" :width="96" />
+        <HealthBar :ratio="cityFight.ratio" :y="-78" :width="96" />
         <text v-if="cityFight.taken > 0" :key="`city-taken-${cityFight.round}`" class="float-damage ally" y="-96">
           −{{ formatShort(cityFight.taken) }}
         </text>
@@ -621,6 +660,18 @@ const battles = computed(() =>
       <line :x1="chase.from.x" :y1="chase.from.y" :x2="chase.to.x" :y2="chase.to.y" class="chase-line" />
     </g>
 
+    <!-- Qui frappe qui, dans chaque mêlée -->
+    <line
+      v-for="clash in clashes"
+      :key="`clash-${clash.key}`"
+      :x1="clash.from.x"
+      :y1="clash.from.y"
+      :x2="clash.to.x"
+      :y2="clash.to.y"
+      class="clash"
+      aria-hidden="true"
+    />
+
     <!-- Les bandes, en patrouille, et les raids -->
     <g
       v-for="band in bands"
@@ -660,9 +711,9 @@ const battles = computed(() =>
       <text class="map-label" y="50">{{ band.name }}</text>
       <text v-if="band.sublabel" class="map-sublabel raid-state" y="72">{{ band.sublabel }}</text>
       <template v-if="band.fight">
-        <HealthBar :ratio="band.fight.foe" :y="-54" foe />
-        <text v-if="band.fight.dealt > 0" :key="`band-dealt-${band.fight.round}`" class="float-damage foe" y="-70">
-          −{{ formatShort(band.fight.dealt) }}
+        <HealthBar :ratio="band.fight.ratio" :y="-54" foe />
+        <text v-if="band.fight.taken > 0" :key="`band-dealt-${band.fight.round}`" class="float-damage foe" y="-70">
+          −{{ formatShort(band.fight.taken) }}
         </text>
       </template>
     </g>
@@ -672,11 +723,11 @@ const battles = computed(() =>
       v-for="army in armies"
       :key="army.key"
       class="mover spot army"
-      :class="{ selected: army.selected, dragged: army.dragged }"
+      :class="{ selected: army.selected, dragged: army.dragged, surrounded: army.surrounded }"
       :style="{ transform: `translate(${army.x}px, ${army.y}px)` }"
       role="button"
       tabindex="0"
-      :aria-label="`Ton armée de ${army.size} troupes${army.hero ? `, menée par ${army.hero.name}` : ''}${army.dragon ? ', avec le dragon' : ''}`"
+      :aria-label="`Ton armée de ${army.size} troupes${army.hero ? `, menée par ${army.hero.name}` : ''}${army.dragon ? ', avec le dragon' : ''}${army.surrounded ? ', encerclée' : ''}`"
       :aria-pressed="army.selected"
       :data-army="army.key"
       @pointerdown="onArmyPointerDown(army.key, $event)"
@@ -705,21 +756,22 @@ const battles = computed(() =>
       </g>
       <text class="map-label" y="-44">{{ army.size }}</text>
       <template v-if="army.fight">
-        <HealthBar :ratio="army.fight.ally" :y="-74" />
+        <HealthBar :ratio="army.fight.ratio" :y="-74" />
         <text v-if="army.fight.taken > 0" :key="`army-taken-${army.fight.round}`" class="float-damage ally" y="-90">
           −{{ formatShort(army.fight.taken) }}
         </text>
       </template>
     </g>
 
-    <!-- Les batailles en cours -->
-    <g v-for="battle in battles" :key="`battle-${battle.key}`" class="battle" aria-hidden="true">
-      <line :x1="battle.from.x" :y1="battle.from.y" :x2="battle.to.x" :y2="battle.to.y" class="clash" />
-      <g v-if="battle.round > 0" :key="`sparks-${battle.round}`">
-        <circle r="6" class="spark ally" :cx="battle.from.x" :cy="battle.from.y" :style="shot(battle.from, battle.to)" />
-        <circle r="6" class="spark foe" :cx="battle.to.x" :cy="battle.to.y" :style="shot(battle.to, battle.from)" />
+    <!-- Les mêlées en cours : les étincelles des coups, et les épées croisées avec le numéro de la manche -->
+    <g v-for="clash in clashes" :key="`sparks-${clash.key}`" class="battle" aria-hidden="true">
+      <g v-if="clash.round > 0" :key="`sparks-${clash.round}`">
+        <circle r="6" class="spark ally" :cx="clash.from.x" :cy="clash.from.y" :style="shot(clash.from, clash.to)" />
+        <circle r="6" class="spark foe" :cx="clash.to.x" :cy="clash.to.y" :style="shot(clash.to, clash.from)" />
       </g>
-      <g v-if="!battle.siege" :transform="`translate(${battle.x} ${battle.y})`">
+    </g>
+    <g v-for="battle in battles" :key="`battle-${battle.key}`" class="battle" aria-hidden="true">
+      <g :transform="`translate(${battle.x} ${battle.y})`">
         <g :key="`bump-${battle.round}`" class="bump">
           <circle r="19" class="clash-mark" />
           <text class="emoji" font-size="21">⚔️</text>
@@ -1043,6 +1095,14 @@ const battles = computed(() =>
   stroke: var(--ember);
   stroke-width: 4;
   stroke-dasharray: 8 6;
+  pointer-events: none;
+}
+
+/* Une armée encerclée (attaquée d'au moins trois côtés) : son anneau rougit, et bat comme une alarme. */
+.army.surrounded .army-ring {
+  stroke: var(--ember);
+  stroke-width: 8;
+  animation: alarm 1.2s steps(2, jump-none) infinite alternate;
 }
 
 .dragon-badge {

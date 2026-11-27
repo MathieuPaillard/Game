@@ -14,7 +14,9 @@ import {
   type UnitId,
 } from '../game/config'
 import {
+  armyBattle,
   armySize,
+  bandFighting,
   checkOrder,
   currentQuest,
   getArmy,
@@ -192,12 +194,17 @@ function flash(text: string, good = false) {
 /**
  * Un ordre pour une armée dehors. Il part aussitôt, sans rien valider. Une armée qui se bat ne
  * bat en retraite que par son bouton (`forced`) : un toucher malheureux ne doit pas la dégager.
+ * Toucher un autre adversaire de sa mêlée l'y tourne, sans quitter le combat.
  */
 function command(armyId: number, to: Target, forced = false) {
   const army = getArmy(props.state, armyId)
   if (!army) return
   open({ kind: 'army', id: armyId })
-  if (army.status === 'fighting' && !forced) {
+  const melee = armyBattle(props.state, armyId)?.battle
+  const sameMelee = melee?.foes.some(
+    (foe) => (to.type === 'band' && foe.band === to.band) || (to.type === 'camp' && foe.camp === to.camp),
+  )
+  if (army.status === 'fighting' && !forced && !sameMelee) {
     flash('Ton armée se bat. Pour la dégager, touche « Battre en retraite ».')
     return
   }
@@ -264,7 +271,7 @@ const famine = computed(() => {
 // Un raid marche sur la cité, ou l'assiège : l'alerte reste en haut de l'écran jusqu'à la fin.
 const raidAlert = computed(() => {
   const siege = siegeOf(props.state)
-  if (siege) return { siege: true, band: siege.band, text: `Cité assiégée · manche ${siege.rounds.length + 1}` }
+  if (siege) return { siege: true, band: siege.foes[0]?.band ?? null, text: `Cité assiégée · manche ${siege.round + 1}` }
   const first = incomingRaids(props.state)[0]
   if (!first) return null
   const left = first.arrival === null ? null : Math.max(0, first.arrival - props.now)
@@ -377,7 +384,7 @@ const armies = computed(() =>
     size: armySize(army.troops),
     status: armyStatusText(props.state, army),
     // Une bande la poursuit (sans compter celle qu'elle combat déjà).
-    chased: chasers(props.state, army.id).some((band) => !props.state.battles.some((b) => b.band === band.id)),
+    chased: chasers(props.state, army.id).some((band) => !bandFighting(props.state, band.id)),
   })),
 )
 

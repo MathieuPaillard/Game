@@ -2,13 +2,18 @@
 // Chaque fonction reçoit l'état de la partie (et l'heure) et renvoie un résultat sans rien modifier.
 // Le navigateur et le serveur utilisent exactement ces mêmes règles.
 
-import { counts, fightRound, roundCap, total, type Stack } from './battle.ts'
+import { counts, roundCap, strike, total, type Stack } from './battle.ts'
 import { clear, findRoute, insideAny, routeLength, walk, type Polygon } from './terrain.ts'
 import {
   BAND_AGGRO_PER_LEVEL,
   BAND_AGGRO_RADIUS,
   BAND_SIGHT_FACTOR,
   CAMP_RESPAWN_SECONDS,
+  ENCIRCLED_ATTACK_MALUS,
+  ENCIRCLED_SIDES,
+  MAX_ATTACKERS,
+  REAR_ATTACK_BONUS,
+  SIDE_ATTACK_BONUS,
   CHASE_LEASH,
   CHASE_SPEED,
   ENCAMPMENT,
@@ -305,18 +310,24 @@ export interface HeroGain {
   levelsGained: number
 }
 
-/** Une manche du combat, telle que la raconte le journal. */
+/** Une manche du combat d'une de tes troupes (une armée, ou la cité), telle que la raconte le journal. */
 export interface BattleRound {
-  /** Dégâts infligés par ton armée, puis par les monstres. */
+  /** Dégâts infligés par ta troupe à sa cible, puis par tous les monstres qui la frappaient. */
   dealt: number
   taken: number
-  /** Pertes de la manche, de chaque côté. */
+  /** Pertes de la manche : les tiennes, puis les monstres abattus par ta troupe. */
   lost: Army
   enemyLost: Monsters
   /** Pendant un siège : les gardes des Remparts tombés dans la manche. */
   guardsLost?: number
   /** Le dragon est tombé pendant cette manche : blessé, il quitte le combat. */
   dragonFell?: true
+  /** Ta troupe frappait sa cible de côté, ou de dos (rien : de face). */
+  flank?: 'side' | 'rear'
+  /** Le nombre de monstres (bandes ou camp) qui la frappaient, quand ils étaient plusieurs. */
+  attackers?: number
+  /** Ta troupe était encerclée : son attaque était réduite. */
+  encircled?: true
 }
 
 /** Le dragon dans une bataille : son attaque, sa vie au début de la bataille et ce qu'il en reste. */
@@ -333,32 +344,75 @@ export interface Siege {
   guardHealth: number
 }
 
-/** Une bataille en cours : une manche toutes les BATTLE_ROUND_SECONDS, jusqu'à ce qu'un camp tombe. */
+/**
+ * Ce qu'ont en commun les combattants d'une mêlée. Chacun frappe une seule cible, dans l'autre camp ;
+ * plusieurs peuvent frapper la même, chacun à sa place autour d'elle (MAX_ATTACKERS au plus).
+ */
+export interface FighterBase {
+  /** Son nom dans la mêlée : `army:12` (une armée), `city` (la cité), `band:34` (une bande) ou `camp:wolfDen`. */
+  ref: string
+  /** Quand il est entré dans la mêlée. */
+  joinedAt: number
+  /** Celui qu'il frappe (le nom d'un combattant de l'autre camp), ou null s'il attend une place libre. */
+  target: string | null
+  /**
+   * Sa place autour de sa cible, de 0 à 7 : la direction où il se tient, vu de sa cible (0 à l'est,
+   * puis tous les 45° dans le sens des aiguilles d'une montre). Il regarde donc dans la direction
+   * opposée : devant lui, sa cible.
+   */
+  slot: number
+  /** Sa vie en entrant dans la mêlée : en une manche, chaque assaillant ne peut lui en ôter qu'une part. */
+  start: number
+  /** Les dégâts reçus à la dernière manche, pour l'animation. */
+  taken: number
+}
+
+/** Ton camp, dans une mêlée : une de tes armées, ou la cité qui se défend (pendant un siège). */
+export interface AllyFighter extends FighterBase {
+  /** L'armée, ou null pour la cité. */
+  army: number | null
+  /** Les troupes en entrant dans la mêlée, et les points de vie qui restent à chaque groupe. */
+  sent: Army
+  health: Army
+  /** L'effet des Armures, du héros et des sorts (et des Remparts, pour la cité) : il fixe la vie de chaque troupe. */
+  healthFactor: number
+  /** Elle avait faim en entrant dans la mêlée. */
+  starving: boolean
+  /** Une bande l'a attaquée la première. */
+  ambush: boolean
+  /** La cité se défend : les gardes des Remparts ; null pour une armée. */
+  siege: Siege | null
+  /** Le dragon se bat avec elle ; null s'il n'est pas là. */
+  dragon: BattleDragon | null
+  /** Son journal, manche par manche. */
+  rounds: BattleRound[]
+  /** Les adversaires rencontrés, dans l'ordre, avec leurs monstres à la rencontre. */
+  met: { ref: string; foe: Foe; monsters: Monsters }[]
+  /** Sa part du butin des adversaires tombés, qu'elle emportera en quittant la mêlée. */
+  loot: Partial<Resources>
+}
+
+/** L'autre camp : une bande de monstres (ou un raid), ou les défenseurs d'un camp. */
+export interface FoeFighter extends FighterBase {
+  band: number | null
+  camp: CampId | null
+  foe: Foe
+  /** Les monstres en entrant dans la mêlée, et les points de vie qui restent à chaque sorte. */
+  enemies: Monsters
+  health: Monsters
+  /** Les dégâts reçus de chacun de tes combattants (par nom) : son butin se partage d'après eux. */
+  damageBy: Record<string, number>
+}
+
+/** Une bataille en cours : une mêlée, avec une manche toutes les BATTLE_ROUND_SECONDS, jusqu'à ce qu'un camp tombe. */
 export interface Battle {
   id: number
-  /** L'armée qui se bat, ou null pour un siège : ce sont alors les troupes de la cité qui se battent. */
-  army: number | null
-  /** La bande combattue, ou null pour un camp. */
-  band: number | null
-  foe: Foe
-  /** Une bande a attaqué l'armée qui entrait dans sa zone d'aggro. */
-  ambush: boolean
   startedAt: number
-  /** Les troupes et les monstres au début de la bataille. */
-  sent: Army
-  enemies: Monsters
-  /** Les points de vie qui restent à chaque groupe : un combattant blessé continue de se battre. */
-  armyHealth: Army
-  foeHealth: Monsters
-  /** L'effet des Armures et du héros au début de la bataille : il fixe la vie de chaque troupe. */
-  healthFactor: number
-  /** L'armée avait faim en début de bataille. */
-  starving: boolean
-  rounds: BattleRound[]
-  /** Un raid assiège la cité ; null pour une bataille dehors. */
-  siege: Siege | null
-  /** Le dragon se bat avec les troupes ; null s'il n'est pas là. */
-  dragon: BattleDragon | null
+  /** Les manches déjà jouées. */
+  round: number
+  /** Ton camp (tes armées, ou la cité et les armées venues l'aider), et celui des monstres. */
+  allies: AllyFighter[]
+  foes: FoeFighter[]
 }
 
 /** Comment une bataille s'est terminée, pour ton armée. */
@@ -381,7 +435,9 @@ export interface BattleReport {
   startedAt: number
   /** Le numéro de l'armée qui s'est battue, ou null pour un siège. */
   army: number | null
+  /** Le premier adversaire rencontré, et tous ceux de la mêlée (le premier compris). */
   foe: Foe
+  foes: Foe[]
   ambush: boolean
   outcome: Outcome
   sent: Army
@@ -1052,16 +1108,16 @@ export function hatchEgg(state: GameState, now: number): GameState {
  */
 function dragonAfterBattle(
   state: GameState,
-  battle: Battle,
+  ally: AllyFighter,
   xp: number,
   at: number,
   outcome: Outcome,
 ): { state: GameState; gain: DragonGain | null } {
   const dragon = state.dragon
-  if (!battle.dragon || !dragon) return { state, gain: null }
+  if (!ally.dragon || !dragon) return { state, gain: null }
   const before = dragonLevel(state)
   // Tombé au combat, ou resté seul quand toute son escorte est tombée : il regagne son aire et s'y repose.
-  const wounded = battle.dragon.health <= 1e-9 || (battle.siege === null && outcome === 'defeat')
+  const wounded = ally.dragon.health <= 1e-9 || (ally.siege === null && outcome === 'defeat')
   const next: GameState = {
     ...state,
     dragon: { ...dragon, xp: dragon.xp + xp, restUntil: wounded ? at + DRAGON_REST_SECONDS * SECOND : dragon.restUntil },
@@ -1273,6 +1329,7 @@ function springTrap(state: GameState, army: FieldArmy, to: Point, at: number): {
     startedAt: at,
     army: army.id,
     foe: { type: 'trap' },
+    foes: [{ type: 'trap' }],
     ambush: true,
     outcome: 'defeat',
     sent: { ...army.troops },
@@ -1472,28 +1529,41 @@ export function startMarch(
   return { ...current, troops: home, armies: [...current.armies, army], nextId: current.nextId + 1 }
 }
 
+/**
+ * Un ordre possible pour cette armée ? Pendant une mêlée, elle peut se tourner vers un autre
+ * adversaire de la mêlée, s'il reste une place autour de lui ; mais pas vers celui qu'elle frappe déjà
+ * (elle battrait en retraite pour aussitôt reprendre le même combat, ses blessés remis sur pied).
+ */
 export function checkOrder(state: GameState, armyId: number, target: Target): Check {
   if (!getArmy(state, armyId)) return { ok: false, reason: 'Cette armée n’est plus dehors' }
-  // Sinon, elle battrait en retraite pour aussitôt reprendre le même combat, ses blessés remis sur pied.
-  const battle = state.battles.find((b) => b.army === armyId)
-  if (battle && fightsAgainst(battle, target)) return { ok: false, reason: 'Ton armée combat déjà cette cible' }
+  const fighting = armyBattle(state, armyId)
+  const ref = targetRef(target)
+  if (fighting && ref !== null) {
+    if (fighting.ally.target === ref) return { ok: false, reason: 'Ton armée combat déjà cette cible' }
+    const foe = fighting.battle.foes.find((f) => f.ref === ref)
+    if (foe) {
+      const free = attackersOf(fighting.battle, foe.ref).length < MAX_ATTACKERS
+      return free ? { ok: true } : { ok: false, reason: `Plus de place autour de cette cible : ${MAX_ATTACKERS} troupes la frappent déjà` }
+    }
+  }
   return checkTarget(state, target, armyId)
 }
 
-/** La bataille se livre-t-elle contre cette cible ? */
-function fightsAgainst(battle: Battle, target: Target): boolean {
-  if (target.type === 'band') return battle.band === target.band
-  return target.type === 'camp' && battle.band === null && battle.foe.type === 'camp' && battle.foe.camp === target.camp
-}
-
-/** Un nouvel ordre pour une armée dehors. Si elle se bat, elle bat d'abord en retraite. */
+/**
+ * Un nouvel ordre pour une armée dehors. Si elle se bat, elle se tourne vers un autre adversaire de sa
+ * mêlée, ou bat en retraite pour partir ailleurs.
+ */
 export function orderArmy(state: GameState, armyId: number, target: Target, now: number): GameState {
   const current = advance(state, now)
   const check = checkOrder(current, armyId, target)
   if (!check.ok) throw new Error(check.reason)
 
-  const battle = current.battles.find((b) => b.army === armyId)
-  const next = battle ? endBattle(current, battle, now, 'retreat') : current
+  const fighting = armyBattle(current, armyId)
+  const foe = fighting?.battle.foes.find((f) => f.ref === targetRef(target))
+  if (fighting && foe) return switchTarget(current, fighting.battle, fighting.ally, foe, now)
+  const next = fighting
+    ? afterLeave(leave(current, fighting.battle.id, fighting.ally.ref, now, 'retreat'), fighting.battle.id, now)
+    : current
   const army = getArmy(next, armyId)
   if (!army) return next
   return updateArmy(next, { ...army, order: { ...target }, status: 'marching' })
@@ -1576,7 +1646,7 @@ function mergeLoot(a: Partial<Resources>, b: Partial<Resources>): Partial<Resour
 function worldTick(state: GameState, at: number): GameState {
   let next: GameState = { ...state, tickedAt: at }
   for (const battle of state.battles) {
-    if (at >= battle.startedAt + (battle.rounds.length + 1) * ROUND) next = playRound(next, battle.id, at)
+    if (at >= battle.startedAt + (battle.round + 1) * ROUND) next = playRound(next, battle.id, at)
   }
   for (const army of state.armies) next = stepArmy(next, army.id, at)
   next = stepChases(next, at)
@@ -1643,12 +1713,12 @@ function stepArmy(state: GameState, id: number, at: number): GameState {
   // Plus d'ordre, ou la cible a disparu (bande vaincue, gisement épuisé) : l'armée s'arrête là.
   if (!order || !destination) return updateArmy(state, { ...army, order: null, status: 'idle' })
 
-  // Une bande visée : l'armée l'attaque dès qu'elle est à portée (et pas derrière une montagne), ou attend
-  // qu'elle ait fini un autre combat.
+  // Une bande visée : l'armée l'attaque dès qu'elle est à portée (et pas derrière une montagne), en
+  // rejoignant la mêlée si la bande se bat déjà ; s'il n'y a plus de place autour d'elle, elle attend.
   if (order.type === 'band') {
     const band = getBand(state, order.band)
     if (band && distance(army.position, destination) <= aggroRadius(band.level) && inSight(state, army.position, destination)) {
-      return bandFighting(state, band.id) ? state : startBattle(state, army, band, at, false)
+      return engage(state, armyRef(army.id), bandRef(band.id), at)
     }
   }
   // L'armée suit son chemin, en contournant les montagnes. Si plus rien n'y mène, elle s'arrête là.
@@ -1673,9 +1743,10 @@ function arrive(state: GameState, id: number, at: number): GameState {
       return disband(state, army, at)
     case 'camp': {
       const camp = getCamp(army.order.camp)
-      // Une autre armée l'a vidé entre-temps : il n'y a plus personne à combattre.
+      // Une autre armée l'a vidé entre-temps : il n'y a plus personne à combattre. Sinon, elle l'attaque
+      // (avec les armées qui l'attaquent déjà) ; s'il n'y a plus de place autour du camp, elle attend.
       if (campEmptyUntil(state, camp.id, at) !== null) return updateArmy(state, { ...army, order: null, status: 'idle' })
-      return startBattle(state, army, null, at, false, { type: 'camp', camp: camp.id }, camp.defenders)
+      return engage(state, armyRef(army.id), campRef(camp.id), at)
     }
     case 'node':
       return getNode(state, army.order.node)
@@ -1717,66 +1788,404 @@ function gather(state: GameState, army: FieldArmy, at: number): GameState {
 
 /**
  * Une bande attaque toute armée qui entre dans sa zone d'aggro (ou qu'elle a rattrapée), sauf celles
- * qu'elle a déjà combattues.
+ * qu'elle a déjà combattues ; si l'armée se bat déjà, la bande rejoint la mêlée, tant qu'il reste une
+ * place autour de l'armée. L'armée qui marchait sur cette bande l'attaque elle-même : ce n'est pas une
+ * embuscade.
  */
 function checkAggro(state: GameState, at: number): GameState {
   let next = state
   for (const { id } of state.armies) {
-    const army = getArmy(next, id)
-    if (!army || army.status === 'fighting') continue
-    for (const band of next.bands) {
-      if (bandFighting(next, band.id) || army.fought.includes(band.id)) continue
+    for (const { id: bandId } of state.bands) {
+      const army = getArmy(next, id)
+      const band = getBand(next, bandId)
+      if (!army) break
+      if (!band || bandFighting(next, band.id) || army.fought.includes(band.id)) continue
       const position = bandPosition(band, at)
       if (distance(army.position, position) > aggroRadius(band.level) || !inSight(next, position, army.position)) continue
-      const targeted = army.order?.type === 'band' && army.order.band === band.id
-      next = startBattle(next, army, band, at, !targeted)
-      break
+      const targeted = army.status !== 'fighting' && army.order?.type === 'band' && army.order.band === band.id
+      next = targeted ? engage(next, armyRef(id), bandRef(band.id), at) : engage(next, bandRef(band.id), armyRef(id), at, true)
     }
   }
   return next
 }
 
-// --- Les batailles, manche par manche ---
+// --- Les batailles : des mêlées, manche par manche ---
+//
+// Chaque combattant (une de tes armées, la cité pendant un siège, une bande, un raid ou un camp)
+// frappe une seule cible, dans l'autre camp, et regarde vers elle. Plusieurs peuvent frapper la même
+// cible : chacun prend une des huit places autour d'elle (MAX_ATTACKERS), du côté d'où il arrive.
+// Frapper de côté ou de dos donne un bonus ; une troupe frappée d'au moins trois côtés est encerclée,
+// et son attaque baisse. La cité, derrière ses murs, n'a ni flancs ni dos.
+
+/** Le nom de la cité dans une mêlée, et celui des autres combattants. */
+const CITY_REF = 'city'
+
+function armyRef(id: number): string {
+  return `army:${id}`
+}
+
+function bandRef(id: number): string {
+  return `band:${id}`
+}
+
+function campRef(id: CampId): string {
+  return `camp:${id}`
+}
+
+/** Le combattant de la mêlée qui porte ce nom, d'un camp ou de l'autre. */
+export function fighterOf(battle: Battle, ref: string | null): AllyFighter | FoeFighter | undefined {
+  if (ref === null) return undefined
+  return battle.allies.find((f) => f.ref === ref) ?? battle.foes.find((f) => f.ref === ref)
+}
+
+/** Ce combattant est-il de ton camp ? */
+export function isAlly(fighter: AllyFighter | FoeFighter): fighter is AllyFighter {
+  return 'sent' in fighter
+}
+
+function getBattle(state: GameState, id: number): Battle | undefined {
+  return state.battles.find((battle) => battle.id === id)
+}
+
+function updateBattle(state: GameState, battle: Battle): GameState {
+  return { ...state, battles: state.battles.map((b) => (b.id === battle.id ? battle : b)) }
+}
+
+function removeBattle(state: GameState, id: number): GameState {
+  return { ...state, battles: state.battles.filter((battle) => battle.id !== id) }
+}
+
+/** La mêlée où se trouve ce combattant (par son nom). */
+function battleWith(state: GameState, ref: string): Battle | undefined {
+  return state.battles.find((battle) => fighterOf(battle, ref) !== undefined)
+}
+
+/** La mêlée où se bat cette armée, et sa place dans cette mêlée. */
+export function armyBattle(state: GameState, armyId: number): { battle: Battle; ally: AllyFighter } | undefined {
+  const ref = armyRef(armyId)
+  for (const battle of state.battles) {
+    const ally = battle.allies.find((f) => f.ref === ref)
+    if (ally) return { battle, ally }
+  }
+  return undefined
+}
+
+/** La mêlée où se bat cette bande, et sa place dans cette mêlée. */
+export function bandBattle(state: GameState, bandId: number): { battle: Battle; foe: FoeFighter } | undefined {
+  const ref = bandRef(bandId)
+  for (const battle of state.battles) {
+    const foe = battle.foes.find((f) => f.ref === ref)
+    if (foe) return { battle, foe }
+  }
+  return undefined
+}
+
+/** La bande se bat-elle en ce moment ? */
+export function bandFighting(state: GameState, bandId: number): boolean {
+  return bandBattle(state, bandId) !== undefined
+}
+
+/** Le nom, dans une mêlée, de ce qu'une armée peut viser : une bande ou un camp (null pour le reste). */
+function targetRef(target: Target): string | null {
+  if (target.type === 'band') return bandRef(target.band)
+  if (target.type === 'camp') return campRef(target.camp)
+  return null
+}
+
+/** Où se tient un combattant sur la carte. */
+export function fighterPosition(state: GameState, ref: string, at = state.updatedAt): Point {
+  const [kind, id] = ref.split(':')
+  if (kind === 'army') return getArmy(state, Number(id))?.position ?? WORLD.city
+  if (kind === 'band') {
+    const band = getBand(state, Number(id))
+    return band ? bandPosition(band, at) : WORLD.city
+  }
+  if (kind === 'camp') return getCamp(id as CampId).position
+  return WORLD.city
+}
+
+/** D'où arrive un assaillant : là où il est, sauf un raid aux portes de la cité, qui arrive de son point de départ. */
+function approachFrom(state: GameState, ref: string, target: string, at: number): Point {
+  const band = ref.startsWith('band:') ? getBand(state, Number(ref.slice(5))) : undefined
+  if (band?.raid && target === CITY_REF) return band.home
+  return fighterPosition(state, ref, at)
+}
+
+/** tan(22,5°) : la limite entre deux des huit directions. */
+const OCTANT = 0.41421356237309503
 
 /**
- * Une bataille commence : contre une bande (qui s'arrête de patrouiller), ou contre les défenseurs
- * d'un camp. Les Armures et le héros de l'armée donnent plus de vie aux troupes, pour toute la bataille.
+ * La direction (de 0 à 7) de `from` vers `to` : 0 à l'est, puis tous les 45° dans le sens des
+ * aiguilles d'une montre (2 au sud, 4 à l'ouest, 6 au nord). Sans trigonométrie : de simples
+ * multiplications donnent le même résultat sur tous les navigateurs.
  */
-function startBattle(
-  state: GameState,
-  army: FieldArmy,
-  band: Band | null,
-  at: number,
-  ambush: boolean,
-  campFoe?: Foe,
-  campDefenders?: Monsters,
-): GameState {
-  const foe: Foe = band ? bandFoe(band) : campFoe!
-  const monsters = standing(band ? band.monsters : (campDefenders ?? {}))
+export function directionOf(from: Point, to: Point): number {
+  const dx = to.x - from.x
+  const dy = to.y - from.y
+  const ax = Math.abs(dx)
+  const ay = Math.abs(dy)
+  if (ay <= ax * OCTANT) return dx >= 0 ? 0 : 4
+  if (ax <= ay * OCTANT) return dy >= 0 ? 2 : 6
+  if (dx >= 0) return dy >= 0 ? 1 : 7
+  return dy >= 0 ? 3 : 5
+}
+
+/** Ceux qui frappent ce combattant. */
+export function attackersOf(battle: Battle, ref: string): (AllyFighter | FoeFighter)[] {
+  return [...battle.allies, ...battle.foes].filter((f) => f.target === ref)
+}
+
+/**
+ * La place libre la plus proche de `wanted` autour du combattant `ref`, ou null quand MAX_ATTACKERS
+ * assaillants l'entourent déjà.
+ */
+function freeSlot(battle: Battle, ref: string, wanted: number): number | null {
+  const taken = attackersOf(battle, ref).map((f) => f.slot)
+  if (taken.length >= MAX_ATTACKERS) return null
+  for (const step of [0, 1, -1, 2, -2, 3, -3, 4]) {
+    const slot = (((wanted + step) % 8) + 8) % 8
+    if (!taken.includes(slot)) return slot
+  }
+  return null
+}
+
+/**
+ * Où se tient un assaillant par rapport à sa cible : 0 face à elle, 2 ou 6 sur ses côtés, 4 dans son
+ * dos. Une cible regarde vers celle qu'elle frappe ; la cité n'a ni flancs ni dos, et une cible qui
+ * ne frappe personne fait face à tous.
+ */
+export function relativeSlot(battle: Battle, attacker: FighterBase): number {
+  const target = fighterOf(battle, attacker.target)
+  if (!target || target.ref === CITY_REF || target.target === null) return 0
+  const facing = (target.slot + 4) % 8
+  return (((attacker.slot - facing) % 8) + 8) % 8
+}
+
+/** De face, de côté ou de dos (les places en biais comptent avec celles de face, ou de dos). */
+export function flankOf(relative: number): 'front' | 'side' | 'rear' {
+  if (relative === 2 || relative === 6) return 'side'
+  if (relative >= 3 && relative <= 5) return 'rear'
+  return 'front'
+}
+
+/** Le bonus d'attaque d'un assaillant, selon sa place. */
+function flankBonus(relative: number): number {
+  const flank = flankOf(relative)
+  return flank === 'rear' ? REAR_ATTACK_BONUS : flank === 'side' ? SIDE_ATTACK_BONUS : 0
+}
+
+/** Le côté d'où frappe un assaillant : 0 devant, 1 à droite, 2 derrière, 3 à gauche. */
+function sideOf(relative: number): number {
+  if (relative === 2) return 1
+  if (relative >= 3 && relative <= 5) return 2
+  if (relative === 6) return 3
+  return 0
+}
+
+/** Ce combattant est-il encerclé : frappé d'au moins ENCIRCLED_SIDES côtés ? (Jamais la cité.) */
+export function encircled(battle: Battle, ref: string): boolean {
+  if (ref === CITY_REF) return false
+  const sides = new Set(attackersOf(battle, ref).map((f) => sideOf(relativeSlot(battle, f))))
+  return sides.size >= ENCIRCLED_SIDES
+}
+
+/** La vie d'un combattant : en entrant dans la mêlée, et maintenant (troupes, gardes et dragon ; ou monstres). */
+export function fighterHealth(fighter: AllyFighter | FoeFighter): { start: number; now: number } {
+  if (!isAlly(fighter)) return { start: fighter.start, now: sumOf(fighter.health) }
+  let now = UNIT_IDS.reduce((sum, id) => sum + fighter.health[id], 0)
+  if (fighter.siege) now += fighter.siege.guardHealth
+  if (fighter.dragon) now += fighter.dragon.health
+  return { start: fighter.start, now }
+}
+
+function sumOf(values: Partial<Record<string, number>>): number {
+  return Object.values(values).reduce<number>((sum, value) => sum + (value ?? 0), 0)
+}
+
+/** Les troupes, les gardes des Remparts et le dragon encore debout d'un combattant de ton camp. */
+export function allySurvivors(ally: AllyFighter): { troops: Army; guards: number; dragon: boolean } {
+  const troops = emptyArmy()
+  for (const id of UNIT_IDS) {
+    troops[id] = Math.max(0, Math.ceil(ally.health[id] / (getUnit(id).health * ally.healthFactor) - 1e-9))
+  }
+  const guards = ally.siege ? Math.max(0, Math.ceil(ally.siege.guardHealth / WALL_GUARD.health - 1e-9)) : 0
+  return { troops, guards, dragon: ally.dragon !== null && ally.dragon.health > 1e-9 }
+}
+
+/** Les monstres encore debout d'un combattant monstre. */
+export function foeSurvivors(foe: FoeFighter): Monsters {
+  const monsters: Monsters = {}
+  for (const id of Object.keys(foe.enemies) as MonsterId[]) {
+    monsters[id] = Math.max(0, Math.ceil((foe.health[id] ?? 0) / getMonster(id).health - 1e-9))
+  }
+  return monsters
+}
+
+/** Un combattant de ton camp est tombé : toutes ses troupes (dehors, le dragon ne se bat jamais seul), ou tous les défenseurs de la cité. */
+function allyFallen(ally: AllyFighter): boolean {
+  const { troops, guards, dragon } = allySurvivors(ally)
+  return armySize(troops) === 0 && (ally.siege === null || (guards === 0 && !dragon))
+}
+
+// Les combattants qui entrent dans une mêlée.
+
+function armyFighter(state: GameState, army: FieldArmy, at: number, ambush: boolean): AllyFighter {
   const healthFactor = armyHealthFactor(state, army.hero)
-  const armyHealth = emptyArmy()
-  for (const id of UNIT_IDS) armyHealth[id] = army.troops[id] * getUnit(id).health * healthFactor
-  const foeHealth = monsterHealth(monsters)
-  const battle: Battle = {
-    id: state.nextId,
+  const health = emptyArmy()
+  for (const id of UNIT_IDS) health[id] = army.troops[id] * getUnit(id).health * healthFactor
+  const fighter: AllyFighter = {
+    ref: armyRef(army.id),
+    joinedAt: at,
+    target: null,
+    slot: 0,
+    start: 0,
+    taken: 0,
     army: army.id,
-    band: band?.id ?? null,
-    foe,
-    ambush,
-    startedAt: at,
     sent: { ...army.troops },
-    enemies: monsters,
-    armyHealth,
-    foeHealth,
+    health,
     healthFactor,
     starving: isStarving(state),
-    rounds: [],
+    ambush,
     siege: null,
     dragon: army.dragon && state.dragon ? battleDragon(state, healthFactor) : null,
+    rounds: [],
+    met: [],
+    loot: {},
   }
-  let next: GameState = { ...state, battles: [...state.battles, battle], nextId: state.nextId + 1 }
-  next = updateArmy(next, { ...army, status: 'fighting' })
-  if (band) next = updateBand(next, { ...band, phase: bandPhase(band, at), since: null })
+  return { ...fighter, start: fighterHealth(fighter).now }
+}
+
+/** La cité se défend : ses troupes, mieux protégées par les Remparts, leurs gardes, et le dragon s'il est dans son aire. */
+function cityFighter(state: GameState, at: number): AllyFighter {
+  const healthFactor =
+    (1 + techBonus(state, 'health') + spellBonus(state, 'health') + WALL_HEALTH_PER_LEVEL * state.levels.walls) *
+    trialBoost(state)
+  const health = emptyArmy()
+  for (const id of UNIT_IDS) health[id] = state.troops[id] * getUnit(id).health * healthFactor
+  const guards = wallGuards(state)
+  const fighter: AllyFighter = {
+    ref: CITY_REF,
+    joinedAt: at,
+    target: null,
+    slot: 0,
+    start: 0,
+    taken: 0,
+    army: null,
+    sent: { ...state.troops },
+    health,
+    healthFactor,
+    starving: isStarving(state),
+    ambush: false,
+    siege: { guards, guardHealth: guards * WALL_GUARD.health },
+    dragon: dragonAtHome(state, at) ? battleDragon(state, healthFactor) : null,
+    rounds: [],
+    met: [],
+    loot: {},
+  }
+  return { ...fighter, start: fighterHealth(fighter).now }
+}
+
+function monsterFighter(ref: string, foe: Foe, monsters: Monsters, at: number): FoeFighter {
+  const enemies = standing(monsters)
+  const health = monsterHealth(enemies)
+  return {
+    ref,
+    joinedAt: at,
+    target: null,
+    slot: 0,
+    start: sumOf(health),
+    taken: 0,
+    band: ref.startsWith('band:') ? Number(ref.slice(5)) : null,
+    camp: foe.type === 'camp' ? foe.camp : null,
+    foe,
+    enemies,
+    health,
+    damageBy: {},
+  }
+}
+
+/** Ce combattant, tel qu'il entre dans la mêlée (undefined s'il n'est plus là). */
+function newFighter(state: GameState, ref: string, at: number, ambush: boolean): AllyFighter | FoeFighter | undefined {
+  if (ref === CITY_REF) return cityFighter(state, at)
+  const [kind, id] = ref.split(':')
+  if (kind === 'army') {
+    const army = getArmy(state, Number(id))
+    return army && armyFighter(state, army, at, ambush)
+  }
+  if (kind === 'band') {
+    const band = getBand(state, Number(id))
+    return band && monsterFighter(ref, bandFoe(band), band.monsters, at)
+  }
+  const camp = getCamp(id as CampId)
+  return monsterFighter(ref, { type: 'camp', camp: camp.id }, camp.defenders, at)
+}
+
+/** Ce combattant s'arrête pour se battre : une armée est au combat, une bande quitte sa ronde (ou sa marche). */
+function holdFighter(state: GameState, ref: string, at: number): GameState {
+  const [kind, id] = ref.split(':')
+  if (kind === 'army') {
+    const army = getArmy(state, Number(id))
+    return army ? updateArmy(state, { ...army, status: 'fighting' }) : state
+  }
+  if (kind === 'band') {
+    const band = getBand(state, Number(id))
+    return band ? updateBand(state, { ...band, phase: bandPhase(band, at), since: null }) : state
+  }
+  return state
+}
+
+function withFighter(battle: Battle, fighter: AllyFighter | FoeFighter): Battle {
+  return isAlly(fighter) ? { ...battle, allies: [...battle.allies, fighter] } : { ...battle, foes: [...battle.foes, fighter] }
+}
+
+function replaceFighter(battle: Battle, fighter: AllyFighter | FoeFighter): Battle {
+  return isAlly(fighter)
+    ? { ...battle, allies: battle.allies.map((f) => (f.ref === fighter.ref ? fighter : f)) }
+    : { ...battle, foes: battle.foes.map((f) => (f.ref === fighter.ref ? fighter : f)) }
+}
+
+/** Chacun des tiens note les adversaires qu'il rencontre : sa cible, et ceux qui le frappent. */
+function noteMeetings(battle: Battle): Battle {
+  return {
+    ...battle,
+    allies: battle.allies.map((ally) => {
+      const refs = [ally.target, ...battle.foes.filter((foe) => foe.target === ally.ref).map((foe) => foe.ref)]
+      const met = [...ally.met]
+      for (const ref of refs) {
+        const foe = battle.foes.find((f) => f.ref === ref)
+        if (foe && !met.some((m) => m.ref === foe.ref)) met.push({ ref: foe.ref, foe: foe.foe, monsters: foeSurvivors(foe) })
+      }
+      return met.length === ally.met.length ? ally : { ...ally, met }
+    }),
+  }
+}
+
+/**
+ * `attacker` (une armée, une bande ou un raid, qui ne se bat pas encore) attaque `target` (une bande,
+ * un camp, une armée, ou la cité). Si la cible se bat déjà, l'assaillant rejoint sa mêlée ; sinon,
+ * une mêlée commence, et la cible riposte. L'assaillant prend la place libre la plus proche de là
+ * d'où il arrive ; si toutes sont prises, il attend son tour, et la partie ne change pas. `ambush` :
+ * une bande attaque une de tes armées la première.
+ */
+function engage(state: GameState, attacker: string, target: string, at: number, ambush = false): GameState {
+  const existing = battleWith(state, target)
+  let battle: Battle = existing ?? { id: state.nextId, startedAt: at, round: 0, allies: [], foes: [] }
+  if (!existing) {
+    const defender = newFighter(state, target, at, ambush)
+    if (!defender) return state
+    battle = withFighter(battle, defender)
+  }
+  const fresh = newFighter(state, attacker, at, ambush)
+  if (!fresh) return state
+  const wanted = directionOf(fighterPosition(state, target, at), approachFrom(state, attacker, target, at))
+  const slot = freeSlot(battle, target, wanted)
+  if (slot === null) return state
+  battle = withFighter(battle, { ...fresh, target, slot })
+  // La cible qui ne frappait personne riposte : elle se tourne vers son assaillant.
+  const defender = fighterOf(battle, target)
+  if (defender && defender.target === null) battle = replaceFighter(battle, { ...defender, target: attacker, slot: (slot + 4) % 8 })
+  let next = holdFighter(holdFighter(state, attacker, at), target, at)
+  next = existing ? updateBattle(next, noteMeetings(battle)) : { ...next, battles: [...next.battles, noteMeetings(battle)], nextId: next.nextId + 1 }
   return next
 }
 
@@ -1808,243 +2217,406 @@ function monsterHealth(monsters: Monsters): Monsters {
   return health
 }
 
-/** L'armée qui livre cette bataille (aucune pour un siège : la cité se défend elle-même). */
-function battleArmy(state: GameState, battle: Battle): FieldArmy | undefined {
-  return battle.army === null ? undefined : getArmy(state, battle.army)
+/** Des monstres de plusieurs groupes, additionnés. */
+function addMonsters(groups: Monsters[]): Monsters {
+  const sum: Monsters = {}
+  for (const group of groups) {
+    for (const [id, count] of Object.entries(group) as [MonsterId, number][]) {
+      if (count) sum[id] = (sum[id] ?? 0) + count
+    }
+  }
+  return sum
 }
 
 /**
- * Les groupes de la bataille, avec leurs forces du moment : la Forge, les compétences du héros
- * et la faim comptent à chaque manche. Pendant un siège, les gardes des Remparts forment un
- * groupe de plus, après les troupes.
+ * Les groupes d'un combattant de ton camp, avec leurs forces du moment (la Forge, les compétences du
+ * héros, les sorts et la faim comptent à chaque manche), et la vie qui leur reste. Pendant un siège,
+ * les gardes des Remparts forment un groupe de plus, après les troupes ; puis vient le dragon.
  */
-function battleStacks(state: GameState, battle: Battle): { attackers: Stack[]; defenders: Stack[]; monsterIds: MonsterId[] } {
-  const hero = battleArmy(state, battle)?.hero ?? null
+function allyStacks(state: GameState, ally: AllyFighter): { stacks: Stack[]; health: number[] } {
+  const hero = ally.army === null ? null : (getArmy(state, ally.army)?.hero ?? null)
   const hunger = (isStarving(state) ? 1 - STARVATION_ATTACK_MALUS : 1) * trialBoost(state)
   const attackBonus = techBonus(state, 'attack') + heroBonus(state, hero, 'attack') + spellBonus(state, 'attack')
-  const attackers: Stack[] = UNIT_IDS.map((id) => {
+  const stacks: Stack[] = UNIT_IDS.map((id) => {
     const unit = getUnit(id)
     const factor = (1 + attackBonus + heroBonus(state, hero, 'familyAttack', unit.family)) * hunger
-    return { family: unit.family, attack: unit.attack * factor, health: unit.health * battle.healthFactor, count: 0 }
+    return { family: unit.family, attack: unit.attack * factor, health: unit.health * ally.healthFactor, count: 0 }
   })
-  if (battle.siege) attackers.push({ ...WALL_GUARD, count: 0 })
-  // Le dragon : le tout dernier groupe. Les bonus d'attaque de son camp, et la faim, comptent pour lui aussi.
-  if (battle.dragon) {
-    const attack = battle.dragon.attack * (1 + attackBonus) * hunger
-    attackers.push({ family: DRAGON_FAMILY, attack, health: battle.dragon.start, count: 0 })
+  const health = UNIT_IDS.map((id) => ally.health[id])
+  if (ally.siege) {
+    stacks.push({ ...WALL_GUARD, count: 0 })
+    health.push(ally.siege.guardHealth)
   }
-  const monsterIds = Object.keys(battle.enemies) as MonsterId[]
-  const defenders: Stack[] = monsterIds.map((id) => {
-    const monster = getMonster(id)
-    return { family: monster.family, attack: monster.attack, health: monster.health, count: 0 }
-  })
-  return { attackers, defenders, monsterIds }
+  if (ally.dragon) {
+    stacks.push({ family: DRAGON_FAMILY, attack: ally.dragon.attack * (1 + attackBonus) * hunger, health: ally.dragon.start, count: 0 })
+    health.push(ally.dragon.health)
+  }
+  return { stacks, health }
+}
+
+/** Les groupes d'un combattant monstre, et la vie qui leur reste. */
+function foeStacks(foe: FoeFighter): { stacks: Stack[]; health: number[] } {
+  const ids = Object.keys(foe.enemies) as MonsterId[]
+  return {
+    stacks: ids.map((id) => {
+      const monster = getMonster(id)
+      return { family: monster.family, attack: monster.attack, health: monster.health, count: 0 }
+    }),
+    health: ids.map((id) => foe.health[id] ?? 0),
+  }
 }
 
 /**
- * La vie de chaque camp d'une bataille, au début et maintenant : d'un côté les troupes (avec les
- * gardes des Remparts pendant un siège), de l'autre les monstres.
+ * Partage `amount` entre plusieurs parts, selon leurs poids : des nombres entiers, qui font bien
+ * `amount` au total (les plus gros restes reçoivent une unité de plus ; à égalité, le premier).
  */
-export function battleHealth(battle: Battle): { army: { start: number; now: number }; foe: { start: number; now: number } } {
-  const army = battle.siege
-    ? { start: battle.siege.guards * WALL_GUARD.health, now: battle.siege.guardHealth }
-    : { start: 0, now: 0 }
-  if (battle.dragon) {
-    army.start += battle.dragon.start
-    army.now += battle.dragon.health
+function apportion(amount: number, weights: number[]): number[] {
+  const whole = Math.round(amount)
+  const sum = weights.reduce((a, b) => a + b, 0)
+  if (sum <= 0 || whole <= 0) return weights.map(() => 0)
+  const exact = weights.map((weight) => (whole * weight) / sum)
+  const parts = exact.map((share) => Math.floor(share + 1e-9))
+  let left = whole - parts.reduce((a, b) => a + b, 0)
+  const order = exact.map((share, i) => ({ i, rest: share - parts[i] })).sort((a, b) => b.rest - a.rest || a.i - b.i)
+  for (const { i } of order) {
+    if (left <= 0) break
+    parts[i]++
+    left--
   }
-  for (const id of UNIT_IDS) {
-    army.start += battle.sent[id] * getUnit(id).health * battle.healthFactor
-    army.now += battle.armyHealth[id]
-  }
-  const foe = { start: 0, now: 0 }
-  for (const [id, count] of Object.entries(battle.enemies) as [MonsterId, number][]) {
-    foe.start += count * getMonster(id).health
-    foe.now += battle.foeHealth[id] ?? 0
-  }
-  return { army, foe }
+  return parts
 }
 
 /**
- * Ce que chaque camp peut perdre au plus en une manche : une part de sa vie au début de la bataille
- * (les troupes et les gardes d'un côté, les monstres de l'autre). La bataille dure ainsi un moment.
+ * Une manche : chaque combattant frappe sa cible, tous en même temps, avec le bonus de sa place (de
+ * côté, de dos) et le malus d'un combattant encerclé. Chaque assaillant ne peut ôter à sa cible qu'une
+ * part de sa vie du début (roundCap) : face à un seul adversaire, une bataille dure au moins
+ * MIN_BATTLE_ROUNDS manches ; face à plusieurs, elle va bien plus vite. Puis on relève ceux qui sont tombés.
  */
-function battleCaps(battle: Battle): { attackers: number; defenders: number } {
-  const health = battleHealth(battle)
-  return { attackers: roundCap(health.army.start), defenders: roundCap(health.foe.start) }
-}
-
-/** Les troupes, les monstres et (pendant un siège) les gardes des Remparts encore debout dans une bataille. */
-export function battleSurvivors(battle: Battle): { troops: Army; monsters: Monsters; guards: number; dragon: boolean } {
-  const troops = emptyArmy()
-  for (const id of UNIT_IDS) {
-    troops[id] = Math.max(0, Math.ceil(battle.armyHealth[id] / (getUnit(id).health * battle.healthFactor) - 1e-9))
-  }
-  const monsters: Monsters = {}
-  for (const id of Object.keys(battle.enemies) as MonsterId[]) {
-    monsters[id] = Math.max(0, Math.ceil((battle.foeHealth[id] ?? 0) / getMonster(id).health - 1e-9))
-  }
-  const guards = battle.siege ? Math.max(0, Math.ceil(battle.siege.guardHealth / WALL_GUARD.health - 1e-9)) : 0
-  const dragon = battle.dragon !== null && battle.dragon.health > 1e-9
-  return { troops, monsters, guards, dragon }
-}
-
-/** Une manche : les deux camps frappent en même temps. La bataille s'arrête quand un camp tombe. */
 function playRound(state: GameState, battleId: number, at: number): GameState {
-  const battle = state.battles.find((b) => b.id === battleId)
+  const battle = getBattle(state, battleId)
   if (!battle) return state
-  const { attackers, defenders, monsterIds } = battleStacks(state, battle)
-  const armyHealth = UNIT_IDS.map((id) => battle.armyHealth[id])
-  // Les gardes des Remparts : un groupe de plus, après les troupes ; puis le dragon.
-  const guardIndex = UNIT_IDS.length
-  if (battle.siege) armyHealth.push(battle.siege.guardHealth)
-  const dragonIndex = armyHealth.length
-  if (battle.dragon) armyHealth.push(battle.dragon.health)
-  const foeHealth = monsterIds.map((id) => battle.foeHealth[id] ?? 0)
-  const before = { attackers: counts(attackers, armyHealth), defenders: counts(defenders, foeHealth) }
-  const round = fightRound(attackers, defenders, armyHealth, foeHealth, battleCaps(battle))
+  const groups = new Map<string, { stacks: Stack[]; health: number[] }>()
+  for (const ally of battle.allies) groups.set(ally.ref, allyStacks(state, ally))
+  for (const foe of battle.foes) groups.set(foe.ref, foeStacks(foe))
 
-  const nextArmyHealth = emptyArmy()
-  const lost = emptyArmy()
-  UNIT_IDS.forEach((id, i) => {
-    nextArmyHealth[id] = round.attackerHealth[i]
-    lost[id] = before.attackers[i] - round.log.attackers[i]
-  })
-  const nextFoeHealth: Monsters = {}
-  const enemyLost: Monsters = {}
-  monsterIds.forEach((id, i) => {
-    nextFoeHealth[id] = round.defenderHealth[i]
-    enemyLost[id] = before.defenders[i] - round.log.defenders[i]
-  })
-  const played: BattleRound = {
-    dealt: Math.round(round.log.damageByAttackers),
-    taken: Math.round(round.log.damageByDefenders),
-    lost,
-    enemyLost,
+  // Les coups, calculés d'après la vie de chacun au début de la manche.
+  const hits = new Map<string, number[]>()
+  const strikes: { from: string; to: string; damage: number }[] = []
+  for (const fighter of [...battle.allies, ...battle.foes]) {
+    const target = fighterOf(battle, fighter.target)
+    if (!target) continue
+    const from = groups.get(fighter.ref)!
+    const to = groups.get(target.ref)!
+    const factor =
+      (1 + flankBonus(relativeSlot(battle, fighter))) * (encircled(battle, fighter.ref) ? 1 - ENCIRCLED_ATTACK_MALUS : 1)
+    const boosted = from.stacks.map((stack) => ({ ...stack, attack: stack.attack * factor }))
+    const damage = strike(boosted, from.health, to.stacks, to.health, roundCap(target.start))
+    hits.set(target.ref, (hits.get(target.ref) ?? to.stacks.map(() => 0)).map((sum, i) => sum + damage[i]))
+    strikes.push({ from: fighter.ref, to: target.ref, damage: total(damage) })
   }
-  if (battle.siege) played.guardsLost = before.attackers[guardIndex] - round.log.attackers[guardIndex]
-  if (battle.dragon && before.attackers[dragonIndex] > 0 && round.log.attackers[dragonIndex] === 0) {
-    played.dragonFell = true
+
+  // Les monstres reçoivent leurs coups ; ceux qu'ils perdent sont comptés à ceux des tiens qui les ont frappés.
+  const kills = new Map<string, Monsters>()
+  const foes = battle.foes.map((foe) => {
+    const damage = hits.get(foe.ref)
+    if (!damage) return { ...foe, taken: 0 }
+    const group = groups.get(foe.ref)!
+    const ids = Object.keys(foe.enemies) as MonsterId[]
+    const after = group.health.map((hp, i) => Math.max(0, hp - damage[i]))
+    const before = counts(group.stacks, group.health)
+    const left = counts(group.stacks, after)
+    const strikers = strikes.filter((s) => s.to === foe.ref)
+    ids.forEach((id, i) => {
+      apportion(before[i] - left[i], strikers.map((s) => s.damage)).forEach((count, k) => {
+        if (count === 0) return
+        const tally = { ...(kills.get(strikers[k].from) ?? {}) }
+        tally[id] = (tally[id] ?? 0) + count
+        kills.set(strikers[k].from, tally)
+      })
+    })
+    const damageBy = { ...foe.damageBy }
+    for (const s of strikers) damageBy[s.from] = (damageBy[s.from] ?? 0) + s.damage
+    const health: Monsters = {}
+    ids.forEach((id, i) => (health[id] = after[i]))
+    return { ...foe, health, taken: total(damage), damageBy }
+  })
+
+  // Les tiens reçoivent les leurs, et chacun note la manche dans son journal.
+  const allies = battle.allies.map((ally) => {
+    const group = groups.get(ally.ref)!
+    const damage = hits.get(ally.ref) ?? group.stacks.map(() => 0)
+    const after = group.health.map((hp, i) => Math.max(0, hp - damage[i]))
+    const before = counts(group.stacks, group.health)
+    const left = counts(group.stacks, after)
+    const health = emptyArmy()
+    const lost = emptyArmy()
+    UNIT_IDS.forEach((id, i) => {
+      health[id] = after[i]
+      lost[id] = before[i] - left[i]
+    })
+    const played: BattleRound = {
+      dealt: Math.round(strikes.find((s) => s.from === ally.ref)?.damage ?? 0),
+      taken: Math.round(total(damage)),
+      lost,
+      enemyLost: kills.get(ally.ref) ?? {},
+    }
+    let index = UNIT_IDS.length
+    let siege = ally.siege
+    if (siege) {
+      played.guardsLost = before[index] - left[index]
+      siege = { ...siege, guardHealth: after[index] }
+      index++
+    }
+    let dragon = ally.dragon
+    if (dragon) {
+      if (before[index] > 0 && left[index] === 0) played.dragonFell = true
+      dragon = { ...dragon, health: after[index] }
+    }
+    const flank = ally.target === null ? 'front' : flankOf(relativeSlot(battle, ally))
+    if (flank !== 'front') played.flank = flank
+    const attackers = battle.foes.filter((foe) => foe.target === ally.ref).length
+    if (attackers > 1) played.attackers = attackers
+    if (encircled(battle, ally.ref)) played.encircled = true
+    return { ...ally, health, siege, dragon, taken: total(damage), rounds: [...ally.rounds, played] }
+  })
+
+  return settleRound(updateBattle(state, { ...battle, round: battle.round + 1, allies, foes }), battleId, at)
+}
+
+/**
+ * Après une manche : les monstres tombés quittent la mêlée (leur butin se partage), puis les tiens.
+ * Quand tous les monstres sont tombés, c'est une victoire pour tous les tiens, même ceux qui tombent
+ * dans la même manche. Au-delà de MAX_BATTLE_ROUNDS, chacun repart sans vainqueur. Sinon, ceux dont
+ * la cible est tombée en choisissent une autre.
+ */
+function settleRound(state: GameState, battleId: number, at: number): GameState {
+  const battle = getBattle(state, battleId)
+  if (!battle) return state
+  const fallen = battle.foes.filter((foe) => sumOf(foeSurvivors(foe)) === 0)
+  let next = state
+  for (const foe of fallen) next = foeFalls(next, battleId, foe.ref, at)
+  if (fallen.length === battle.foes.length) {
+    next = { ...next, stats: { ...next.stats, victories: next.stats.victories + 1 } }
+    for (const ally of battle.allies) next = leave(next, battleId, ally.ref, at, 'victory')
+    return removeBattle(next, battleId)
   }
-  const updated: Battle = {
+  for (const ally of battle.allies) {
+    if (!allyFallen(ally)) continue
+    next = leave(next, battleId, ally.ref, at, 'defeat')
+    // La cité est tombée : le siège est fini.
+    if (!getBattle(next, battleId)) return next
+  }
+  const current = getBattle(next, battleId)
+  if (!current) return next
+  if (current.allies.length === 0) return closeBattle(next, battleId, at)
+  if (current.round >= MAX_BATTLE_ROUNDS) {
+    for (const ally of current.allies) next = leave(next, battleId, ally.ref, at, 'draw')
+    return closeBattle(next, battleId, at)
+  }
+  return retarget(next, battleId, at)
+}
+
+/**
+ * Un adversaire tombe : il quitte la mêlée, et son butin se partage entre ceux des tiens qui l'ont
+ * frappé, selon leurs coups. Une bande vaincue disparaît ; un camp vaincu reste vide un moment. Le
+ * gardien de la clef la laisse à l'armée qui l'a frappé le plus fort.
+ */
+function foeFalls(state: GameState, battleId: number, ref: string, at: number): GameState {
+  const battle = getBattle(state, battleId)
+  const foe = battle?.foes.find((f) => f.ref === ref)
+  if (!battle || !foe) return state
+  const loot = foeLoot(foe.foe)
+  const weights = battle.allies.map((ally) => foe.damageBy[ally.ref] ?? 0)
+  const shares = battle.allies.map(() => ({}) as Partial<Resources>)
+  for (const id of RESOURCE_IDS) {
+    apportion(loot[id] ?? 0, weights.some((w) => w > 0) ? weights : weights.map((_, i) => (i === 0 ? 1 : 0))).forEach(
+      (amount, i) => {
+        if (amount > 0) shares[i][id] = amount
+      },
+    )
+  }
+  let next = updateBattle(state, {
     ...battle,
-    armyHealth: nextArmyHealth,
-    foeHealth: nextFoeHealth,
-    rounds: [...battle.rounds, played],
-    siege: battle.siege && { ...battle.siege, guardHealth: round.attackerHealth[guardIndex] },
-    dragon: battle.dragon && { ...battle.dragon, health: round.attackerHealth[dragonIndex] },
+    foes: battle.foes.filter((f) => f.ref !== ref),
+    allies: battle.allies.map((ally, i) => ({ ...ally, loot: mergeLoot(ally.loot, shares[i]) })),
+  })
+  const stats = next.stats
+  const kind = foe.foe
+  if (kind.type === 'camp') {
+    next = {
+      ...next,
+      campsCleared: { ...next.campsCleared, [kind.camp]: at + CAMP_RESPAWN_SECONDS * SECOND },
+      stats: { ...stats, campsDefeated: { ...stats.campsDefeated, [kind.camp]: (stats.campsDefeated[kind.camp] ?? 0) + 1 } },
+    }
+  } else if (kind.type === 'band') {
+    // Un raid arrêté en chemin, ou aux portes, n'atteindra jamais la cité : il est repoussé.
+    next = {
+      ...next,
+      stats: { ...stats, bandsDefeated: stats.bandsDefeated + 1, raidsRepelled: stats.raidsRepelled + (kind.raid ? 1 : 0) },
+    }
+    if (foe.band !== null) next = removeBand(next, foe.band, at)
+    if (kind.kind === 'keeper') {
+      const bearers = battle.allies.filter((ally) => ally.army !== null)
+      const bearer = bearers.reduce<AllyFighter | undefined>(
+        (best, ally) => (!best || (foe.damageBy[ally.ref] ?? 0) > (foe.damageBy[best.ref] ?? 0) ? ally : best),
+        undefined,
+      )
+      const army = bearer?.army == null ? undefined : getArmy(next, bearer.army)
+      next = army ? updateArmy(next, { ...army, key: true }) : returnKey(next, at)
+    }
   }
-  const next = { ...state, battles: state.battles.map((b) => (b.id === battleId ? updated : b)) }
-  // Plus aucun monstre debout : c'est une victoire, même si les derniers défenseurs tombent dans la
-  // même manche. Dehors, le dragon ne se bat jamais seul : quand toute son escorte est tombée, la
-  // bataille est perdue, et il regagne son aire. À la cité, lui et les gardes défendent jusqu'au bout.
-  const standing = battle.siege ? round.log.attackers : round.log.attackers.slice(0, UNIT_IDS.length)
-  if (total(round.log.defenders) === 0) return endBattle(next, updated, at, 'victory')
-  if (total(standing) === 0) return endBattle(next, updated, at, 'defeat')
-  if (updated.rounds.length >= MAX_BATTLE_ROUNDS) return endBattle(next, updated, at, 'draw')
   return next
 }
 
 /**
- * La bataille se termine : on écrit le rapport. Une bande vaincue disparaît ; sinon elle garde ses
- * survivants et reprend sa ronde (ou, pour un raid, sa marche vers la cité). Une armée anéantie
- * disparaît. Attaquée en chemin, une armée qui survit reprend sa route (sa récolte, son retour…) ;
- * sinon elle reste sur place, avec le butin d'une victoire, en attendant un ordre.
+ * Un des tiens quitte la mêlée (tombé, en retraite, vainqueur, ou sans vainqueur) : on écrit son
+ * rapport. Une armée anéantie disparaît ; sinon elle emporte sa part du butin, dans la limite de ce
+ * que portent ses survivants. Attaquée en chemin, elle reprend sa route ; sinon elle attend sur place.
  */
-function endBattle(state: GameState, battle: Battle, at: number, outcome: Outcome): GameState {
-  if (battle.siege) return endSiege(state, battle, battle.siege, at, outcome)
-  const { troops: survivors, monsters: monstersLeft } = battleSurvivors(battle)
+function leave(state: GameState, battleId: number, ref: string, at: number, outcome: Outcome): GameState {
+  const battle = getBattle(state, battleId)
+  const ally = battle?.allies.find((a) => a.ref === ref)
+  if (!battle || !ally) return state
+  if (ally.army === null) return leaveCity(state, battle, ally, at, outcome)
+  let next = updateBattle(state, { ...battle, allies: battle.allies.filter((a) => a.ref !== ref) })
+  const { troops: survivors } = allySurvivors(ally)
   const lost = emptyArmy()
-  for (const id of UNIT_IDS) lost[id] = battle.sent[id] - survivors[id]
-  const enemyLost: Monsters = {}
-  for (const id of Object.keys(battle.enemies) as MonsterId[]) {
-    enemyLost[id] = (battle.enemies[id] ?? 0) - (monstersLeft[id] ?? 0)
-  }
-  const foe = battle.foe
-  const raid = foe.type === 'band' && foe.raid === true
-  // Le butin d'une victoire part avec l'armée, dans la limite de ce que portent ses survivants (en plus de
-  // ce qu'elle porte déjà) : le reste demeure sur place. Sans survivant, personne ne l'emporte.
-  const carrier = battleArmy(state, battle)
-  const room = carrier ? carryCapacity(state, survivors, carrier.hero) - loadSize(carrier.load) : 0
-  const loot = outcome === 'victory' ? fitLoad(foeLoot(foe), room) : {}
-  let next: GameState = { ...state, battles: state.battles.filter((b) => b.id !== battle.id) }
-  if (outcome === 'victory') {
-    const stats = next.stats
-    const camps = { ...stats.campsDefeated }
-    if (foe.type === 'camp') camps[foe.camp] = (camps[foe.camp] ?? 0) + 1
-    // Un camp vaincu reste vide un moment.
-    const cleared = foe.type === 'camp' ? { ...next.campsCleared, [foe.camp]: at + CAMP_RESPAWN_SECONDS * SECOND } : next.campsCleared
-    next = {
-      ...next,
-      campsCleared: cleared,
-      stats: {
-        ...stats,
-        victories: stats.victories + 1,
-        bandsDefeated: stats.bandsDefeated + (battle.band === null ? 0 : 1),
-        // Un raid arrêté en chemin n'atteindra jamais la cité : il est repoussé.
-        raidsRepelled: stats.raidsRepelled + (raid ? 1 : 0),
-        campsDefeated: camps,
-      },
-    }
-  }
-
-  // Le héros et le dragon de l'armée gagnent de l'expérience pour chaque monstre vaincu, quelle que soit l'issue.
+  for (const id of UNIT_IDS) lost[id] = ally.sent[id] - survivors[id]
+  const enemyLost = addMonsters(ally.rounds.map((round) => round.enemyLost))
   const xp = battleXp(enemyLost)
-  const withDragon = dragonAfterBattle(next, battle, xp, at, outcome)
+  const withDragon = dragonAfterBattle(next, ally, xp, at, outcome)
   next = withDragon.state
-  const heroId = battleArmy(state, battle)?.hero ?? null
-  const hero = heroId === null ? undefined : getHero(state, heroId)
+  const army = getArmy(next, ally.army)
+  const hero = army?.hero == null ? undefined : getHero(next, army.hero)
   let heroGain: HeroGain | null = null
   if (hero) {
     const after = gainXp(hero, xp)
     next = updateHero(next, after)
     heroGain = { hero: hero.id, xp, level: after.level, levelsGained: after.level - hero.level }
   }
-
-  const report: BattleReport = {
-    at,
-    startedAt: battle.startedAt,
-    army: battle.army,
-    foe,
-    ambush: battle.ambush,
-    outcome,
-    sent: { ...battle.sent },
-    lost,
-    enemies: { ...battle.enemies },
-    enemyLost,
-    loot,
-    starving: battle.starving,
-    rounds: battle.rounds,
-    hero: heroGain,
-    siege: null,
-    dragon: withDragon.gain,
-  }
-  next = { ...next, reports: [report, ...next.reports].slice(0, MAX_REPORTS) }
-
-  // La bande survivante reprend sa ronde (ou sa marche sur la cité) ; si elle avait poursuivi l'armée,
-  // elle regagne d'abord sa ronde.
-  const band = battle.band === null ? undefined : getBand(next, battle.band)
-  if (band) {
-    const survivor: Band = band.chase
-      ? { ...band, monsters: monstersLeft, chase: { army: null, position: band.chase.position } }
-      : { ...band, monsters: monstersLeft, since: at }
-    next = outcome === 'victory' ? removeBand(next, band.id, at) : updateBand(next, survivor)
-  }
-  const army = battleArmy(next, battle)
-  // Vaincu, le gardien de la clef la laisse à l'armée qui l'a battu.
-  const wonKey = outcome === 'victory' && foe.type === 'band' && foe.kind === 'keeper'
-  if (!army) return wonKey ? returnKey(next, at) : next
+  const room = army ? carryCapacity(next, survivors, army.hero) - loadSize(army.load) : 0
+  const loot = outcome === 'defeat' ? {} : fitLoad(ally.loot, room)
+  next = { ...next, reports: [allyReport(ally, at, outcome, lost, enemyLost, loot, heroGain, withDragon.gain, null), ...next.reports].slice(0, MAX_REPORTS) }
+  if (!army) return next
   if (armySize(survivors) === 0) {
     // Personne pour porter la clef : elle retourne à son gardien.
     const gone = removeArmy(next, army.id)
-    return army.key || wonKey ? returnKey(gone, at) : gone
+    return army.key ? returnKey(gone, at) : gone
   }
-  const fought = battle.band === null || army.fought.includes(battle.band) ? army.fought : [...army.fought, battle.band]
+  // Les bandes rencontrées ne l'attaqueront plus d'elles-mêmes.
+  const met = ally.met.flatMap((m) => (m.ref.startsWith('band:') ? [Number(m.ref.slice(5))] : []))
+  const fought = [...army.fought, ...met.filter((id) => !army.fought.includes(id))]
   // Blessé, le dragon quitte l'armée pour regagner son aire.
   const dragon = army.dragon && !withDragon.gain?.wounded
-  const after: FieldArmy = { ...army, troops: survivors, load: mergeLoot(army.load, loot), fought, dragon, key: army.key || wonKey }
-  const resume = battle.ambush && army.order !== null
+  const after: FieldArmy = { ...army, troops: survivors, load: mergeLoot(army.load, loot), fought, dragon }
+  const resume = ally.ambush && army.order !== null
   return updateArmy(next, resume ? { ...after, status: 'marching' } : { ...after, status: 'idle', order: null })
+}
+
+/** Le rapport d'un des tiens qui quitte la mêlée. */
+function allyReport(
+  ally: AllyFighter,
+  at: number,
+  outcome: Outcome,
+  lost: Army,
+  enemyLost: Monsters,
+  loot: Partial<Resources>,
+  hero: HeroGain | null,
+  dragon: DragonGain | null,
+  siege: SiegeReport | null,
+): BattleReport {
+  const foes = ally.met.map((m) => m.foe)
+  return {
+    at,
+    startedAt: ally.joinedAt,
+    army: ally.army,
+    foe: foes[0] ?? { type: 'trap' },
+    foes,
+    ambush: ally.ambush,
+    outcome,
+    sent: { ...ally.sent },
+    lost,
+    enemies: addMonsters(ally.met.map((m) => m.monsters)),
+    enemyLost,
+    loot,
+    starving: ally.starving,
+    rounds: ally.rounds,
+    hero,
+    siege,
+    dragon,
+  }
+}
+
+/**
+ * Plus personne de ton camp dans la mêlée : elle se termine. Les bandes gardent leurs survivants, et
+ * reprennent leur ronde (ou la regagnent, si elles avaient poursuivi une armée), ou leur marche sur la cité.
+ */
+function closeBattle(state: GameState, battleId: number, at: number): GameState {
+  const battle = getBattle(state, battleId)
+  if (!battle) return state
+  let next = removeBattle(state, battleId)
+  for (const foe of battle.foes) {
+    const band = foe.band === null ? undefined : getBand(next, foe.band)
+    if (!band) continue
+    const monsters = foeSurvivors(foe)
+    next = updateBand(
+      next,
+      band.chase ? { ...band, monsters, chase: { army: null, position: band.chase.position } } : { ...band, monsters, since: at },
+    )
+  }
+  return next
+}
+
+/**
+ * Ceux dont la cible est partie (tombée, en retraite) en choisissent une autre : d'abord un de leurs
+ * assaillants, sinon l'adversaire le plus proche autour duquel il reste une place. Faute de place, ils attendent.
+ */
+function retarget(state: GameState, battleId: number, at: number): GameState {
+  let battle = getBattle(state, battleId)
+  if (!battle) return state
+  for (const { ref } of [...battle.allies, ...battle.foes]) {
+    const fighter = fighterOf(battle, ref)
+    if (!fighter || (fighter.target !== null && fighterOf(battle, fighter.target))) continue
+    const opponents: (AllyFighter | FoeFighter)[] = isAlly(fighter) ? battle.foes : battle.allies
+    let choice: { target: string; slot: number } | null = null
+    for (const attacker of opponents.filter((o) => o.target === ref)) {
+      const slot = freeSlot(battle, attacker.ref, (attacker.slot + 4) % 8)
+      if (slot !== null) {
+        choice = { target: attacker.ref, slot }
+        break
+      }
+    }
+    if (!choice) {
+      const here = fighterPosition(state, ref, at)
+      const nearest = [...opponents].sort(
+        (a, b) => distance(here, fighterPosition(state, a.ref, at)) - distance(here, fighterPosition(state, b.ref, at)),
+      )
+      for (const opponent of nearest) {
+        const slot = freeSlot(battle, opponent.ref, directionOf(fighterPosition(state, opponent.ref, at), here))
+        if (slot !== null) {
+          choice = { target: opponent.ref, slot }
+          break
+        }
+      }
+    }
+    battle = replaceFighter(battle, { ...fighter, target: choice?.target ?? null, slot: choice?.slot ?? fighter.slot })
+  }
+  return updateBattle(state, noteMeetings(battle))
+}
+
+/** Après le départ d'un des tiens (en retraite) : la mêlée continue sans lui, ou se termine. */
+function afterLeave(state: GameState, battleId: number, at: number): GameState {
+  const battle = getBattle(state, battleId)
+  if (!battle) return state
+  return battle.allies.length === 0 ? closeBattle(state, battleId, at) : retarget(state, battleId, at)
+}
+
+/** Ton armée se tourne vers un autre adversaire de sa mêlée, sans quitter le combat. */
+function switchTarget(state: GameState, battle: Battle, ally: AllyFighter, foe: FoeFighter, at: number): GameState {
+  const wanted = directionOf(fighterPosition(state, foe.ref, at), fighterPosition(state, ally.ref, at))
+  const slot = freeSlot(battle, foe.ref, wanted)
+  if (slot === null) return state
+  return updateBattle(state, noteMeetings(replaceFighter(battle, { ...ally, target: foe.ref, slot })))
 }
 
 // --- Les bandes de monstres ---
@@ -2146,11 +2718,6 @@ function updateBand(state: GameState, band: Band): GameState {
   return { ...state, bands: state.bands.map((b) => (b.id === band.id ? band : b)) }
 }
 
-/** La bande se bat-elle en ce moment ? */
-export function bandFighting(state: GameState, bandId: number): boolean {
-  return state.battles.some((battle) => battle.band === bandId)
-}
-
 // --- Les poursuites ---
 
 /** Jusqu'où voit une bande en patrouille de ce niveau : plus loin que sa zone d'aggro. */
@@ -2174,10 +2741,10 @@ function towerSees(state: GameState, tower: Band, point: Point): boolean {
 }
 
 /**
- * Les bandes en patrouille prennent en chasse la plus proche des armées qu'elles voient ; et tant que
- * la tour de guet tient, les patrouilles du grand campement accourent vers les armées qu'elle voit,
- * même en plein combat (elles attendent alors leur tour, au contact). Une bande ne poursuit ni une
- * armée qu'elle a déjà combattue, ni une armée qui l'a semée.
+ * Les bandes en patrouille prennent en chasse la plus proche des armées qu'elles voient, même en plein
+ * combat (elles rejoignent alors la mêlée) ; et tant que la tour de guet tient, les patrouilles du
+ * grand campement accourent vers les armées qu'elle voit. Une bande ne poursuit ni une armée qu'elle a
+ * déjà combattue, ni une armée qui l'a semée.
  */
 function spotArmies(state: GameState, at: number): GameState {
   const tower = watchtower(state)
@@ -2191,8 +2758,6 @@ function spotArmies(state: GameState, at: number): GameState {
     for (const army of next.armies) {
       if (army.fought.includes(band.id) || army.escaped.includes(band.id)) continue
       const alerted = band.encampment && watched.includes(army.id)
-      // Une armée qui se bat déjà : seule l'alerte de la tour y fait accourir les patrouilles.
-      if (army.status === 'fighting' && !alerted) continue
       const gap = distance(position, army.position)
       const seen = gap <= sightRadius(band.level) && inSight(next, position, army.position)
       if ((seen || alerted) && (!prey || gap < distance(position, prey.position))) prey = army
@@ -2424,7 +2989,7 @@ export function protectedAmount(state: GameState): number {
 
 /** Le siège en cours, s'il y en a un : un raid se bat aux portes de la cité. */
 export function siegeOf(state: GameState): Battle | undefined {
-  return state.battles.find((battle) => battle.siege !== null)
+  return state.battles.find((battle) => battle.allies.some((ally) => ally.ref === CITY_REF))
 }
 
 /** La longueur du chemin d'un raid, de son point de départ à la cité. */
@@ -2477,49 +3042,24 @@ function spawnRaid(state: GameState, at: number): GameState {
 }
 
 /**
- * Le raid arrive aux portes : le siège commence. Les troupes présentes dans la cité se battent,
- * mieux protégées grâce aux Remparts, avec les gardes qui y veillent. Une cité sans défenseur
- * est pillée sans combat.
+ * Un raid arrive aux portes : il attaque la cité. Les troupes présentes dans la cité se battent, mieux
+ * protégées grâce aux Remparts, avec les gardes qui y veillent (et le dragon, s'il est dans son aire).
+ * Un raid qui arrive pendant un siège s'y joint ; s'il n'y a plus de place autour de la cité, il
+ * attend son tour aux portes. Une cité sans défenseur est pillée sans combat.
  */
 function startSiege(state: GameState, bandId: number, at: number): GameState {
   const band = getBand(state, bandId)
   if (!band) return state
-  const atGates = { ...band, phase: raidLength(band) }
-  // Un seul siège à la fois : ce raid attend son tour aux portes.
-  if (siegeOf(state)) return updateBand(state, { ...atGates, since: at + SIEGE_WAIT_SECONDS * SECOND })
-
-  const guards = wallGuards(state)
-  const healthFactor =
-    (1 + techBonus(state, 'health') + spellBonus(state, 'health') + WALL_HEALTH_PER_LEVEL * state.levels.walls) *
-    trialBoost(state)
-  const armyHealth = emptyArmy()
-  for (const id of UNIT_IDS) armyHealth[id] = state.troops[id] * getUnit(id).health * healthFactor
-  const monsters = standing(band.monsters)
-  const siege: Siege = { guards, guardHealth: guards * WALL_GUARD.health }
-  const battle: Battle = {
-    id: state.nextId,
-    army: null,
-    band: band.id,
-    foe: bandFoe(band),
-    ambush: false,
-    startedAt: at,
-    sent: { ...state.troops },
-    enemies: monsters,
-    armyHealth,
-    foeHealth: monsterHealth(monsters),
-    healthFactor,
-    starving: isStarving(state),
-    rounds: [],
-    siege,
-    // Le dragon, s'il est dans son aire, défend la cité.
-    dragon: dragonAtHome(state, at) ? battleDragon(state, healthFactor) : null,
-  }
-  const next = updateBand(
-    { ...state, battles: [...state.battles, battle], nextId: state.nextId + 1 },
-    { ...atGates, since: null },
-  )
-  const nobody = armySize(state.troops) === 0 && guards === 0 && battle.dragon === null
-  return nobody ? endSiege(next, battle, siege, at, 'defeat') : next
+  const atGates = updateBand(state, { ...band, phase: raidLength(band), since: at })
+  const besieged = siegeOf(atGates)
+  const next = engage(atGates, bandRef(bandId), CITY_REF, at)
+  if (next === atGates) return updateBand(state, { ...band, phase: raidLength(band), since: at + SIEGE_WAIT_SECONDS * SECOND })
+  if (besieged) return next
+  const siege = siegeOf(next)
+  const city = siege?.allies.find((ally) => ally.ref === CITY_REF)
+  if (!siege || !city) return next
+  const nobody = armySize(city.sent) === 0 && (city.siege?.guards ?? 0) === 0 && city.dragon === null
+  return nobody ? leave(next, siege.id, CITY_REF, at, 'defeat') : next
 }
 
 /** Ce qu'un raid victorieux emporte : une part de ce que le Château ne protège pas, dans la limite de ce que portent les monstres. */
@@ -2539,68 +3079,42 @@ export function plunderOf(state: GameState, monsters: Monsters): Partial<Resourc
 }
 
 /**
- * Le siège se termine, et le raid s'en va dans tous les cas. Repoussé, il laisse son butin dans
- * les réserves. Vainqueur, il pille la cité, puis les monstres la laissent tranquille un moment.
- * Une part des troupes tombées est soignée : elle retrouve la garnison.
+ * La cité quitte la mêlée : le siège se termine. Repoussés, les raids ont laissé leur butin, qui
+ * rejoint les réserves ; vainqueurs, ils pillent la cité (tous ensemble), puis les monstres la laissent
+ * tranquille un moment. Une part des troupes tombées est soignée : elle retrouve la garnison. Les
+ * raids encore debout s'en vont, et les armées venues aider la cité repartent, sans vainqueur.
  */
-function endSiege(state: GameState, battle: Battle, siege: Siege, at: number, outcome: Outcome): GameState {
-  const { troops: survivors, monsters: monstersLeft, guards: guardsLeft } = battleSurvivors(battle)
+function leaveCity(state: GameState, battle: Battle, ally: AllyFighter, at: number, outcome: Outcome): GameState {
+  const { troops: survivors, guards: guardsLeft } = allySurvivors(ally)
   const lost = emptyArmy()
   const healed = emptyArmy()
   const troops = { ...state.troops }
   for (const id of UNIT_IDS) {
-    const fallen = battle.sent[id] - survivors[id]
+    const fallen = ally.sent[id] - survivors[id]
     healed[id] = Math.ceil(fallen * SIEGE_HEALED_SHARE)
     lost[id] = fallen - healed[id]
     troops[id] = Math.max(0, troops[id] - lost[id])
   }
-  const enemyLost: Monsters = {}
-  for (const id of Object.keys(battle.enemies) as MonsterId[]) {
-    enemyLost[id] = (battle.enemies[id] ?? 0) - (monstersLeft[id] ?? 0)
-  }
-  const foe = battle.foe
-  const loot = outcome === 'victory' && foe.type === 'band' ? raidLoot(foe.kind, foe.level) : {}
-  const plunder = outcome === 'defeat' ? plunderOf(state, monstersLeft) : {}
-  const withDragon = dragonAfterBattle(state, battle, battleXp(enemyLost), at, outcome)
-  const stats = state.stats
-  const report: BattleReport = {
-    at,
-    startedAt: battle.startedAt,
-    army: null,
-    foe,
-    ambush: false,
-    outcome,
-    sent: { ...battle.sent },
-    lost,
-    enemies: { ...battle.enemies },
-    enemyLost,
-    loot,
-    starving: battle.starving,
-    rounds: battle.rounds,
-    hero: null,
-    siege: { guards: siege.guards, guardsLost: siege.guards - guardsLeft, healed, plunder },
-    dragon: withDragon.gain,
-  }
-  const next: GameState = {
+  const enemyLost = addMonsters(ally.rounds.map((round) => round.enemyLost))
+  const plunder = outcome === 'defeat' ? plunderOf(state, addMonsters(battle.foes.map(foeSurvivors))) : {}
+  const withDragon = dragonAfterBattle(state, ally, battleXp(enemyLost), at, outcome)
+  const guards = ally.siege?.guards ?? 0
+  const siege: SiegeReport = { guards, guardsLost: guards - guardsLeft, healed, plunder }
+  const report = allyReport(ally, at, outcome, lost, enemyLost, ally.loot, null, withDragon.gain, siege)
+  let next: GameState = {
     ...withDragon.state,
     troops,
-    resources: addResources(addResources(state.resources, loot), plunder, -1),
-    battles: state.battles.filter((b) => b.id !== battle.id),
+    resources: addResources(addResources(state.resources, ally.loot), plunder, -1),
     reports: [report, ...state.reports].slice(0, MAX_REPORTS),
-    stats:
-      outcome === 'victory'
-        ? {
-            ...stats,
-            victories: stats.victories + 1,
-            bandsDefeated: stats.bandsDefeated + 1,
-            raidsRepelled: stats.raidsRepelled + 1,
-          }
-        : stats,
     // Après un pillage, les monstres sont repus : le prochain raid attendra.
     nextRaidAt:
       outcome === 'defeat' ? Math.max(state.nextRaidAt ?? 0, at + RAID_RESPITE_SECONDS * SECOND) : state.nextRaidAt,
   }
-  return battle.band === null ? next : removeBand(next, battle.band, at)
+  next = updateBattle(next, { ...battle, allies: battle.allies.filter((a) => a.ref !== CITY_REF) })
+  if (outcome === 'victory') return next
+  for (const other of battle.allies) if (other.ref !== CITY_REF) next = leave(next, battle.id, other.ref, at, 'draw')
+  for (const raid of battle.foes) if (raid.band !== null) next = removeBand(next, raid.band, at)
+  return removeBattle(next, battle.id)
 }
 
 // --- Les gisements de ressources ---

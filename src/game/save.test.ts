@@ -180,7 +180,9 @@ describe('restoreState', () => {
     const army = { id: 5, troops: four, position: { x: 560, y: 470 }, order: null, status: 'fighting', load: {}, fought: [] }
     const state = restoreState({ ...game, armies: [army], battles: [battle] })!
     expect(state.armies[0].troops).toEqual({ ...emptyArmy(), warrior: 30 })
-    expect(state.battles[0].armyHealth).toEqual({ ...emptyArmy(), warrior: 1500 })
+    // Elle devient une mêlée à deux : l'armée face au camp.
+    expect(state.battles[0].allies[0]).toMatchObject({ ref: 'army:5', target: 'camp:wolfDen', health: { ...emptyArmy(), warrior: 1500 } })
+    expect(state.battles[0].foes[0]).toMatchObject({ ref: 'camp:wolfDen', camp: 'wolfDen', target: 'army:5' })
     // La bataille se joue jusqu'au bout, sans valeur absurde.
     const later = advance(state, T0 + 10 * 60_000)
     expect(later.battles).toEqual([])
@@ -233,7 +235,7 @@ describe('restoreState', () => {
       rounds: [],
     }
     const battle = { ...game, battles: [fight] }
-    expect(restoreState(battle)!.battles[0].siege).toBeNull()
+    expect(restoreState(battle)!.battles[0].allies[0].siege).toBeNull()
     // Un rapport de siège garde son armée vide (null), un très vieux rapport reçoit l'armée 0.
     const reports = [
       { at: T0, army: null, foe: { type: 'band', kind: 'wolves', level: 1, raid: true }, outcome: 'victory' },

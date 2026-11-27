@@ -8,7 +8,17 @@ import {
   WALL_HEALTH_PER_LEVEL,
   type MonsterId,
 } from '../game/config'
-import { armySize, battleSurvivors, getMonster, protectedAmount, siegeOf, wallGuards, type GameState } from '../game/rules'
+import {
+  allySurvivors,
+  armySize,
+  foeSurvivors,
+  getMonster,
+  protectedAmount,
+  siegeOf,
+  wallGuards,
+  type GameState,
+  type Monsters,
+} from '../game/rules'
 import { foeName } from './battleLog'
 import { formatAmount, formatArmy, formatDuration } from './format'
 import { bandName, incomingRaids, monstersIcon } from './world'
@@ -26,29 +36,36 @@ const safe = computed(() => protectedAmount(props.state))
 const plunderPercent = Math.round(RAID_PLUNDER_SHARE * 100)
 const healedPercent = Math.round(SIEGE_HEALED_SHARE * 100)
 
-// Le siège en cours : ce qui reste de chaque côté.
-const siege = computed(() => {
-  const battle = siegeOf(props.state)
-  if (!battle) return null
-  const { troops, monsters, guards: guardsLeft } = battleSurvivors(battle)
-  const foes = (Object.entries(monsters) as [MonsterId, number][])
+/** Les monstres encore debout, en quelques mots. */
+function monstersText(monsters: Monsters): string {
+  return (Object.entries(monsters) as [MonsterId, number][])
     .filter(([, count]) => count > 0)
     .map(([id, count]) => `${getMonster(id).icon} ${getMonster(id).name} ${count}`)
     .join(' · ')
+}
+
+// Le siège en cours : ce qui reste de tes défenseurs, et de chaque raid aux portes (et les armées
+// venues aider la cité, qui se battent aussi).
+const siege = computed(() => {
+  const battle = siegeOf(props.state)
+  const city = battle?.allies.find((ally) => ally.army === null)
+  if (!battle || !city) return null
+  const { troops, guards: guardsLeft } = allySurvivors(city)
   return {
-    band: battle.band,
-    round: battle.rounds.length + 1,
-    foe: foeName(battle.foe),
+    raids: battle.foes.flatMap((foe) => (foe.band === null ? [] : [foe.band])),
+    round: battle.round + 1,
+    foe: battle.foes.map((foe) => foeName(foe.foe)).join(', '),
     troops: formatArmy(troops),
     guards: guardsLeft,
-    foes,
+    foes: battle.foes.map((foe) => monstersText(foeSurvivors(foe))).filter(Boolean).join(' · '),
+    helpers: battle.allies.filter((ally) => ally.army !== null).length,
   }
 })
 
-// Les raids en route (sauf celui qui assiège la cité), du plus proche au plus lointain.
+// Les raids en route (sauf ceux qui assiègent la cité), du plus proche au plus lointain.
 const raids = computed(() =>
   incomingRaids(props.state)
-    .filter(({ band }) => band.id !== siege.value?.band)
+    .filter(({ band }) => !siege.value?.raids.includes(band.id))
     .map(({ band, arrival }) => ({
       id: band.id,
       name: bandName(band),
@@ -76,6 +93,10 @@ const nextRaid = computed(() => {
         >
       </p>
       <p>En face : {{ siege.foes || 'personne' }}</p>
+      <p v-if="siege.helpers">
+        {{ siege.helpers > 1 ? `${siege.helpers} de tes armées frappent` : 'Une de tes armées frappe' }} les raids de
+        l’extérieur.
+      </p>
       <p class="muted">
         Pendant le siège, tes troupes restent aux remparts : elles ne peuvent ni sortir de la cité ni être renvoyées.
       </p>

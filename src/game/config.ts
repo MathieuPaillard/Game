@@ -629,6 +629,22 @@ export const BATTLE_DAMAGE_SCALE = 0.15
 export const MIN_BATTLE_ROUNDS = 10
 /** Au-delà de ce nombre de manches, les deux camps se séparent sans vainqueur. */
 export const MAX_BATTLE_ROUNDS = 150
+/**
+ * Une bataille est une mêlée : chaque troupe (une armée, une bande, un camp) frappe une seule cible,
+ * mais plusieurs troupes peuvent frapper la même cible à la fois. Seul l'encombrement les limite :
+ * autour d'une troupe, il n'y a de place que pour huit assaillants, un dans chaque direction
+ * (devant, derrière, sur les côtés et en biais). La cité, elle, se défend derrière ses murs.
+ */
+export const MAX_ATTACKERS = 8
+/** Frapper une troupe de côté, ou de dos, donne un bonus d'attaque (0.15 = 15 % de plus). */
+export const SIDE_ATTACK_BONUS = 0.15
+export const REAR_ATTACK_BONUS = 0.3
+/**
+ * Une troupe attaquée d'au moins ENCIRCLED_SIDES côtés (devant, à gauche, à droite, derrière) est
+ * encerclée : elle perd cette part de son attaque.
+ */
+export const ENCIRCLED_SIDES = 3
+export const ENCIRCLED_ATTACK_MALUS = 0.25
 /** Troupes maximum par entraînement, pour chaque niveau de Caserne. */
 export const TRAINING_BATCH_PER_LEVEL = 20
 /** Chaque niveau de Caserne au-delà du premier réduit de 10 % la durée d'entraînement. */

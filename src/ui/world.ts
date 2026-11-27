@@ -2,15 +2,19 @@
 
 import { NODE_KINDS, type MonsterId } from '../game/config'
 import {
-  battleHealth,
+  armyBattle,
+  fighterHealth,
+  fighterOf,
   getBand,
   getCamp,
   getMonster,
   getNode,
   raidArrival,
+  type AllyFighter,
   type ArmyStatus,
   type Band,
   type Battle,
+  type FoeFighter,
   type FieldArmy,
   type GameState,
   type Monsters,
@@ -50,27 +54,29 @@ export function incomingRaids(state: GameState): { band: Band; arrival: number |
 }
 
 /**
- * Ce qu'il faut pour animer une bataille sur la carte : la vie qui reste à chaque camp (de 0 à 1),
- * le numéro de la dernière manche jouée, et les dégâts de cette manche, de chaque côté.
+ * Ce qu'il faut pour animer un combattant d'une mêlée sur la carte : la vie qui lui reste (de 0 à 1),
+ * le numéro de la dernière manche jouée, et les dégâts qu'il vient de recevoir.
  */
 export interface FightFx {
   round: number
-  ally: number
-  foe: number
-  dealt: number
+  ratio: number
   taken: number
 }
 
-export function fightFx(battle: Battle): FightFx {
-  const health = battleHealth(battle)
-  const last = battle.rounds[battle.rounds.length - 1]
+export function fightFx(battle: Battle, fighter: AllyFighter | FoeFighter): FightFx {
+  const health = fighterHealth(fighter)
   return {
-    round: battle.rounds.length,
-    ally: health.army.start > 0 ? health.army.now / health.army.start : 0,
-    foe: health.foe.start > 0 ? health.foe.now / health.foe.start : 0,
-    dealt: last?.dealt ?? 0,
-    taken: last?.taken ?? 0,
+    round: battle.round,
+    ratio: health.start > 0 ? health.now / health.start : 0,
+    taken: battle.round > 0 ? fighter.taken : 0,
   }
+}
+
+/** Le nom de l'adversaire qu'une de tes armées frappe en ce moment (null si elle attend une place). */
+export function armyFoeName(state: GameState, armyId: number): string | null {
+  const fighting = armyBattle(state, armyId)
+  const target = fighting && fighterOf(fighting.battle, fighting.ally.target)
+  return target && 'foe' in target ? foeName(target.foe) : null
 }
 
 /** Une étincelle lancée d'un combattant à l'autre : le chemin qu'elle parcourt, pour l'animation. */
@@ -132,8 +138,8 @@ export function armyStatusText(state: GameState, army: FieldArmy): string {
     case 'idle':
       return 'Attend tes ordres'
     case 'fighting': {
-      const battle = state.battles.find((b) => b.army === army.id)
-      return battle ? `Au combat contre : ${foeName(battle.foe)}` : 'Au combat'
+      const foe = armyFoeName(state, army.id)
+      return foe ? `Au combat contre : ${foe}` : 'Au combat, attend une place'
     }
     case 'gathering':
       return order ? `Récolte : ${targetName(state, order)}` : 'Récolte'

@@ -101,6 +101,15 @@ export function fightRound(
   }
 }
 
+/**
+ * Les coups d'un seul camp sur un autre pendant une manche (dans une mêlée, chaque troupe frappe sa
+ * propre cible) : chaque groupe frappe tous les groupes adverses, au prorata de leur nombre. `cap`
+ * limite le total de ces dégâts (voir roundCap). Renvoie les dégâts que reçoit chaque groupe adverse.
+ */
+export function strike(from: Stack[], fromHealth: number[], to: Stack[], toHealth: number[], cap = Infinity): number[] {
+  return limit(damage(from, fromHealth, to, toHealth), cap)
+}
+
 /** Une bataille entière, d'un coup : les manches s'enchaînent jusqu'à ce qu'un camp tombe. */
 export function fight(attackers: Stack[], defenders: Stack[], maxRounds = MAX_BATTLE_ROUNDS): BattleOutcome {
   let attackerHealth = startingHealth(attackers)

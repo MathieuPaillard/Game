@@ -1,7 +1,17 @@
 // Raconte une bataille à partir de son rapport : qui avait l'avantage, chaque manche, puis l'issue.
 
 import { isStrongAgainst } from '../game/battle'
-import { COUNTER_BONUS, DRAGON_FAMILY, UNIT_IDS, WALL_GUARD, type BandKindId, type MonsterId } from '../game/config'
+import {
+  COUNTER_BONUS,
+  DRAGON_FAMILY,
+  ENCIRCLED_ATTACK_MALUS,
+  REAR_ATTACK_BONUS,
+  SIDE_ATTACK_BONUS,
+  UNIT_IDS,
+  WALL_GUARD,
+  type BandKindId,
+  type MonsterId,
+} from '../game/config'
 import { getBandKind, getCamp, getMonster, getUnit, type BattleReport, type Foe, type Outcome } from '../game/rules'
 import { formatAmount } from './format'
 
@@ -40,6 +50,12 @@ export function foeName(foe: Foe): string {
   if (foe.type === 'trap') return 'Piège du grand campement'
   if (foe.type === 'camp') return getCamp(foe.camp).name
   return foe.raid ? `Raid : ${bandLabel(foe.kind, foe.level)}` : bandLabel(foe.kind, foe.level)
+}
+
+/** Tous les adversaires d'une bataille : « Patrouille des Crocs (niv. 6), Garde d’élite (niv. 6) ». */
+export function foesName(report: BattleReport): string {
+  const foes = report.foes.length > 0 ? report.foes : [report.foe]
+  return foes.map(foeName).join(', ')
 }
 
 export interface BattleStory {
@@ -84,9 +100,11 @@ export function describeBattle(report: BattleReport): BattleStory {
     ? `Avant la bataille : ${edges.join(', ')} (+${bonus} % de dégâts).`
     : 'Avant la bataille : aucune troupe n’a l’avantage sur une autre.'
 
-  // Chaque manche, avec ce qu'il reste de chaque groupe.
+  // Chaque manche, avec ce qu'il reste de chaque groupe. (Face à plusieurs adversaires, d'autres de
+  // tes troupes en abattent aussi : on ne dit alors que ceux que celle-ci a abattus.)
   const army = { ...report.sent }
   const foes = { ...report.enemies }
+  const alone = report.foes.length <= 1
   const rounds = report.rounds.map((round, i) => {
     const foeLosses = monsters
       .filter((id) => (round.enemyLost[id] ?? 0) > 0)
@@ -94,7 +112,7 @@ export function describeBattle(report: BattleReport): BattleStory {
         const lost = round.enemyLost[id] ?? 0
         foes[id] = (foes[id] ?? 0) - lost
         const monster = getMonster(id)
-        return `${monster.icon} ${monster.name} −${lost} (reste ${foes[id]})`
+        return `${monster.icon} ${monster.name} −${lost}${alone ? ` (reste ${foes[id]})` : ''}`
       })
     const ownLosses = units
       .filter((id) => round.lost[id] > 0)
@@ -111,12 +129,23 @@ export function describeBattle(report: BattleReport): BattleStory {
     const dealt = foeLosses.length ? ` : ${foeLosses.join(', ')}` : ', sans abattre personne'
     const taken = ownLosses.length ? ` : ${ownLosses.join(', ')}` : ', sans abattre personne'
     const side = siege ? 'Tes défenseurs infligent' : 'Ton armée inflige'
+    // D'où elle frappait, combien la frappaient, et si elle était encerclée.
+    const flank =
+      round.flank === 'rear'
+        ? ` (de dos : +${Math.round(REAR_ATTACK_BONUS * 100)} %)`
+        : round.flank === 'side'
+          ? ` (de côté : +${Math.round(SIDE_ATTACK_BONUS * 100)} %)`
+          : ''
+    const strikers = round.attackers ? `Les ${round.attackers} troupes de monstres qui la frappent` : 'Les monstres'
+    const encircled = round.encircled
+      ? ` Encerclée, ton armée frappe moins fort (−${Math.round(ENCIRCLED_ATTACK_MALUS * 100)} %).`
+      : ''
     const dragonFell = round.dragonFell ? ' Blessé, le dragon quitte le combat.' : ''
     return {
       title: `Manche ${i + 1}`,
       text:
-        `${side} ${formatAmount(round.dealt)} dégâts${dealt}. ` +
-        `Les monstres infligent ${formatAmount(round.taken)} dégâts${taken}.${dragonFell}`,
+        `${side} ${formatAmount(round.dealt)} dégâts${flank}${dealt}. ` +
+        `${strikers} infligent ${formatAmount(round.taken)} dégâts${taken}.${encircled}${dragonFell}`,
     }
   })
 

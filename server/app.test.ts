@@ -319,7 +319,7 @@ describe('la partie', () => {
     server.wait(5000)
     const besieged = await server.call('POST', '/api/game/actions', { token, body: march })
     expect(besieged.data).toMatchObject({ ok: false, reason: 'La cité est assiégée : tes troupes défendent les remparts' })
-    expect(besieged.data.game.battles[0]).toMatchObject({ army: null, band: 900, siege: { guards: 16 } })
+    expect(besieged.data.game.battles[0]).toMatchObject({ allies: [{ army: null, siege: { guards: 16 } }], foes: [{ band: 900 }] })
 
     // Le siège se termine sur le serveur, et les troupes peuvent de nouveau sortir.
     server.wait(10 * 60 * 1000)

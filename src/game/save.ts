@@ -7,9 +7,12 @@ import {
   RAID_CASTLE_LEVEL,
   RAID_FIRST_SECONDS,
   START_LEVELS,
+  UNIT_IDS,
+  WALL_GUARD,
   WORLD_TICK_SECONDS,
   type Army,
   type CampId,
+  type MonsterId,
   type RaceId,
   type Resources,
 } from './config.ts'
@@ -20,10 +23,20 @@ import {
   emptyResources,
   emptyStats,
   emptyTechs,
+  getMonster,
+  getUnit,
+  type AllyFighter,
   type Band,
+  type Battle,
+  type BattleDragon,
   type BattleReport,
+  type BattleRound,
   type Construction,
+  type FoeFighter,
+  type Foe,
   type GameState,
+  type Monsters,
+  type Siege,
   type Training,
 } from './rules.ts'
 
@@ -40,11 +53,31 @@ interface OldExpedition {
 /** Une bande d'avant les patrouilles : elle restait immobile, à `position`. */
 type SavedBand = Partial<Band> & { position?: { x: number; y: number } }
 
+/** Une bataille d'avant les mêlées : une armée (ou la cité) contre une seule bande, ou un camp. */
+interface OldBattle {
+  id: number
+  army: number | null
+  band: number | null
+  foe: Foe
+  ambush?: boolean
+  startedAt: number
+  sent: Partial<Army>
+  enemies: Monsters
+  armyHealth: Partial<Army>
+  foeHealth: Monsters
+  healthFactor: number
+  starving?: boolean
+  rounds?: BattleRound[]
+  siege?: Siege | null
+  dragon?: BattleDragon | null
+}
+
 /** Un rapport d'une version plus ancienne : il nommait un camp, et disait seulement victoire ou non. */
 type SavedReport = Partial<BattleReport> & { camp?: CampId; victory?: boolean }
 
 /** Une partie enregistrée, peut-être par une version plus ancienne du jeu. */
-type SavedState = Partial<Omit<GameState, 'reports' | 'bands'>> & {
+type SavedState = Partial<Omit<GameState, 'reports' | 'bands' | 'battles'>> & {
+  battles?: (Battle | OldBattle)[]
   race: RaceId
   updatedAt: number
   reports?: SavedReport[]
@@ -106,14 +139,7 @@ export function restoreState(saved: unknown): GameState | null {
         key: army.key ?? false,
         escaped: army.escaped ?? [],
       })),
-      battles: (state.battles ?? []).map((battle) => ({
-        ...battle,
-        sent: { ...emptyArmy(), ...battle.sent },
-        armyHealth: { ...emptyArmy(), ...battle.armyHealth },
-        // Avant les raids, toutes les batailles se livraient dehors ; et avant le dragon, sans lui.
-        siege: battle.siege ?? null,
-        dragon: battle.dragon ?? null,
-      })),
+      battles: (state.battles ?? []).map(upgradeBattle),
       reports: (state.reports ?? []).filter((report) => isObject(report) && (report.foe || report.camp)).map(upgradeReport),
       // Avant les quêtes, rien n'était compté : les compteurs partent de zéro.
       stats: { ...emptyStats(), ...state.stats },
@@ -184,9 +210,19 @@ function isSound(state: GameState): boolean {
     state.battles.every(
       (battle) =>
         finite(battle.startedAt) &&
-        finite(battle.healthFactor) &&
-        [battle.sent, battle.enemies, battle.armyHealth, battle.foeHealth].every(isCounts) &&
-        Array.isArray(battle.rounds),
+        finite(battle.round) &&
+        Array.isArray(battle.allies) &&
+        Array.isArray(battle.foes) &&
+        battle.allies.every(
+          (ally) =>
+            typeof ally.ref === 'string' &&
+            [ally.start, ally.slot, ally.healthFactor].every(finite) &&
+            [ally.sent, ally.health].every(isCounts) &&
+            Array.isArray(ally.rounds),
+        ) &&
+        battle.foes.every(
+          (foe) => typeof foe.ref === 'string' && [foe.start, foe.slot].every(finite) && [foe.enemies, foe.health].every(isCounts),
+        ),
     ) &&
     state.bands.every(
       (band) =>
@@ -287,6 +323,75 @@ function upgradeBand(band: SavedBand, updatedAt: number): Band {
   }
 }
 
+/**
+ * Une bataille d'avant les mêlées devient une mêlée à deux : l'armée (ou la cité) et son adversaire,
+ * face à face. Celles d'avant les raids se livraient dehors, et celles d'avant le dragon, sans lui.
+ * Une mêlée récente garde tout, et les troupes ajoutées depuis y comptent zéro.
+ */
+function upgradeBattle(battle: Battle | OldBattle): Battle {
+  if ('allies' in battle) {
+    return {
+      ...battle,
+      allies: battle.allies.map((ally) => ({
+        ...ally,
+        sent: { ...emptyArmy(), ...ally.sent },
+        health: { ...emptyArmy(), ...ally.health },
+        met: ally.met ?? [],
+        loot: ally.loot ?? {},
+      })),
+      foes: battle.foes.map((foe) => ({ ...foe, damageBy: foe.damageBy ?? {} })),
+    }
+  }
+  const allyRef = battle.army === null ? 'city' : `army:${battle.army}`
+  const camp = battle.foe.type === 'camp' ? battle.foe.camp : null
+  const foeRef = battle.band !== null ? `band:${battle.band}` : `camp:${camp}`
+  const rounds = battle.rounds ?? []
+  const last = rounds[rounds.length - 1]
+  const sent = { ...emptyArmy(), ...battle.sent }
+  const siege = battle.siege ?? null
+  const dragon = battle.dragon ?? null
+  let start = UNIT_IDS.reduce((sum, id) => sum + sent[id] * getUnit(id).health * battle.healthFactor, 0)
+  if (siege) start += siege.guards * WALL_GUARD.health
+  if (dragon) start += dragon.start
+  const ally: AllyFighter = {
+    ref: allyRef,
+    joinedAt: battle.startedAt,
+    target: foeRef,
+    slot: 4,
+    start,
+    taken: last?.taken ?? 0,
+    army: battle.army,
+    sent,
+    health: { ...emptyArmy(), ...battle.armyHealth },
+    healthFactor: battle.healthFactor,
+    starving: battle.starving ?? false,
+    ambush: battle.ambush ?? false,
+    siege,
+    dragon,
+    rounds,
+    met: [{ ref: foeRef, foe: battle.foe, monsters: battle.enemies }],
+    loot: {},
+  }
+  const foe: FoeFighter = {
+    ref: foeRef,
+    joinedAt: battle.startedAt,
+    target: allyRef,
+    slot: 0,
+    start: (Object.entries(battle.enemies) as [MonsterId, number][]).reduce(
+      (sum, [id, count]) => sum + count * getMonster(id).health,
+      0,
+    ),
+    taken: last?.dealt ?? 0,
+    band: battle.band,
+    camp,
+    foe: battle.foe,
+    enemies: battle.enemies,
+    health: battle.foeHealth,
+    damageBy: { [allyRef]: rounds.reduce((sum, round) => sum + round.dealt, 0) },
+  }
+  return { id: battle.id, startedAt: battle.startedAt, round: rounds.length, allies: [ally], foes: [foe] }
+}
+
 function upgradeReport(report: SavedReport): BattleReport {
   const { camp, victory, ...rest } = report
   const sent = { ...emptyArmy(), ...report.sent }
@@ -300,6 +405,8 @@ function upgradeReport(report: SavedReport): BattleReport {
     // null : le rapport d'un siège. Les très vieux rapports, eux, ne disaient pas quelle armée s'était battue.
     army: report.army === undefined ? 0 : report.army,
     foe: report.foe ?? { type: 'camp', camp: camp as CampId },
+    // Avant les mêlées, une bataille n'avait qu'un adversaire.
+    foes: report.foes ?? [report.foe ?? { type: 'camp', camp: camp as CampId }],
     ambush: report.ambush ?? false,
     outcome,
     // Les rapports d'avant le journal du combat n'ont ni manches ni liste des monstres.

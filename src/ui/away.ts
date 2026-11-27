@@ -16,7 +16,7 @@ import {
   type BattleReport,
   type GameState,
 } from '../game/rules'
-import { OUTCOME_NAMES, bandLabel, foeName } from './battleLog'
+import { OUTCOME_NAMES, bandLabel, foeName, foesName } from './battleLog'
 import { formatAmount } from './format'
 
 // En dessous d'une minute d'absence, pas de résumé.
@@ -59,7 +59,7 @@ export function makeAwayReport(before: GameState, after: GameState): AwayReport 
       continue
     }
     const ambush = report.ambush ? ' (embuscade)' : ''
-    events.push(`${OUTCOME_NAMES[report.outcome]} contre : ${foeName(report.foe)}${ambush}.`)
+    events.push(`${OUTCOME_NAMES[report.outcome]} contre : ${foesName(report)}${ambush}.`)
   }
   for (const army of before.armies) {
     if (after.armies.some((a) => a.id === army.id)) continue
@@ -110,17 +110,19 @@ function trapText(report: BattleReport): string {
   return `Une de tes armées est tombée dans un piège du grand campement : ${what}.`
 }
 
-/** Ce qui s'est passé aux portes de la cité. */
+/** Ce qui s'est passé aux portes de la cité, face à un raid ou à plusieurs. */
 function siegeText(report: BattleReport): string {
-  const foe = report.foe
-  const name = foe.type === 'band' ? bandLabel(foe.kind, foe.level) : foeName(foe)
-  if (report.outcome === 'victory') return `Raid repoussé aux portes de la cité : ${name}.`
+  const raids = report.foes.length > 0 ? report.foes : [report.foe]
+  const name = raids.map((foe) => (foe.type === 'band' ? bandLabel(foe.kind, foe.level) : foeName(foe))).join(', ')
+  const several = raids.length > 1
+  if (report.outcome === 'victory') return `${several ? 'Raids repoussés' : 'Raid repoussé'} aux portes de la cité : ${name}.`
   if (report.outcome === 'defeat') {
     const plunder = report.siege?.plunder ?? {}
     const taken = RESOURCE_IDS.filter((id) => plunder[id])
       .map((id) => `${RESOURCES[id].icon} ${formatAmount(plunder[id] ?? 0)}`)
       .join(' · ')
-    return `Un raid a pillé ta cité : ${name}.${taken ? ` Il a emporté ${taken}.` : ''}`
+    const carried = taken ? ` ${several ? 'Ils ont' : 'Il a'} emporté ${taken}.` : ''
+    return `${several ? 'Des raids ont' : 'Un raid a'} pillé ta cité : ${name}.${carried}`
   }
-  return `Un raid a renoncé à prendre ta cité : ${name}.`
+  return `${several ? 'Des raids ont' : 'Un raid a'} renoncé à prendre ta cité : ${name}.`
 }

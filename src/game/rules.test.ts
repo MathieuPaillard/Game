@@ -69,6 +69,10 @@ import {
   ENCAMPMENT_TRAPS,
   CHASE_LEASH,
   CHASE_SPEED,
+  ENCIRCLED_ATTACK_MALUS,
+  MAX_ATTACKERS,
+  REAR_ATTACK_BONUS,
+  SIDE_ATTACK_BONUS,
   TRAP_DAMAGE,
   WATCH_RADIUS,
 } from './config.ts'
@@ -81,7 +85,7 @@ import {
   bandPosition,
   bandsNearPath,
   campEmptyUntil,
-  battleHealth,
+  fighterHealth,
   carryCapacity,
   castSpell,
   checkCast,
@@ -323,6 +327,15 @@ function expectSameGame(a: GameState, b: GameState) {
   for (const id of RESOURCE_IDS) {
     expect(Math.abs(a.resources[id] - b.resources[id])).toBeLessThanOrEqual(1e-12 * Math.max(1, Math.abs(b.resources[id])))
   }
+}
+
+/** Le premier combattant de ton camp dans la première mêlée (une armée, ou la cité), et le premier monstre. */
+function allyIn(game: GameState) {
+  return game.battles[0]?.allies[0]
+}
+
+function foeIn(game: GameState) {
+  return game.battles[0]?.foes[0]
 }
 
 /** Pose la première armée dehors à cet endroit, sans ordre : pour ne pas dépendre du chemin depuis la cité. */
@@ -794,7 +807,7 @@ describe('les batailles', () => {
     const firstRound = (trial: boolean) => {
       const target = withBand({ ...richGame({}, { warrior: 50 }), trial }, nearCity(300), { goblin: 2000 })
       const start = startMarch(target.game, toBand(target.id), army({ warrior: 50 }), T0)
-      return runUntil(start, (s) => (s.battles[0]?.rounds.length ?? 0) > 0).battles[0]
+      return allyIn(runUntil(start, (s) => (allyIn(s)?.rounds.length ?? 0) > 0))!
     }
     const normal = firstRound(false)
     const boosted = firstRound(true)
@@ -833,15 +846,17 @@ describe('les batailles', () => {
 
   it('dit la vie qui reste à chaque camp', () => {
     const start = startMarch(richGame({}, { warrior: 30 }), toCamp('wolfDen'), army({ warrior: 30 }), T0)
-    const fighting = runUntil(start, (s) => (s.battles[0]?.rounds.length ?? 0) === 2)
-    const health = battleHealth(fighting.battles[0])
+    const fighting = runUntil(start, (s) => (allyIn(s)?.rounds.length ?? 0) === 2)
+    const ally = allyIn(fighting)!
+    const own = fighterHealth(ally)
+    const foe = fighterHealth(foeIn(fighting)!)
     const wolves = (getCamp('wolfDen').defenders.wolf ?? 0) * getMonster('wolf').health
-    expect(health.army.start).toBeCloseTo(30 * getUnit('warrior').health * fighting.battles[0].healthFactor)
-    expect(health.foe.start).toBe(wolves)
+    expect(own.start).toBeCloseTo(30 * getUnit('warrior').health * ally.healthFactor)
+    expect(foe.start).toBe(wolves)
     // Deux manches : chaque camp a perdu de la vie, jamais plus d'un dixième à chaque manche.
-    expect(health.foe.now).toBeLessThan(wolves)
-    expect(health.foe.now).toBeGreaterThanOrEqual(wolves * (1 - 2 / MIN_BATTLE_ROUNDS) - 1e-6)
-    expect(health.army.now).toBeLessThan(health.army.start)
+    expect(foe.now).toBeLessThan(wolves)
+    expect(foe.now).toBeGreaterThanOrEqual(wolves * (1 - 2 / MIN_BATTLE_ROUNDS) - 1e-6)
+    expect(own.now).toBeLessThan(own.start)
   })
 
   it('une bataille dure un moment : une manche toutes les quelques secondes', () => {
@@ -898,7 +913,7 @@ describe('les batailles', () => {
   it('on peut battre en retraite pendant la bataille', () => {
     const { game, id } = withBand(richGame({}, { warrior: 200 }), nearCity(350), { troll: 40 }, 3, 'trolls')
     const start = startMarch(game, toBand(id), army({ warrior: 200 }), T0)
-    const fighting = runUntil(start, (s) => s.battles[0]?.rounds.length === 5)
+    const fighting = runUntil(start, (s) => allyIn(s)?.rounds.length === 5)
     const fled = orderArmy(fighting, fighting.armies[0].id, CITY_TARGET, fighting.updatedAt)
     expect(fled.battles).toEqual([])
     expect(fled.reports[0]).toMatchObject({ outcome: 'retreat', loot: {} })
@@ -1170,7 +1185,7 @@ describe('les raids et la défense de la cité', () => {
     expect(waiting.tickedAt).toBe(game.tickedAt)
     // À son arrivée, le siège commence : les troupes de la cité se battent.
     const besieged = advance(game, arrival)
-    expect(siegeOf(besieged)).toMatchObject({ army: null, band: id, sent: army({ warrior: 500 }), rounds: [] })
+    expect(siegeOf(besieged)).toMatchObject({ round: 0, allies: [{ army: null, sent: army({ warrior: 500 }), rounds: [] }], foes: [{ band: id }] })
     expect(raidArrival(besieged.bands[0])).toBeNull()
   })
 
@@ -1196,7 +1211,7 @@ describe('les raids et la défense de la cité', () => {
   it('les Remparts ajoutent des gardes et protègent mieux les troupes', () => {
     const siege = (walls: number) => {
       const { game } = withRaid(richGame({ walls }, { warrior: 50 }), { troll: 500 }, RAID_SPEED)
-      return siegeOf(runUntil(game, (s) => s.battles.length > 0))!
+      return siegeOf(runUntil(game, (s) => s.battles.length > 0))!.allies[0]
     }
     const bare = siege(0)
     const walled = siege(4)
@@ -1232,7 +1247,7 @@ describe('les raids et la défense de la cité', () => {
     const arrival = raidArrival(game.bands[0])!
     const pillaged = advance(game, arrival)
     const report = pillaged.reports[0]
-    expect(report).toMatchObject({ outcome: 'defeat', rounds: [], loot: {}, enemyLost: { troll: 0 } })
+    expect(report).toMatchObject({ outcome: 'defeat', rounds: [], loot: {}, enemyLost: {} })
     const plunder = { food: Math.floor(1000 * RAID_PLUNDER_SHARE), stone: Math.floor(500 * RAID_PLUNDER_SHARE) }
     expect(report.siege?.plunder).toEqual(plunder)
     expect(pillaged.resources).toEqual({
@@ -1277,17 +1292,35 @@ describe('les raids et la défense de la cité', () => {
     expect(checkMarchSlot(over, toCamp('wolfDen'))).toEqual({ ok: true })
   })
 
-  it('un raid qui arrive pendant un siège attend son tour aux portes', () => {
+  it('un raid qui arrive pendant un siège s’y joint, et la cité les repousse tous les deux', () => {
     const first = withRaid(richGame({}, { warrior: 500 }), { troll: 20 }, RAID_SPEED, 4, 'trolls')
     const second = withRaid(first.game, { goblin: 1 }, RAID_SPEED)
     const arrival = raidArrival(second.game.bands[0])!
     const besieged = advance(second.game, arrival)
     expect(besieged.battles).toHaveLength(1)
-    expect(besieged.battles[0].band).toBe(first.id)
-    expect(raidArrival(besieged.bands[1])).toBe(arrival + SIEGE_WAIT_SECONDS * 1000)
+    expect(besieged.battles[0].foes.map((foe) => foe.band)).toEqual([first.id, second.id])
+    // Ils sont venus du même côté : côte à côte, devant la cité.
+    expect(new Set(besieged.battles[0].foes.map((foe) => foe.slot)).size).toBe(2)
     expect(bandPosition(besieged.bands[1], arrival)).toEqual(WORLD.city)
     const over = runUntil(besieged, (s) => s.bands.length === 0)
-    expect(over.reports.map((report) => report.siege !== null)).toEqual([true, true])
+    expect(over.reports).toHaveLength(1)
+    expect(over.reports[0]).toMatchObject({ outcome: 'victory', foes: [{ kind: 'trolls' }, { kind: 'wolves' }] })
+    expect(over.stats.raidsRepelled).toBe(2)
+  })
+
+  it('un raid attend son tour aux portes quand la cité est déjà entourée', () => {
+    let game = richGame({}, { warrior: 5000 })
+    const ids: number[] = []
+    for (let i = 0; i <= MAX_ATTACKERS; i++) {
+      const raid = withRaid(game, { troll: 50 }, RAID_SPEED, 4, 'trolls')
+      game = raid.game
+      ids.push(raid.id)
+    }
+    const arrival = raidArrival(game.bands[0])!
+    const besieged = advance(game, arrival)
+    expect(besieged.battles[0].foes).toHaveLength(MAX_ATTACKERS)
+    const last = besieged.bands.find((band) => band.id === ids[MAX_ATTACKERS])!
+    expect(raidArrival(last)).toBe(arrival + SIEGE_WAIT_SECONDS * 1000)
   })
 
   it('une armée peut intercepter un raid avant qu’il n’atteigne la cité', () => {
@@ -1413,8 +1446,8 @@ describe('le dragon', () => {
     expect(start.armies[0].dragon).toBe(true)
     expect(dragonArmy(start)?.id).toBe(start.armies[0].id)
     expect(checkDragon(start)).toEqual({ ok: false, reason: 'Le dragon accompagne déjà une armée' })
-    const fighting = runUntil(start, (s) => (s.battles[0]?.rounds.length ?? 0) > 0)
-    expect(fighting.battles[0].dragon?.start).toBeCloseTo(dragonHealth(1) * fighting.battles[0].healthFactor)
+    const fighting = runUntil(start, (s) => (allyIn(s)?.rounds.length ?? 0) > 0)
+    expect(allyIn(fighting)!.dragon?.start).toBeCloseTo(dragonHealth(1) * allyIn(fighting)!.healthFactor)
     const won = runUntil(fighting, (s) => s.reports.length > 0)
     const xp = 40 * getMonster('goblin').xp
     expect(won.reports[0]).toMatchObject({ outcome: 'victory', dragon: { xp, level: 1, wounded: false } })
@@ -1430,7 +1463,7 @@ describe('le dragon', () => {
       // Une bande assez nombreuse pour que les coups de la première manche ne soient pas plafonnés.
       const target = withBand(game, nearCity(300), { goblin: 2000 })
       const start = startMarch(target.game, toBand(target.id), army({ warrior: 50 }), T0, null, dragon)
-      return runUntil(start, (s) => (s.battles[0]?.rounds.length ?? 0) > 0).battles[0].rounds[0]
+      return allyIn(runUntil(start, (s) => (allyIn(s)?.rounds.length ?? 0) > 0))!.rounds[0]
     }
     const game = withDragon(richGame({}, { warrior: 50 }), 2)
     const bonus = isStrongAgainst(DRAGON_FAMILY, getMonster('goblin').family) ? COUNTER_BONUS : 1
@@ -1468,14 +1501,14 @@ describe('le dragon', () => {
   it('dans son aire, le dragon défend la cité pendant un siège ; parti, il ne la défend pas', () => {
     const home = withRaid(withDragon(richGame({}, { warrior: 10 }), 2), { goblin: 30 }, RAID_SPEED)
     const besieged = advance(home.game, raidArrival(home.game.bands[0])!)
-    expect(siegeOf(besieged)?.dragon).not.toBeNull()
+    expect(siegeOf(besieged)?.allies[0].dragon).not.toBeNull()
     const won = runUntil(besieged, (s) => s.reports.length > 0)
     expect(won.reports[0]).toMatchObject({ outcome: 'victory', dragon: { wounded: false } })
     expect(won.reports[0].dragon!.xp).toBeGreaterThan(0)
 
     const out = startMarch(withDragon(richGame({}, { warrior: 20 }), 2), toPoint(nearCity(600)), army({ warrior: 10 }), T0, null, true)
     const raid = withRaid(out, { goblin: 30 }, 300)
-    expect(siegeOf(advance(raid.game, raidArrival(raid.game.bands[0])!))?.dragon).toBeNull()
+    expect(siegeOf(advance(raid.game, raidArrival(raid.game.bands[0])!))?.allies[0].dragon).toBeNull()
   })
 
   it('le dragon mange, d’autant plus qu’il est grand', () => {
@@ -1609,8 +1642,7 @@ describe('les héros', () => {
     const firstRound = (game: GameState) => {
       const target = withBand(game, nearCity(300), { goblin: 2000 })
       const start = startMarch(target.game, toBand(target.id), troops, T0, 'ysolde')
-      const fighting = runUntil(start, (s) => (s.battles[0]?.rounds.length ?? 0) > 0)
-      return fighting.battles[0]
+      return allyIn(runUntil(start, (s) => (allyIn(s)?.rounds.length ?? 0) > 0))!
     }
     const plain = firstRound(base)
     const boosted = firstRound(strong)
@@ -1756,7 +1788,7 @@ describe('les sorts', () => {
     const firstRound = (state: GameState) => {
       const target = withBand(state, nearCity(300), { goblin: 2000 })
       const start = startMarch(target.game, toBand(target.id), troops, T0)
-      return runUntil(start, (s) => (s.battles[0]?.rounds.length ?? 0) > 0).battles[0]
+      return allyIn(runUntil(start, (s) => (allyIn(s)?.rounds.length ?? 0) > 0))!
     }
     const plain = firstRound(game)
     const furious = firstRound(castSpell(game, 'fury', T0))
@@ -1853,7 +1885,8 @@ describe('les poursuites', () => {
     const chasing = runUntil(placed, (s) => s.bands[0].chase !== null)
     expect(chasing.bands[0].chase?.army).toBe(placed.armies[0].id)
     const caught = runUntil(chasing, (s) => s.battles.length > 0)
-    expect(caught.battles[0]).toMatchObject({ band: id, ambush: true })
+    expect(foeIn(caught)).toMatchObject({ band: id, target: `army:${placed.armies[0].id}` })
+    expect(allyIn(caught)).toMatchObject({ ambush: true })
     // Elle a quitté sa ronde pour l'atteindre.
     expect(distance(bandPosition(caught.bands[0], caught.updatedAt), home)).toBeGreaterThan(PATROL_RADIUS + 1)
   })
@@ -1904,6 +1937,126 @@ describe('les poursuites', () => {
     let stepped = game
     for (let t = T0 + 1000; t <= end; t += 1000) stepped = advance(stepped, t)
     expectSameGame(advance(game, end), stepped)
+  })
+})
+
+describe('les mêlées', () => {
+  const spot = nearCity(400)
+
+  /** Une armée qui attend à `spot`, et des bandes de gobelins tout près d'elle, dans l'ordre (à l'ouest, à l'est, au nord…). */
+  function surrounded(sides: Point[], goblins: number[], troops = 500): GameState {
+    let game = richGame({}, { warrior: troops })
+    sides.forEach((side, i) => {
+      // Au départ, une bande se trouve en haut de sa ronde : son repaire est donc juste en dessous.
+      game = withBand(game, { x: spot.x + side.x, y: spot.y + side.y + PATROL_RADIUS }, { goblin: goblins[i] }, 1, 'goblins').game
+    })
+    return placeArmy(startMarch(game, toPoint(nearCity(100)), army({ warrior: troops }), T0), spot)
+  }
+  const WEST = { x: -30, y: 0 }
+  const EAST = { x: 30, y: 0 }
+  const NORTH = { x: 0, y: -30 }
+
+  /** La première manche de l'armée. */
+  const firstRound = (game: GameState) => allyIn(runUntil(game, (s) => (allyIn(s)?.rounds.length ?? 0) > 0))!
+
+  it('plusieurs bandes attaquent la même armée en même temps', () => {
+    const fighting = firstRound(surrounded([WEST, EAST], [1000, 1000]))
+    expect(fighting.rounds[0].attackers).toBe(2)
+    const battle = runUntil(surrounded([WEST, EAST], [1000, 1000]), (s) => s.battles.length > 0).battles[0]
+    expect(battle.foes).toHaveLength(2)
+    expect(battle.foes.every((foe) => foe.target === allyIn({ battles: [battle] } as GameState)!.ref)).toBe(true)
+  })
+
+  it('frapper de dos donne un bonus : la bande arrivée derrière l’armée frappe plus fort', () => {
+    // Seule, la bande de l'est est face à l'armée ; avec celle de l'ouest, qui l'a attaquée d'abord, elle est dans son dos.
+    const alone = firstRound(surrounded([EAST], [1000]))
+    const both = firstRound(surrounded([WEST, EAST], [1000, 1000]))
+    expect(both.rounds[0].taken / alone.rounds[0].taken).toBeCloseTo(2 + REAR_ATTACK_BONUS, 2)
+  })
+
+  it('attaquée de trois côtés, une armée est encerclée et frappe moins fort', () => {
+    const free = firstRound(surrounded([WEST], [1000]))
+    const caught = firstRound(surrounded([WEST, EAST, NORTH], [1000, 1000, 1000]))
+    expect(free.rounds[0].encircled).toBeUndefined()
+    expect(caught.rounds[0]).toMatchObject({ encircled: true, attackers: 3 })
+    expect(caught.rounds[0].dealt / free.rounds[0].dealt).toBeCloseTo(1 - ENCIRCLED_ATTACK_MALUS, 2)
+    // Le flanc seul ne suffit pas : deux côtés, ce n'est pas encore l'encerclement.
+    expect(firstRound(surrounded([WEST, NORTH], [1000, 1000])).rounds[0].encircled).toBeUndefined()
+  })
+
+  it('frapper de côté donne un bonus plus petit que de dos', () => {
+    const alone = firstRound(surrounded([NORTH], [1000]))
+    const side = firstRound(surrounded([WEST, NORTH], [1000, 1000]))
+    expect(side.rounds[0].taken / alone.rounds[0].taken).toBeCloseTo(2 + SIDE_ATTACK_BONUS, 2)
+  })
+
+  it('quand sa cible tombe, l’armée se tourne vers une bande qui la frappe', () => {
+    const start = surrounded([WEST, EAST], [3, 1000])
+    const ids = start.bands.map((band) => band.id)
+    const turned = runUntil(start, (s) => s.bands.length === 1 && s.battles.length > 0)
+    expect(allyIn(turned)?.target).toBe(`band:${ids[1]}`)
+    // Elles se font face, maintenant.
+    expect(foeIn(turned)?.target).toBe(allyIn(turned)?.ref)
+    expect(allyIn(turned)?.slot).toBe(((foeIn(turned)?.slot ?? 0) + 4) % 8)
+  })
+
+  it('une armée peut se tourner vers un autre adversaire de sa mêlée, sans battre en retraite', () => {
+    const start = surrounded([WEST, EAST], [1000, 1000])
+    const ids = start.bands.map((band) => band.id)
+    const fighting = runUntil(start, (s) => s.battles[0]?.foes.length === 2)
+    const armyId = fighting.armies[0].id
+    expect(checkOrder(fighting, armyId, toBand(ids[0]))).toEqual({ ok: false, reason: 'Ton armée combat déjà cette cible' })
+    const turned = orderArmy(fighting, armyId, toBand(ids[1]), fighting.updatedAt)
+    expect(allyIn(turned)?.target).toBe(`band:${ids[1]}`)
+    expect(turned.reports).toEqual([])
+    expect(turned.armies[0].status).toBe('fighting')
+  })
+
+  it('en retraite, l’armée quitte la mêlée, et les bandes reprennent leur ronde', () => {
+    const fighting = runUntil(surrounded([WEST, EAST], [1000, 1000]), (s) => s.battles[0]?.foes.length === 2)
+    const fled = orderArmy(fighting, fighting.armies[0].id, CITY_TARGET, fighting.updatedAt)
+    expect(fled.battles).toEqual([])
+    expect(fled.reports[0]).toMatchObject({ outcome: 'retreat', foes: [{ kind: 'goblins' }, { kind: 'goblins' }] })
+    expect(fled.bands.every((band) => band.since === fled.updatedAt)).toBe(true)
+  })
+
+  it('plusieurs armées attaquent la même bande, et se partagent son butin selon leurs coups', () => {
+    const { game, id } = withBand(withTechs(richGame({}, { warrior: 400 }), { command: 2 }), nearCity(350), { goblin: 60 }, 2, 'goblins')
+    let start = startMarch(game, toBand(id), army({ warrior: 300 }), T0)
+    start = startMarch(start, toBand(id), army({ warrior: 100 }), T0)
+    const together = runUntil(start, (s) => s.battles[0]?.allies.length === 2)
+    expect(together.battles[0].foes).toHaveLength(1)
+    const done = runUntil(together, (s) => s.reports.length === 2)
+    expect(done.reports.map((report) => report.outcome)).toEqual(['victory', 'victory'])
+    const loot = bandLoot('goblins', 2)
+    for (const resource of RESOURCE_IDS) {
+      expect(done.reports.reduce((sum, report) => sum + (report.loot[resource] ?? 0), 0)).toBe(loot[resource] ?? 0)
+    }
+    // La plus grosse armée a frappé plus fort : elle emporte la plus grosse part.
+    const share = (troops: number) => loadSize(done.reports.find((r) => r.sent.warrior === troops)!.loot)
+    expect(share(300)).toBeGreaterThan(share(100))
+    expect(done.stats).toMatchObject({ victories: 1, bandsDefeated: 1 })
+  })
+
+  it('une armée rejoint la mêlée où se bat la bande qu’elle vise', () => {
+    // Des trolls : peu nombreux, ils frappent peu mais tiennent longtemps. La première armée tient jusqu'à l'arrivée de la seconde.
+    const { game, id } = withBand(withTechs(richGame({}, { warrior: 400 }), { command: 1 }), nearCity(350), { troll: 30 }, 2, 'trolls')
+    const first = startMarch(game, toBand(id), army({ warrior: 200 }), T0)
+    const fighting = runUntil(first, (s) => s.battles.length > 0)
+    const second = startMarch(fighting, toBand(id), army({ warrior: 200 }), fighting.updatedAt)
+    const joined = runUntil(second, (s) => s.battles[0]?.allies.length === 2)
+    expect(joined.battles).toHaveLength(1)
+    expect(joined.battles[0].allies.every((ally) => ally.target === `band:${id}`)).toBe(true)
+  })
+
+  it('donne le même résultat d’un coup ou seconde par seconde, en pleine mêlée', () => {
+    const start = surrounded([WEST, EAST, NORTH], [40, 60, 80], 200)
+    const end = T0 + 3 * 60_000
+    let stepped = start
+    for (let t = T0 + 1000; t <= end; t += 1000) stepped = advance(stepped, t)
+    const jumped = advance(start, end)
+    expectSameGame(jumped, stepped)
+    expect(jumped.reports.length).toBeGreaterThan(0)
   })
 })
 

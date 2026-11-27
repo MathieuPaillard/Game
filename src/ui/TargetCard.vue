@@ -4,6 +4,9 @@ import {
   NODE_KINDS,
   RESOURCES,
   RESOURCE_IDS,
+  MAX_ATTACKERS,
+  REAR_ATTACK_BONUS,
+  SIDE_ATTACK_BONUS,
   STARVATION_ATTACK_MALUS,
   UNIT_IDS,
   WORLD,
@@ -16,6 +19,7 @@ import {
   armySize,
   bandLoot,
   bandMonsters,
+  bandFighting,
   bandsNearPath,
   carryCapacity,
   checkDragon,
@@ -104,7 +108,9 @@ const info = computed(() => {
       weakened: total(band.monsters) < total(full),
       raid: band.raid,
       arrival: raidArrival(band),
-      besieging: siegeOf(props.state)?.band === band.id,
+      besieging: siegeOf(props.state)?.foes.some((foe) => foe.band === band.id) ?? false,
+      // Elle se bat contre une de tes armées : une autre armée peut la prendre à revers.
+      fighting: bandFighting(props.state, band.id),
       encampment: band.encampment,
       bandKind: band.kind,
       // Elle a quitté sa ronde : elle poursuit une de tes armées, ou elle y retourne.
@@ -197,6 +203,8 @@ const hungryOnArrival = computed(() => {
   return !gathering.value && famineIn !== null && famineIn < march.value
 })
 const malusPercent = Math.round(STARVATION_ATTACK_MALUS * 100)
+const sidePercent = Math.round(SIDE_ATTACK_BONUS * 100)
+const rearPercent = Math.round(REAR_ATTACK_BONUS * 100)
 const check = computed(() => checkMarch(props.state, props.target, { ...selection }, hero.value, takeDragon.value))
 
 function send() {
@@ -274,7 +282,11 @@ const fieldArmies = computed(() =>
         </p>
       </template>
       <template v-else-if="info.kind === 'band'">
-        <p v-if="info.hunting" class="warning" role="status">Elle poursuit une de tes armées !</p>
+        <p v-if="info.fighting" class="warning" role="status">
+          Elle se bat contre une de tes armées. Envoie une autre armée la frapper de côté (+{{ sidePercent }} %
+          d’attaque) ou de dos (+{{ rearPercent }} %) : jusqu’à {{ MAX_ATTACKERS }} troupes peuvent l’entourer.
+        </p>
+        <p v-else-if="info.hunting" class="warning" role="status">Elle poursuit une de tes armées !</p>
         <p v-else-if="info.returning" class="muted" role="status">Elle a renoncé à sa poursuite, et regagne sa ronde.</p>
         <p class="muted">
           Une bande de monstres : elle patrouille autour de son repaire. Si elle aperçoit une de tes armées (le cercle
