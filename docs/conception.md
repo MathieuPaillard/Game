@@ -67,8 +67,9 @@ Boucle de jeu : récolter des ressources → construire et améliorer → entra�
 - **[Décidé]** Bâtiments suivants : Caserne (troupes), Académie (recherches), Tour des mages (sorts), Remparts (défense).
 - **[Proposition]** L'**Aire du dragon** se débloque au Château niveau 6 : on y couve l'œuf de dragon, et le dragon y vit. Son niveau limite celui du dragon.
 - **[Proposition]** Les **Remparts** se débloquent au Château niveau 3. Chaque niveau ajoute 8 gardes, qui défendent la cité à chaque siège, et donne +5 % de vie aux troupes qui la défendent (voir « Les raids et la défense de la cité »).
-- **[Proposition]** La **Tour des mages** se débloque au Château niveau 4. Elle lance des sorts : contre du mana, un bienfait de quelques minutes pour toute la cité ou toutes les armées. Un même sort ne se lance pas deux fois à la fois, et chaque niveau de la Tour en débloque un : Moisson abondante (+25 % de nourriture, 10 min), Sève vive (+25 % de bois et de pierre, 10 min), Fureur guerrière (+15 % d'attaque, 5 min), Vent porteur (−20 % de temps de marche, 5 min) et Peau de pierre (+15 % de vie dans les batailles qui commencent, 5 min).
+- **[Proposition]** La **Tour des mages** se débloque au Château niveau 4. Elle lance des sorts : contre du mana, un bienfait pour toute la cité ou toutes les armées. Un même sort ne se lance pas deux fois à la fois, et chaque niveau de la Tour en débloque un : Moisson abondante (+25 % de nourriture, 40 min, 180 mana), Sève vive (+25 % de bois et de pierre, 40 min, 300 mana), Fureur guerrière (+15 % d'attaque, 30 min, 600 mana), Vent porteur (−20 % de temps de marche, 30 min, 600 mana) et Peau de pierre (+15 % de vie dans les batailles qui commencent, 30 min, 800 mana).
 - **[Décidé]** Les sorts durent plusieurs dizaines de minutes. Des sorts de défense peuvent protéger la cité pendant que le joueur est absent.
+- **[Proposition]** Deux sorts de défense, pour les absences : on les lance avant de partir, et ils veillent toute une nuit (8 heures). L'**Égide des remparts** (Tour niveau 6, 1 500 mana) donne 30 % de vie en plus aux défenseurs de la cité (troupes, gardes, dragon) pendant les sièges. La **Brume d'oubli** (Tour niveau 7, 2 500 mana et 500 or) cache la cité : aucun raid ne part tant qu'elle agit, et le raid retenu part quand elle se lève (ceux déjà en marche arrivent quand même). Une fois dissipée, la Brume met 16 heures à se reformer : elle couvre une nuit par jour, pas toutes les heures (sans cela, un joueur assidu la relancerait sans cesse et ne verrait plus un seul raid). La fiche des Remparts dit quand ils veillent, et le résumé « Bon retour » aussi.
 - **[Décidé]** Un **hôpital** soigne les blessés.
 - **[Décidé]** L'**Académie** (débloquée au Château niveau 3) mène les recherches : une à la fois, et aucune recherche ne dépasse le niveau de l'Académie.
 - **[Proposition]** Huit recherches pour commencer : Agriculture (nourriture), Outils de qualité (bois et pierre), Alchimie (or et mana), Forge (attaque des troupes), Armures (vie des troupes), Maçonnerie (constructions plus rapides), Marche forcée (marche plus rapide) et Commandement (une armée de plus sur la carte par niveau).
@@ -199,7 +200,7 @@ La suite, décidée le 27 novembre 2026, dans l'ordre :
 
 1. Les camps qui se repeuplent, et un mode d'essai qui renforce les troupes. *Fait.*
 2. Le premier grand campement, d'après le plan. *Fait* : montagnes et col, porte et clef, chefs, tour de guet, pièges, patrouilles qui poursuivent les armées.
-3. Des sorts de plusieurs dizaines de minutes, et des sorts de défense pour les absences.
+3. Des sorts de plusieurs dizaines de minutes, et des sorts de défense pour les absences. *Fait.*
 4. La limite des réserves : entrepôts et recherches.
 5. L'hôpital et les soigneurs de chaque race.
 6. Le dragon dans l'armée : le cône de flammes et les natures de dragon.

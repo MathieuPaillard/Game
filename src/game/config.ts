@@ -198,7 +198,8 @@ export const BUILDINGS: BuildingDef[] = [
     id: 'mageTower',
     name: 'Tour des mages',
     icon: '🪄',
-    description: 'Tes mages y lancent des sorts : contre du mana, un bienfait de quelques minutes. Chaque niveau en débloque un nouveau.',
+    description:
+      'Tes mages y lancent des sorts : contre du mana, un bienfait de plusieurs dizaines de minutes, ou une défense pour toute une nuit d’absence. Chaque niveau en débloque un nouveau.',
     unlockedAtCastleLevel: 4,
     baseCost: { wood: 300, stone: 400, gold: 200, mana: 150 },
     baseDurationSeconds: 30,
@@ -236,9 +237,10 @@ export const PRODUCTION_GROWTH = 1.35
 
 // --- Sorts ---
 // La Tour des mages lance des sorts : contre du mana, un bienfait pour toute la cité, ou pour
-// toutes les armées, pendant quelques minutes. Un même sort ne se lance pas deux fois à la fois.
+// toutes les armées, pendant plusieurs dizaines de minutes ; ou une défense qui veille sur la cité
+// toute une nuit. Un même sort ne se lance pas deux fois à la fois.
 
-export type SpellId = 'harvest' | 'growth' | 'fury' | 'tailwind' | 'stoneskin'
+export type SpellId = 'harvest' | 'growth' | 'fury' | 'tailwind' | 'stoneskin' | 'aegis' | 'mist'
 
 /** Ce que fait un sort tant qu'il agit : 0.25 veut dire +25 %. */
 export type SpellEffect =
@@ -248,6 +250,10 @@ export type SpellEffect =
   | { kind: 'health'; amount: number }
   /** Temps de marche en moins. */
   | { kind: 'marchSpeed'; amount: number }
+  /** La vie des défenseurs de la cité (troupes, gardes, dragon), pour les sièges qui commencent pendant le sort. */
+  | { kind: 'siegeHealth'; amount: number }
+  /** Aucun raid ne part vers la cité tant que le sort agit (ceux qui marchent déjà arrivent quand même). */
+  | { kind: 'noRaids' }
 
 export interface SpellDef {
   id: SpellId
@@ -260,7 +266,15 @@ export interface SpellDef {
   towerLevel: number
   cost: Partial<Resources>
   durationSeconds: number
+  /** Un sort de défense, fait pour durer pendant que le joueur est absent (une nuit). */
+  absence?: true
+  /** Une fois le sort fini, le temps qu'il faut avant de pouvoir le relancer (rien : tout de suite). */
+  rechargeSeconds?: number
 }
+
+/** Les sorts de la Tour des mages durent plusieurs dizaines de minutes ; ceux de défense, toute une nuit. */
+const MINUTE = 60
+const HOUR = 60 * MINUTE
 
 export const SPELLS: SpellDef[] = [
   {
@@ -270,8 +284,8 @@ export const SPELLS: SpellDef[] = [
     description: '+25 % de nourriture',
     effect: { kind: 'production', resources: ['food'], amount: 0.25 },
     towerLevel: 1,
-    cost: { mana: 60 },
-    durationSeconds: 600,
+    cost: { mana: 180 },
+    durationSeconds: 40 * MINUTE,
   },
   {
     id: 'growth',
@@ -280,8 +294,8 @@ export const SPELLS: SpellDef[] = [
     description: '+25 % de bois et de pierre',
     effect: { kind: 'production', resources: ['wood', 'stone'], amount: 0.25 },
     towerLevel: 2,
-    cost: { mana: 100 },
-    durationSeconds: 600,
+    cost: { mana: 300 },
+    durationSeconds: 40 * MINUTE,
   },
   {
     id: 'fury',
@@ -290,8 +304,8 @@ export const SPELLS: SpellDef[] = [
     description: '+15 % d’attaque pour toutes tes armées',
     effect: { kind: 'attack', amount: 0.15 },
     towerLevel: 3,
-    cost: { mana: 150 },
-    durationSeconds: 300,
+    cost: { mana: 600 },
+    durationSeconds: 30 * MINUTE,
   },
   {
     id: 'tailwind',
@@ -300,8 +314,8 @@ export const SPELLS: SpellDef[] = [
     description: '−20 % de temps de marche pour toutes tes armées',
     effect: { kind: 'marchSpeed', amount: 0.2 },
     towerLevel: 4,
-    cost: { mana: 150 },
-    durationSeconds: 300,
+    cost: { mana: 600 },
+    durationSeconds: 30 * MINUTE,
   },
   {
     id: 'stoneskin',
@@ -310,8 +324,34 @@ export const SPELLS: SpellDef[] = [
     description: '+15 % de vie pour tes troupes, dans les batailles qui commencent',
     effect: { kind: 'health', amount: 0.15 },
     towerLevel: 5,
-    cost: { mana: 200 },
-    durationSeconds: 300,
+    cost: { mana: 800 },
+    durationSeconds: 30 * MINUTE,
+  },
+  // Pour les absences : on les lance avant de partir, ils veillent toute la nuit.
+  {
+    id: 'aegis',
+    name: 'Égide des remparts',
+    icon: '🛡️',
+    description: '+30 % de vie pour les défenseurs de la cité (troupes, gardes, dragon) pendant les sièges',
+    effect: { kind: 'siegeHealth', amount: 0.3 },
+    towerLevel: 6,
+    cost: { mana: 1500 },
+    durationSeconds: 8 * HOUR,
+    absence: true,
+  },
+  {
+    id: 'mist',
+    name: 'Brume d’oubli',
+    icon: '🌫️',
+    description:
+      'Une brume cache la cité : aucun raid ne part l’attaquer (ceux déjà en marche arrivent quand même). Dissipée, elle met 16 h à se reformer',
+    effect: { kind: 'noRaids' },
+    towerLevel: 7,
+    cost: { mana: 2500, gold: 500 },
+    durationSeconds: 8 * HOUR,
+    absence: true,
+    // Une nuit par jour, pas tout le temps : sinon les raids disparaîtraient du jeu.
+    rechargeSeconds: 16 * HOUR,
   },
 ]
 

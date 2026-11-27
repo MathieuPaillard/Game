@@ -123,6 +123,8 @@ export function restoreState(saved: unknown): GameState | null {
       techs: { ...emptyTechs(), ...state.techs },
       research: state.research ?? null,
       spells: state.spells ?? [],
+      // Avant les sorts qui se rechargent, chaque sort pouvait être relancé dès sa fin.
+      spellsReadyAt: state.spellsReadyAt ?? {},
       troops,
       trainings: state.trainings ?? (state.training ? [state.training] : []),
       heroes: state.heroes ?? [],
@@ -188,7 +190,7 @@ function isSound(state: GameState): boolean {
   return (
     [state.updatedAt, state.tickedAt, state.seed, state.nextId].every(finite) &&
     [state.nextBandAt, state.nextNodeAt, state.nextRaidAt].every(finiteOrNull) &&
-    [state.resources, state.levels, state.techs, state.troops, state.campsCleared].every(isCounts) &&
+    [state.resources, state.levels, state.techs, state.troops, state.campsCleared, state.spellsReadyAt].every(isCounts) &&
     typeof state.trial === 'boolean' &&
     isObject(state.encampment) &&
     finiteOrNull(state.encampment.resetAt) &&

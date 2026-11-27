@@ -79,8 +79,12 @@ export function makeAwayReport(before: GameState, after: GameState): AwayReport 
   } else if (dragonLevel(after) > dragonLevel(before)) {
     events.push(`Ton dragon atteint le niveau ${dragonLevel(after)}.`)
   }
+  // Les sorts : ceux qui ont pris fin, et les défenses qui ont veillé sur la cité pendant l'absence.
   for (const active of before.spells) {
-    if (!after.spells.some((s) => s.spell === active.spell)) events.push(`Le sort ${getSpell(active.spell).name} a pris fin.`)
+    const spell = getSpell(active.spell)
+    const ended = !after.spells.some((s) => s.spell === active.spell)
+    if (spell.absence) events.push(`${spell.name} a veillé sur la cité pendant ton absence${ended ? ', puis s’est dissipée' : ''}.`)
+    else if (ended) events.push(`Le sort ${spell.name} a pris fin.`)
   }
   // Un objectif atteint pendant l'absence : sa récompense attend en haut de l'écran.
   const quest = currentQuest(after)

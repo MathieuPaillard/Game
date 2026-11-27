@@ -49,6 +49,13 @@ describe('restoreState', () => {
     expect(restoreState(old)).toMatchObject({ campsCleared: {}, trial: false })
   })
 
+  it('une partie d’avant les sorts qui se rechargent peut relancer chaque sort', () => {
+    const { spellsReadyAt: _ready, ...old } = newGame('humans', T0)
+    expect(restoreState(old)!.spellsReadyAt).toEqual({})
+    // Une heure de recharge abîmée : la partie ne peut pas être reprise.
+    expect(restoreState({ ...old, spellsReadyAt: { mist: 'demain' } })).toBeNull()
+  })
+
   it('une partie d’avant le grand campement le voit se peupler dès qu’elle avance', () => {
     const { encampment: _encampment, ...old } = newGame('humans', T0)
     const restored = restoreState({ ...old, bands: [] })!

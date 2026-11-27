@@ -1798,12 +1798,62 @@ describe('les sorts', () => {
     expect(marchSpeed(castSpell(game, 'tailwind', T0))).toBeCloseTo(marchSpeed(game) / (1 - 0.2))
   })
 
-  it('chaque sort a un niveau de Tour, un coût et une durée', () => {
+  it('chaque sort a un niveau de Tour, un coût et une durée : des dizaines de minutes, une nuit pour une défense', () => {
     for (const spell of SPELLS) {
       expect(spell.towerLevel).toBeGreaterThanOrEqual(1)
-      expect(spell.durationSeconds).toBeGreaterThan(0)
+      expect(spell.durationSeconds).toBeGreaterThanOrEqual(20 * 60)
       expect(Object.keys(spell.cost).length).toBeGreaterThan(0)
+      if (spell.absence) expect(spell.durationSeconds).toBeGreaterThanOrEqual(6 * 60 * 60)
     }
+  })
+
+  it('l’Égide des remparts protège mieux les défenseurs de la cité pendant les sièges', () => {
+    const siege = (game: GameState) => {
+      const { game: raided } = withRaid(game, { troll: 500 }, RAID_SPEED)
+      return siegeOf(runUntil(raided, (s) => s.battles.length > 0))!.allies[0]
+    }
+    const game = richGame({ castle: 7, mageTower: 7 }, { warrior: 50 })
+    const plain = siege(game)
+    const shielded = siege(castSpell(game, 'aegis', T0))
+    expect(shielded.healthFactor).toBeCloseTo(plain.healthFactor + 0.3)
+  })
+
+  it('la Brume d’oubli retient les raids jusqu’à ce qu’elle se lève', () => {
+    const game: GameState = { ...richGame({ castle: 7, mageTower: 7 }), nextRaidAt: T0 + 60_000 }
+    const veiled = castSpell(game, 'mist', T0)
+    const ends = veiled.spells[0].endsAt
+    // Pendant la brume, aucun raid ne part.
+    const during = advance(veiled, ends - 1000)
+    expect(during.bands.filter((band) => band.raid)).toEqual([])
+    expect(during.nextRaidAt).toBe(ends)
+    // Elle se lève : le raid retenu part aussitôt.
+    const after = advance(veiled, ends)
+    expect(after.spells).toEqual([])
+    expect(after.bands.filter((band) => band.raid)).toHaveLength(1)
+  })
+
+  it('la Brume d’oubli se recharge : on ne la relance qu’un moment après sa fin', () => {
+    const game = richGame({ castle: 7, mageTower: 7 })
+    const veiled = castSpell(game, 'mist', T0)
+    const ends = veiled.spells[0].endsAt
+    const recharge = (getSpell('mist').rechargeSeconds ?? 0) * 1000
+    expect(recharge).toBeGreaterThan(0)
+    expect(veiled.spellsReadyAt.mist).toBe(ends + recharge)
+    // Dissipée, elle se reforme : pas encore de nouvelle brume.
+    expect(checkCast(advance(veiled, ends), 'mist')).toEqual({ ok: false, reason: 'Ce sort se recharge' })
+    expect(checkCast(advance(veiled, ends + recharge - 1000), 'mist').ok).toBe(false)
+    expect(checkCast(advance(veiled, ends + recharge), 'mist').ok).toBe(true)
+    // L'Égide, elle, se relance dès sa fin.
+    const shielded = castSpell(game, 'aegis', T0)
+    expect(shielded.spellsReadyAt).toEqual({})
+    expect(checkCast(advance(shielded, shielded.spells[0].endsAt), 'aegis').ok).toBe(true)
+  })
+
+  it('la Brume d’oubli n’arrête pas un raid déjà en marche', () => {
+    const { game } = withRaid(richGame({ castle: 7, mageTower: 7 }, { warrior: 500 }), { goblin: 1 }, RAID_SPEED * 10)
+    const veiled = castSpell(game, 'mist', T0)
+    const arrived = advance(veiled, raidArrival(veiled.bands[0])!)
+    expect(siegeOf(arrived)).toBeDefined()
   })
 })
 

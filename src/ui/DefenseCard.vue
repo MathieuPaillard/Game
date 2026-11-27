@@ -14,7 +14,9 @@ import {
   foeSurvivors,
   getMonster,
   protectedAmount,
+  raidsHeldUntil,
   siegeOf,
+  spellBonus,
   wallGuards,
   type GameState,
   type Monsters,
@@ -73,10 +75,18 @@ const raids = computed(() =>
       left: arrival === null ? null : Math.max(0, arrival - props.now),
     })),
 )
+// Le prochain raid : la Brume d'oubli le retient jusqu'à ce qu'elle se lève.
+const veil = computed(() => {
+  const until = raidsHeldUntil(props.state)
+  return until === null ? null : Math.max(0, until - props.now)
+})
 const nextRaid = computed(() => {
   const at = props.state.nextRaidAt
-  return at === null ? null : Math.max(0, at - props.now)
+  if (at === null) return null
+  return Math.max(0, Math.max(at, raidsHeldUntil(props.state) ?? 0) - props.now)
 })
+// L'Égide des remparts : les défenseurs ont plus de vie pendant les sièges.
+const aegis = computed(() => Math.round(spellBonus(props.state, 'siegeHealth') * 100))
 </script>
 
 <template>
@@ -136,7 +146,15 @@ const nextRaid = computed(() => {
         <button type="button" class="btn-quiet" @click="emit('showRaid', raid.id)">Voir</button>
       </li>
     </ul>
-    <p v-else-if="nextRaid !== null && !siege">Prochain raid : il partira dans {{ formatDuration(nextRaid) }}.</p>
+    <p v-if="veil !== null" class="magic">
+      <span aria-hidden="true">🌫️</span> La Brume d’oubli cache la cité : aucun raid ne partira avant
+      {{ formatDuration(veil) }}.
+    </p>
+    <p v-if="aegis > 0" class="magic">
+      <span aria-hidden="true">🛡️</span> L’Égide des remparts veille : +{{ aegis }} % de vie pour les défenseurs
+      pendant les sièges.
+    </p>
+    <p v-if="nextRaid !== null && !siege">Prochain raid : il partira dans {{ formatDuration(nextRaid) }}.</p>
     <p v-else-if="nextRaid === null" class="muted">
       Les raids commenceront quand le Château atteindra le niveau {{ RAID_CASTLE_LEVEL }}.
     </p>
@@ -188,5 +206,10 @@ const nextRaid = computed(() => {
 .raid-text {
   flex: 1;
   min-width: 0;
+}
+
+/* Un sort de défense qui veille sur la cité. */
+.magic {
+  color: var(--gilt);
 }
 </style>

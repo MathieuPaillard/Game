@@ -484,6 +484,8 @@ export interface GameState {
   research: Research | null
   /** Les sorts qui agissent en ce moment : un seul exemplaire de chaque. */
   spells: ActiveSpell[]
+  /** Quand chaque sort qui se recharge (la Brume d'oubli) pourra être relancé. */
+  spellsReadyAt: Partial<Record<SpellId, number>>
   /** Troupes présentes dans la cité. Celles qui sont sorties sont dans `armies`. */
   troops: Army
   /** Entraînements en cours à la Caserne : au plus un par type de troupe. */
@@ -546,6 +548,7 @@ export function newGame(race: RaceId, now: number, seed = now): GameState {
     techs: emptyTechs(),
     research: null,
     spells: [],
+    spellsReadyAt: {},
     troops: emptyArmy(),
     trainings: [],
     heroes: [],
@@ -930,9 +933,15 @@ export function spellBonus(state: GameState, kind: SpellEffect['kind'], resource
     const effect = getSpell(active.spell).effect
     if (effect.kind !== kind) continue
     if (effect.kind === 'production' && (!resource || !effect.resources.includes(resource))) continue
-    total += effect.amount
+    total += 'amount' in effect ? effect.amount : 1
   }
   return total
+}
+
+/** Jusqu'à quand un sort cache la cité aux raids (la Brume d'oubli), ou null s'il n'y en a pas. */
+export function raidsHeldUntil(state: GameState): number | null {
+  const veils = state.spells.filter((active) => getSpell(active.spell).effect.kind === 'noRaids').map((active) => active.endsAt)
+  return veils.length > 0 ? Math.max(...veils) : null
 }
 
 export function checkCast(state: GameState, spellId: SpellId): Check {
@@ -941,6 +950,8 @@ export function checkCast(state: GameState, spellId: SpellId): Check {
   if (tower === 0) return { ok: false, reason: 'Construis d’abord la Tour des mages' }
   if (tower < spell.towerLevel) return { ok: false, reason: `Nécessite la Tour des mages niveau ${spell.towerLevel}` }
   if (state.spells.some((active) => active.spell === spellId)) return { ok: false, reason: 'Ce sort agit déjà' }
+  const ready = state.spellsReadyAt[spellId]
+  if (ready !== undefined && state.updatedAt < ready) return { ok: false, reason: 'Ce sort se recharge' }
   return checkCost(state.resources, spell.cost)
 }
 
@@ -950,10 +961,15 @@ export function castSpell(state: GameState, spellId: SpellId, now: number): Game
   const check = checkCast(current, spellId)
   if (!check.ok) throw new Error(check.reason)
   const spell = getSpell(spellId)
+  const endsAt = now + spell.durationSeconds * SECOND
   return {
     ...current,
     resources: addResources(current.resources, spell.cost, -1),
-    spells: [...current.spells, { spell: spellId, endsAt: now + spell.durationSeconds * SECOND }],
+    spells: [...current.spells, { spell: spellId, endsAt }],
+    // Un sort qui se recharge ne pourra être relancé qu'un moment après sa fin.
+    spellsReadyAt: spell.rechargeSeconds
+      ? { ...current.spellsReadyAt, [spellId]: endsAt + spell.rechargeSeconds * SECOND }
+      : current.spellsReadyAt,
   }
 }
 
@@ -2058,7 +2074,11 @@ function armyFighter(state: GameState, army: FieldArmy, at: number, ambush: bool
 /** La cité se défend : ses troupes, mieux protégées par les Remparts, leurs gardes, et le dragon s'il est dans son aire. */
 function cityFighter(state: GameState, at: number): AllyFighter {
   const healthFactor =
-    (1 + techBonus(state, 'health') + spellBonus(state, 'health') + WALL_HEALTH_PER_LEVEL * state.levels.walls) *
+    (1 +
+      techBonus(state, 'health') +
+      spellBonus(state, 'health') +
+      spellBonus(state, 'siegeHealth') +
+      WALL_HEALTH_PER_LEVEL * state.levels.walls) *
     trialBoost(state)
   const health = emptyArmy()
   for (const id of UNIT_IDS) health[id] = state.troops[id] * getUnit(id).health * healthFactor
@@ -3006,9 +3026,13 @@ export function raidArrival(band: Band): number | null {
 
 /**
  * Un raid part d'un bord de la carte, tiré au sort, et marche droit sur la cité. Sa sorte est
- * tirée parmi celles de son niveau. Il ne part jamais d'assez près d'une armée pour l'attaquer aussitôt.
+ * tirée parmi celles de son niveau. Il ne part jamais d'assez près d'une armée pour l'attaquer aussitôt,
+ * ni tant que la Brume d'oubli cache la cité.
  */
 function spawnRaid(state: GameState, at: number): GameState {
+  // Une brume cache la cité : le raid attendra qu'elle se lève.
+  const veil = raidsHeldUntil(state)
+  if (veil !== null && veil > at) return { ...state, nextRaidAt: veil }
   const level = raidLevel(state)
   const far = RAID_GATES.filter((gate) =>
     state.armies.every((army) => distance(gate, army.position) > aggroRadius(level)),
