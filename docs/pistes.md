@@ -14,26 +14,23 @@ Chaque piste a un identifiant. Pour en lancer une, il suffit de dire par exemple
 
 Coût : **petit** (une séance), **moyen** (quelques séances), **gros** (un chantier). Les chiffres d'équilibrage viennent de simulations (`npm run simulation` et des scripts de l'agent des mécaniques).
 
-## Les questions à trancher d'abord
+## Tranché le 27 novembre 2026
 
-1. **Les camps de monstres.** Un camp se réattaque dès la victoire, sans attendre. Depuis la correction de la charge, une armée ne rapporte que ce qu'elle porte. Mais réattaquer l'Antre du troll rapporte encore environ deux fois la production de la cité.
-   - Proposition : un camp vaincu se repeuple après un moment, par exemple 10 minutes par niveau du camp. Le butin devient un bonus, pas un métier.
-2. **Le dragon : une arme ou un soutien ?** Dans un combat, les coups se répartissent par tête. Le dragon ne compte que pour une : il reçoit très peu de coups et n'est presque jamais blessé. Escorté de 20 guerriers, il bat l'Antre du troll, qui en demande 45 sans lui.
-   - Proposition : le faire compter pour plusieurs têtes (par exemple 40), exiger une escorte minimale (10 troupes par niveau), puis rééquilibrer son attaque.
-3. **La durée de la progression.** Aujourd'hui, tous les bâtiments sont au niveau 10 en 22 heures de jeu environ, et toutes les recherches tiennent en 43 minutes.
-   - Faut-il des niveaux au-delà de 10, avec des chantiers de plusieurs heures (« je lance, je reviens ce soir ») ?
-4. **Un plafond de stockage (entrepôts) ?** Les réserves n'ont aucune limite. Les raids pillent donc à peine (2 à 3 % d'une nuit), et la part que protège le Château ne compte plus.
-   - Un plafond (environ 12 heures de production) donnerait du poids aux raids et au futur jeu entre joueurs.
-5. **Les sorts : quelques minutes ou quelques heures ?** La Tour des mages n'est jamais construite par le joueur virtuel. Relancer un sort toutes les 10 minutes est une corvée, loin de l'esprit « la partie continue sans toi ».
-   - Proposition : des sorts de production de 2 heures, et des sorts de combat inchangés.
-6. **Prédire l'issue d'un combat ?** Les combats sont sans hasard : le jeu peut annoncer « Facile / Serré / Trop fort » avant d'attaquer (voir I8).
-   - Faut-il une prédiction exacte, ou seulement approchée ?
+Le propriétaire a répondu aux six questions. Les décisions sont dans `conception.md`, avec l'ordre des prochaines étapes (§ 12) :
+1. Les camps se repeuplent : toutes les 2 heures pendant les essais, toutes les 8 heures en ligne. De grands campements, à l'échelle d'une partie de la carte, barreront le chemin : c'est une épreuve pour les alliances.
+2. Le dragon fait partie de l'armée. Il lance un cône de flammes, et sa nature lui donne des bonus ou des malus.
+3. La progression se compte en mois, voire en années, sans limite de puissance.
+4. Les réserves ont une limite, qui dépend des bâtiments et des recherches.
+5. Les sorts durent plusieurs dizaines de minutes, et des sorts de défense protègent la cité pendant les absences.
+6. Le jeu ne prédit pas les combats. À la place, des éclaireurs et un brouillard de guerre.
+
+Il a aussi demandé un hôpital, des soigneurs pour chaque race, et un mode d'essai pour tester seul.
 
 ## Interface (I)
 
 Les deux défauts principaux :
 - en paysage, le panneau cache l'action principale sous plusieurs écrans de défilement (la Caserne fait 7,5 écrans) ;
-- le jeu dit quoi faire, mais ni où, ni avec quelles chances.
+- le jeu dit quoi faire, mais pas où.
 
 La maquette `maquettes/interface-panneau-caserne.png` montre I1, I2, I7 et I9.
 
@@ -53,7 +50,6 @@ La maquette `maquettes/interface-panneau-caserne.png` montre I1, I2, I7 et I9.
 | Id | Proposition | Coût |
 |---|---|---|
 | I7 | **Le panneau « une action sans défiler »** (maquette). Une barre collée en bas avec le coût et le bouton principal, et des onglets [Entraîner] [Améliorer]. La Caserne devient une rangée de tuiles d'unités, avec des raccourcis 10 / 25 / 50 / Max. Même modèle pour la fiche d'une cible et pour les héros. La Caserne passe de 2 214 px à environ 350 px. | moyen |
-| I8 | **Estimer avant d'attaquer** (question 6) : une jauge « Facile / Serré / Trop fort » et les pertes estimées. | moyen |
 | I9 | **La file des travaux.** Une seule étiquette résume les travaux (« 🔨 1/2 · ⚔️ 1 · 📜 1 »), qui se déplie en liste. Une étiquette dorée signale « Un chantier est libre ». Un message annonce « Ferme : niveau 3 terminé » quand un travail finit pendant qu'on joue. En milieu de partie, dix étiquettes d'émojis couvrent aujourd'hui la moitié de la carte. | moyen |
 | I10 | **Le doigt de l'objectif.** Pour les dix premiers objectifs, un repère doré « Ici » montre l'élément à toucher, puis le bouton. | moyen |
 | I11 | **La carte des alentours suit l'armée choisie.** Une flèche au bord de l'écran montre une bataille hors du cadre. | moyen |
@@ -71,7 +67,7 @@ Le constat général :
 |---|---|---|
 | M1 | **Varier les troupes.** Le guerrier est le moins cher contre 20 cibles sur 22. La raison : une armée qui gagne perd à peu près la même chose quelle que soit sa taille, donc seule compte la vie achetée par ressource. Variante testée : `COUNTER_BONUS` 1,5 → 2, guerrier plus cher (40 nourriture + 20 bois), archers, cavaliers, mages, arbalétriers et druides plus résistants ou moins chers. La troupe la plus rentable dépend alors de la cible (archers sur 10 cibles, cavaliers sur 7…). Les mages et les arbalétriers demandent une seconde passe. | petit (chiffres) |
 | M2 | **Des traits de monstres** qui demandent une composition : squelettes qui résistent aux guerriers, vouivres volantes que seuls les archers et les mages touchent pleinement, trolls qui se régénèrent. | moyen |
-| M3 | **Des raids qui menacent vraiment** : chaque monstre emporte 120 ressources au lieu de 40, et les raids grossissent au-delà du Château 7. À voir avec la question 4. | petit |
+| M3 | **Des raids qui menacent vraiment** : chaque monstre emporte 120 ressources au lieu de 40, et les raids grossissent au-delà du Château 7. À reprendre avec la limite des réserves, désormais décidée. | petit |
 | M4 | **Le rythme.** Le bois manque bien plus que le reste (scierie un peu plus forte). Les objectifs « N victoires » et « N raids » sont souvent déjà remplis quand ils apparaissent : les compter à partir de leur apparition, ou relever les seuils. L'Antre du troll fait attendre jusqu'à 2 heures sans rien de neuf à faire. | petit |
 | M5 | **Une deuxième chaîne d'objectifs** : Château 7 à 10, la Tour des mages et un sort, l'unité de race, un deuxième héros, le Commandement, le dragon au niveau 5. | petit (données) |
 | M6 | **Des contrats du jour** : trois défis tirés chaque jour (une bande de niveau 3, une récolte, un raid, un sort…). Ils se gardent jusqu'à trois jours, pour ne pas punir l'absence. C'est une raison de revenir chaque jour, qui fait servir tout le contenu. | moyen |

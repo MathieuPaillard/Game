@@ -23,6 +23,7 @@ Boucle de jeu : récolter des ressources → construire et améliorer → entra�
 - **[Décidé]** Tout se passe en temps réel, avec des durées, comme dans Rise of Kingdoms : construire, améliorer, rechercher, entraîner des troupes ou envoyer une armée prend du temps. Les premières actions durent quelques secondes, puis les durées s'allongent avec les niveaux.
 - **[Décidé]** Le royaume continue de produire, et les chantiers d'avancer, même quand le joueur est déconnecté.
 - **[Décidé]** Pas de tour par tour : les combats aussi se déroulent en temps réel. Une bataille prend du temps : elle se joue sur la carte, manche après manche, et on la voit avancer. À la fin, elle produit un rapport de bataille.
+- **[Décidé]** La progression se compte en mois, voire en années : la puissance n'a pas de limite. Faire le tour des recherches (la limite technologique) demande plusieurs mois de jeu. Les chantiers et les améliorations durent donc bien plus longtemps qu'aujourd'hui : chaque choix de ressources doit compter.
 
 ## 3. Les ressources
 
@@ -38,6 +39,7 @@ Boucle de jeu : récolter des ressources → construire et améliorer → entra�
 | Mana       | sorts, unités magiques                  | Puits de mana |
 
 - **[Décidé]** On récolte aussi des ressources hors de la cité, sur les gisements de la carte des alentours (voir « Le monde »).
+- **[Décidé]** Les réserves ont une limite, qui dépend de bâtiments et de recherches : pour stocker davantage, il faut agrandir ses entrepôts.
 
 ## 4. Les races
 
@@ -53,6 +55,8 @@ Boucle de jeu : récolter des ressources → construire et améliorer → entra�
 
 - **[Décidé]** Chaque race a aussi une troupe qui lui est propre.
 - **[Proposition]** Chaque troupe propre appartient à l'une des quatre familles (une famille différente pour chaque race) : elle en a les forces et les faiblesses, et profite des compétences de héros qui renforcent cette famille. Elle est plus forte que la troupe de base de sa famille, mais plus chère, et s'entraîne à partir de la Caserne niveau 4. Les autres races ne peuvent pas l'entraîner.
+- **[Décidé]** Chaque race a aussi ses **soigneurs**, qui soignent leur armée pendant les batailles : druides pour les elfes, chamans pour les orcs, prêtres pour les humains (et un soigneur à nommer pour les nains).
+- **[À trancher]** Les Druides sont aujourd'hui la troupe de combat propre aux elfes : deviennent-ils leurs soigneurs (et les elfes reçoivent une autre troupe de combat), ou les elfes ont-ils deux sortes de druides ? Quel soigneur pour les nains ?
 
 ## 5. La cité
 
@@ -64,6 +68,8 @@ Boucle de jeu : récolter des ressources → construire et améliorer → entra�
 - **[Proposition]** L'**Aire du dragon** se débloque au Château niveau 6 : on y couve l'œuf de dragon, et le dragon y vit. Son niveau limite celui du dragon.
 - **[Proposition]** Les **Remparts** se débloquent au Château niveau 3. Chaque niveau ajoute 8 gardes, qui défendent la cité à chaque siège, et donne +5 % de vie aux troupes qui la défendent (voir « Les raids et la défense de la cité »).
 - **[Proposition]** La **Tour des mages** se débloque au Château niveau 4. Elle lance des sorts : contre du mana, un bienfait de quelques minutes pour toute la cité ou toutes les armées. Un même sort ne se lance pas deux fois à la fois, et chaque niveau de la Tour en débloque un : Moisson abondante (+25 % de nourriture, 10 min), Sève vive (+25 % de bois et de pierre, 10 min), Fureur guerrière (+15 % d'attaque, 5 min), Vent porteur (−20 % de temps de marche, 5 min) et Peau de pierre (+15 % de vie dans les batailles qui commencent, 5 min).
+- **[Décidé]** Les sorts durent plusieurs dizaines de minutes. Des sorts de défense peuvent protéger la cité pendant que le joueur est absent.
+- **[Décidé]** Un **hôpital** soigne les blessés.
 - **[Décidé]** L'**Académie** (débloquée au Château niveau 3) mène les recherches : une à la fois, et aucune recherche ne dépasse le niveau de l'Académie.
 - **[Proposition]** Huit recherches pour commencer : Agriculture (nourriture), Outils de qualité (bois et pierre), Alchimie (or et mana), Forge (attaque des troupes), Armures (vie des troupes), Maçonnerie (constructions plus rapides), Marche forcée (marche plus rapide) et Commandement (une armée de plus sur la carte par niveau).
 
@@ -91,13 +97,20 @@ Boucle de jeu : récolter des ressources → construire et améliorer → entra�
 - **[Proposition]** La première créature légendaire est un **dragon**. Son œuf se gagne avec l'objectif « La légende du dragon » : vaincre le Nid de la vouivre, où les vouivres le gardent. On le couve dans l'Aire du dragon (800 de nourriture et 600 de mana) : 15 minutes plus tard, le dragon éclôt.
 - **[Proposition]** Le dragon gagne de l'expérience au combat, comme un héros (300 pour passer au niveau 2, puis 1,6 fois plus à chaque niveau), mais ne dépasse jamais le niveau de son aire, ni le niveau 10. Il crache le feu : il se bat comme un mage (les archers le dominent), avec 400 d'attaque et 3 000 de vie au niveau 1, et 30 % de plus à chaque niveau. Les bonus d'attaque et de vie de son camp comptent pour lui aussi. Il mange 25 de nourriture par heure et par niveau.
 - **[Proposition]** Le dragon peut accompagner une armée, une seule à la fois et jamais seul : il lui faut une escorte. Resté dans son aire, il défend la cité pendant les sièges. Il ne meurt jamais : blessé, il quitte le combat, regagne son aire et s'y repose 20 minutes. Il ne se bat jamais seul : quand toute son escorte tombe, la bataille est perdue, et il regagne son aire pour s'y reposer de même. À la cité, il défend jusqu'au bout.
+- **[Décidé]** Le dragon fait partie de l'armée, et peut lancer un **cône de flammes** qui frappe plusieurs adversaires à la fois. Selon sa **nature**, d'autres effets donnent des bonus ou des malus.
 - **[À trancher]** D'autres créatures légendaires : une par race, ou d'autres quêtes pour d'autres créatures ?
+- **[Décidé]** Le jeu ne prédit pas l'issue d'un combat. À la place, on envoie des **éclaireurs** sonder les troupes adverses et les cités ennemies.
 
 ## 7. Le monde
 
 - **[Décidé]** Une carte commune à tous les joueurs d'un serveur : cités, gisements de ressources, monstres, lieux légendaires.
 - **[Décidé]** Des **alliances** : entraide, attaques groupées, territoire commun.
-- **[Proposition]** En attendant la carte commune (étape 4), une carte des « alentours » de la cité, avec cinq camps de monstres, du niveau 1 au niveau 5 : Tanière de loups, Campement gobelin, Ruines hantées, Antre du troll et, de l'autre côté de la rivière, le Nid de la vouivre. Un camp est toujours là : on peut l'attaquer autant de fois qu'on veut, et chaque victoire rapporte son butin.
+- **[Proposition]** En attendant la carte commune (étape 4), une carte des « alentours » de la cité, avec cinq camps de monstres, du niveau 1 au niveau 5 : Tanière de loups, Campement gobelin, Ruines hantées, Antre du troll et, de l'autre côté de la rivière, le Nid de la vouivre. Chaque victoire rapporte son butin.
+- **[Décidé]** Un camp vaincu se repeuple au bout d'un moment : toutes les 2 heures pendant les essais, toutes les 8 heures une fois le jeu en ligne. En attendant, il est vide, et la carte dit quand ses monstres reviennent.
+- **[Décidé]** De **grands campements**, à l'échelle d'une partie de la carte : leurs patrouilles barrent le chemin, et on ne peut pas les esquiver pour aller plus loin. C'est une épreuve qu'on ne réussit pas seul : elle est faite pour les alliances. Ils se repeuplent comme les camps.
+- **[Proposition]** Le premier grand campement suit le plan du propriétaire (27 novembre 2026) : une enceinte avec une seule entrée, au sud, par un couloir gardé ; à l'intérieur, des patrouilles partout ; une clef à l'ouest ; une porte à l'est, qui s'ouvre avec la clef ; et le chef du campement au centre.
+- **[À trancher]** Dans ce plan, ce que sont les triangles (des montagnes, des tentes ?), les demi-cercles et les croix (des chefs, des pièges ?), et où mène la porte (une nouvelle région au-delà, ou le chef ?).
+- **[Décidé]** Un **brouillard de guerre** cache ce qu'on n'a pas encore exploré, ou qu'on ne voit plus.
 - **[Décidé]** Comme dans Rise of Kingdoms, une armée qui sort de la cité reste sur la carte, et on la dirige : aller à un endroit, attaquer un camp ou une bande, récolter un gisement, ou rentrer à la cité. On peut lui donner un nouvel ordre à tout moment, même en pleine marche.
 - **[Proposition]** Après une victoire, l'armée attend sur place avec son butin, qui rejoint les réserves quand elle rentre à la cité. Une armée vaincue est perdue, avec ce qu'elle portait.
 - **[Décidé]** Plusieurs armées peuvent être dehors en même temps, de plus en plus au fil des recherches.
@@ -169,5 +182,18 @@ Chaque étape donne un jeu jouable.
 3. **Serveur et comptes joueurs** : sauvegarde en ligne ; le serveur décide de tout. *En cours* : comptes (nom et mot de passe), parties gardées sur le serveur, qui applique les règles, et partie sans compte toujours possible. Reste à mettre le jeu en ligne chez un hébergeur, plus tard.
 4. **Monde partagé** : la carte commune, les attaques entre joueurs (contre leurs Remparts), les alliances.
 5. **Contenu et mobile** : quêtes, livre de sorts, créatures légendaires, puis l'appli Android. *Commencé* : une première suite de vingt-six objectifs, avec leurs récompenses, les cinq premiers sorts de la Tour des mages, et le dragon, première créature légendaire.
+
+La suite, décidée le 27 novembre 2026, dans l'ordre :
+
+1. Les camps qui se repeuplent, et un mode d'essai qui renforce les troupes.
+2. Le premier grand campement, d'après le plan.
+3. Des sorts de plusieurs dizaines de minutes, et des sorts de défense pour les absences.
+4. La limite des réserves : entrepôts et recherches.
+5. L'hôpital et les soigneurs de chaque race.
+6. Le dragon dans l'armée : le cône de flammes et les natures de dragon.
+7. La progression sur plusieurs mois : des durées bien plus longues, des niveaux sans limite.
+8. Les éclaireurs et le brouillard de guerre.
+
+- **[Décidé]** Pour les essais, un **mode d'essai** renforce les troupes du joueur, pour tester seul ce qui demande normalement plusieurs joueurs. Il ne sert qu'aux parties sans compte : le serveur le refuse.
 
 Les chiffres du jeu (coûts, durées, production, bonus des races) sont regroupés dans `src/game/config.ts`, pour pouvoir équilibrer le jeu sans toucher au reste du code.
