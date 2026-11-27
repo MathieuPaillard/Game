@@ -6,6 +6,7 @@ import {
   armySize,
   bandPosition,
   bandsNearPath,
+  campEmptyUntil,
   distance,
   getArmy,
   getBand,
@@ -211,13 +212,16 @@ const dangers = computed(() => {
 const camps = computed(() =>
   CAMPS.map((camp) => {
     const target: Target = { type: 'camp', camp: camp.id }
+    // Vaincu, le camp reste vide un moment : on voit quand ses monstres reviennent.
+    const until = campEmptyUntil(props.state, camp.id, props.now)
     return {
       key: camp.id,
       target,
       ...camp.position,
       name: camp.name,
       level: camp.level,
-      icon: monstersIcon(camp.defenders),
+      icon: until === null ? monstersIcon(camp.defenders) : '⛺',
+      back: until === null ? null : until - props.now,
       selected: isSelectedTarget(target) || isOrdered(target),
     }
   }),
@@ -468,11 +472,11 @@ const battles = computed(() =>
       v-for="camp in camps"
       :key="camp.key"
       class="spot camp"
-      :class="{ selected: camp.selected }"
+      :class="{ selected: camp.selected, empty: camp.back !== null }"
       :transform="`translate(${camp.x} ${camp.y})`"
       role="button"
       tabindex="0"
-      :aria-label="`${camp.name}, camp de niveau ${camp.level}`"
+      :aria-label="`${camp.name}, camp de niveau ${camp.level}${camp.back === null ? '' : `, vide : ses monstres reviennent dans ${formatDuration(camp.back)}`}`"
       :aria-pressed="camp.selected"
       :data-target="JSON.stringify(camp.target)"
       @click.stop="select({ kind: 'target', target: camp.target })"
@@ -481,10 +485,12 @@ const battles = computed(() =>
     >
       <ellipse class="spot-base camp-base" rx="66" ry="26" cy="32" />
       <ellipse class="spot-ring" rx="78" ry="33" cy="32" />
-      <text class="emoji campfire" font-size="26" x="-58" y="22" aria-hidden="true">🔥</text>
-      <text class="emoji" font-size="70">{{ camp.icon }}</text>
+      <text v-if="camp.back === null" class="emoji campfire" font-size="26" x="-58" y="22" aria-hidden="true">🔥</text>
+      <text class="emoji camp-icon" font-size="70">{{ camp.icon }}</text>
       <text class="map-label" y="74">{{ camp.name }}</text>
-      <text class="map-sublabel" y="98">Niveau {{ camp.level }}</text>
+      <text class="map-sublabel" y="98">
+        {{ camp.back === null ? `Niveau ${camp.level}` : `Vide · revient dans ${formatClock(camp.back)}` }}
+      </text>
     </g>
 
     <!-- Les bandes, en patrouille, et les raids, avec leur zone d'aggro -->
@@ -603,6 +609,11 @@ const battles = computed(() =>
   stroke-linecap: round;
   stroke-dasharray: 18 14;
   opacity: 0.8;
+}
+
+/* Un camp vaincu, vide en attendant le retour de ses monstres : ses tentes pâlissent. */
+.camp.empty .camp-icon {
+  opacity: 0.55;
 }
 
 .camp-base {

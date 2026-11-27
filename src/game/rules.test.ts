@@ -59,6 +59,8 @@ import {
   type QuestDef,
   type ResourceId,
   type TechId,
+  CAMP_RESPAWN_SECONDS,
+  TRIAL_BOOST,
 } from './config.ts'
 import {
   advance,
@@ -68,6 +70,7 @@ import {
   bandMonsters,
   bandPosition,
   bandsNearPath,
+  campEmptyUntil,
   battleHealth,
   carryCapacity,
   castSpell,
@@ -715,6 +718,42 @@ describe('les batailles', () => {
     expect(end.stats.raidsRepelled).toBe(1)
     expect(end.bands).toEqual([])
     expect(end.nextRaidAt).toBe(game.nextRaidAt)
+  })
+
+  it('un camp vaincu reste vide un moment, puis ses monstres reviennent', () => {
+    const start = startMarch(richGame({}, { warrior: 200 }), toCamp('wolfDen'), army({ warrior: 100 }), T0)
+    const won = runUntil(start, (s) => s.reports.length > 0)
+    expect(won.reports[0].outcome).toBe('victory')
+    const back = won.reports[0].at + CAMP_RESPAWN_SECONDS * 1000
+    expect(campEmptyUntil(won, 'wolfDen')).toBe(back)
+    const empty = { ok: false, reason: 'Ce camp est vide : ses monstres ne sont pas encore revenus' }
+    expect(checkMarch(won, toCamp('wolfDen'), army({ warrior: 10 }))).toEqual(empty)
+    expect(checkOrder(won, won.armies[0].id, toCamp('wolfDen'))).toEqual(empty)
+    const later = advance(won, back)
+    expect(campEmptyUntil(later, 'wolfDen')).toBeNull()
+    // L'armée restée sur place peut l'attaquer de nouveau.
+    expect(checkOrder(later, later.armies[0].id, toCamp('wolfDen'))).toEqual({ ok: true })
+  })
+
+  it('une armée qui arrive à un camp vidé entre-temps attend sur place', () => {
+    const start = startMarch(richGame({}, { warrior: 50 }), toCamp('wolfDen'), army({ warrior: 50 }), T0)
+    // Une autre armée l'a vidé pendant la marche.
+    const emptied: GameState = { ...start, campsCleared: { wolfDen: T0 + HOUR } }
+    const arrived = runUntil(emptied, (s) => s.armies[0].status === 'idle')
+    expect(arrived.battles).toEqual([])
+    expect(arrived.armies[0].order).toBeNull()
+  })
+
+  it('le mode d’essai rend les troupes du joueur bien plus fortes', () => {
+    const firstRound = (trial: boolean) => {
+      const target = withBand({ ...richGame({}, { warrior: 50 }), trial }, nearCity(300), { goblin: 2000 })
+      const start = startMarch(target.game, toBand(target.id), army({ warrior: 50 }), T0)
+      return runUntil(start, (s) => (s.battles[0]?.rounds.length ?? 0) > 0).battles[0]
+    }
+    const normal = firstRound(false)
+    const boosted = firstRound(true)
+    expect(boosted.healthFactor).toBeCloseTo(normal.healthFactor * TRIAL_BOOST)
+    expect(boosted.rounds[0].dealt).toBeCloseTo(normal.rounds[0].dealt * TRIAL_BOOST, -1)
   })
 
   it('une armée ne rapporte que le butin qu’elle peut porter', () => {

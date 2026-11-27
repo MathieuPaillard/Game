@@ -39,6 +39,7 @@ import {
   learnSkill,
   orderArmy,
   recruitHero,
+  setTrial,
   startMarch,
   startResearch,
   startTraining,
@@ -67,6 +68,8 @@ export type Action =
   | MarchAction
   /** Un nouvel ordre pour une armée déjà dehors : aller ailleurs, attaquer, récolter, rentrer. */
   | { type: 'order'; army: number; target: Target }
+  /** Activer ou couper le mode d'essai (parties sans compte : le serveur refuse cet ordre). */
+  | { type: 'trial'; on: boolean }
 
 /** Une armée sort de la cité. Sans héros ni dragon, ces champs sont absents. */
 export interface MarchAction {
@@ -105,6 +108,8 @@ export function checkAction(state: GameState, action: Action): Check {
       return checkMarch(state, action.target, action.troops, action.hero ?? null, action.dragon ?? false)
     case 'order':
       return checkOrder(state, action.army, action.target)
+    case 'trial':
+      return { ok: true }
   }
 }
 
@@ -140,6 +145,8 @@ function run(state: GameState, action: Action, now: number): GameState {
       return startMarch(state, action.target, action.troops, now, action.hero ?? null, action.dragon ?? false)
     case 'order':
       return orderArmy(state, action.army, action.target, now)
+    case 'trial':
+      return setTrial(state, action.on, now)
   }
 }
 
@@ -157,7 +164,8 @@ const MAX_COUNT = 1_000_000_000
 /**
  * Le serveur ne fait pas confiance aux ordres qu'il reçoit : n'importe qui peut lui envoyer
  * n'importe quoi. Renvoie l'ordre s'il est bien formé (des noms qui existent, des nombres
- * entiers), ou null sinon. Les règles vérifient ensuite s'il est possible.
+ * entiers), ou null sinon. Les règles vérifient ensuite s'il est possible. Le mode d'essai n'est
+ * jamais accepté : il ne sert qu'aux parties sans compte.
  */
 export function parseAction(input: unknown): Action | null {
   if (!isRecord(input)) return null

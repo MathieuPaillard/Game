@@ -107,6 +107,7 @@ Boucle de jeu : récolter des ressources → construire et améliorer → entra�
 - **[Décidé]** Des **alliances** : entraide, attaques groupées, territoire commun.
 - **[Proposition]** En attendant la carte commune (étape 4), une carte des « alentours » de la cité, avec cinq camps de monstres, du niveau 1 au niveau 5 : Tanière de loups, Campement gobelin, Ruines hantées, Antre du troll et, de l'autre côté de la rivière, le Nid de la vouivre. Chaque victoire rapporte son butin.
 - **[Décidé]** Un camp vaincu se repeuple au bout d'un moment : toutes les 2 heures pendant les essais, toutes les 8 heures une fois le jeu en ligne. En attendant, il est vide, et la carte dit quand ses monstres reviennent.
+- **[Proposition]** Un camp vide se voit sur la carte : des tentes pâlies, sans feu de camp, et sous son nom le temps avant le retour de ses monstres. On ne peut pas l'attaquer ; une armée qui l'atteint alors qu'une autre vient de le vider attend sur place.
 - **[Décidé]** De **grands campements**, à l'échelle d'une partie de la carte : leurs patrouilles barrent le chemin, et on ne peut pas les esquiver pour aller plus loin. C'est une épreuve qu'on ne réussit pas seul : elle est faite pour les alliances. Ils se repeuplent comme les camps.
 - **[Proposition]** Le premier grand campement suit le plan du propriétaire (27 novembre 2026) : une enceinte avec une seule entrée, au sud, par un couloir gardé ; à l'intérieur, des patrouilles partout ; une clef à l'ouest ; une porte à l'est, qui s'ouvre avec la clef ; et le chef du campement au centre.
 - **[À trancher]** Dans ce plan, ce que sont les triangles (des montagnes, des tentes ?), les demi-cercles et les croix (des chefs, des pièges ?), et où mène la porte (une nouvelle région au-delà, ou le chef ?).
@@ -195,5 +196,6 @@ La suite, décidée le 27 novembre 2026, dans l'ordre :
 8. Les éclaireurs et le brouillard de guerre.
 
 - **[Décidé]** Pour les essais, un **mode d'essai** renforce les troupes du joueur, pour tester seul ce qui demande normalement plusieurs joueurs. Il ne sert qu'aux parties sans compte : le serveur le refuse.
+- **[Proposition]** Il s'active dans le Menu. Les troupes du joueur et son dragon frappent et encaissent alors 10 fois plus, y compris quand ils défendent la cité, et une étiquette « Essai ×10 » reste visible en haut de l'écran.
 
 Les chiffres du jeu (coûts, durées, production, bonus des races) sont regroupés dans `src/game/config.ts`, pour pouvoir équilibrer le jeu sans toucher au reste du code.

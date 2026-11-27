@@ -32,6 +32,15 @@ function army(troops: Partial<Army>): Army {
   return { ...emptyArmy(), ...troops }
 }
 
+describe('le mode d’essai', () => {
+  it('s’active dans une partie sans compte, mais le serveur le refuse toujours', () => {
+    const on = performAction(richGame(), { type: 'trial', on: true }, T0 + 1000)
+    expect(on).toMatchObject({ ok: true, state: { trial: true } })
+    expect(performAction(on.state, { type: 'trial', on: false }, T0 + 2000).state.trial).toBe(false)
+    expect(parseAction({ type: 'trial', on: true })).toBeNull()
+  })
+})
+
 describe('parseAction', () => {
   it('accepte chaque ordre bien formé', () => {
     const actions: Action[] = [

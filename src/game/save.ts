@@ -115,6 +115,9 @@ export function restoreState(saved: unknown): GameState | null {
       // Avant les quêtes, rien n'était compté : les compteurs partent de zéro.
       stats: { ...emptyStats(), ...state.stats },
       quests: questChain(state.quests ?? []),
+      // Avant le repeuplement des camps, un camp vaincu restait là ; et le mode d'essai n'existait pas.
+      campsCleared: state.campsCleared ?? {},
+      trial: state.trial ?? false,
       // Une bande sans monstres (une ancienne version en laissait parfois) n'a plus rien à faire sur la carte.
       bands: (state.bands ?? []).map((band) => upgradeBand(band, state.updatedAt)).filter(hasMonsters),
       // Avant les bandes et les gisements, la carte était vide : ils arrivent peu à peu.
@@ -152,7 +155,8 @@ function isSound(state: GameState): boolean {
   return (
     [state.updatedAt, state.tickedAt, state.seed, state.nextId].every(finite) &&
     [state.nextBandAt, state.nextNodeAt, state.nextRaidAt].every(finiteOrNull) &&
-    [state.resources, state.levels, state.techs, state.troops].every(isCounts) &&
+    [state.resources, state.levels, state.techs, state.troops, state.campsCleared].every(isCounts) &&
+    typeof state.trial === 'boolean' &&
     works.every((work) => isObject(work) && finite(work.endsAt)) &&
     state.heroes.every((hero) => isObject(hero) && finite(hero.level) && finite(hero.xp)) &&
     state.armies.every(

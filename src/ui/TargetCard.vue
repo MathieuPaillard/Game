@@ -25,6 +25,7 @@ import {
   gatherRate,
   getBand,
   getBandKind,
+  campEmptyUntil,
   getCamp,
   getHeroDef,
   getMonster,
@@ -74,6 +75,7 @@ const info = computed(() => {
       level: camp.level,
       monsters: camp.defenders,
       loot: camp.loot,
+      emptyUntil: campEmptyUntil(props.state, camp.id, props.now),
     }
   }
   if (target.type === 'band') {
@@ -237,6 +239,10 @@ const fieldArmies = computed(() =>
           >
         </p>
       </template>
+      <p v-else-if="info.kind === 'camp' && info.emptyUntil !== null" class="warning" role="status">
+        Ce camp est vide : tes troupes l’ont vaincu. Ses monstres reviendront dans
+        <strong>{{ formatDuration(info.emptyUntil - now) }}</strong>.
+      </p>
       <p v-else-if="info.kind === 'band'" class="muted">
         Une bande de monstres : elle patrouille autour de son repaire et attaque toute armée qui entre dans sa zone
         d’aggro, le cercle rouge sur la carte.<template v-if="info.weakened">
@@ -336,7 +342,8 @@ const fieldArmies = computed(() =>
         {{ info.kind === 'node' ? 'Récolter' : info.kind === 'band' && info.raid ? 'Intercepter' : 'Attaquer' }}
       </button>
     </form>
-    <p v-else class="reason">{{ blocked }}</p>
+    <!-- (Un camp vide le dit déjà plus haut.) -->
+    <p v-else-if="!(info.kind === 'camp' && info.emptyUntil !== null)" class="reason">{{ blocked }}</p>
   </article>
 </template>
 

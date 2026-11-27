@@ -302,6 +302,10 @@ export function useGame() {
       perform({ type: 'march', target, troops, ...(hero ? { hero } : {}), ...(dragon ? { dragon: true } : {}) }),
     order: (army: number, target: Target) => perform({ type: 'order', army, target }),
     dismiss: (troops: Army) => perform({ type: 'dismiss', troops }),
+    /** Le mode d'essai, pour tester seul : seulement sans compte (le serveur refuse cet ordre). */
+    setTrial: (on: boolean) => {
+      if (!session) perform({ type: 'trial', on })
+    },
     async restart() {
       awayReport.value = null
       if (!session) {

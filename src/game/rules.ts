@@ -6,6 +6,7 @@ import { counts, fightRound, roundCap, total, type Stack } from './battle.ts'
 import {
   BAND_AGGRO_PER_LEVEL,
   BAND_AGGRO_RADIUS,
+  CAMP_RESPAWN_SECONDS,
   BAND_GROWTH,
   BAND_KINDS,
   BAND_LEVEL_RING,
@@ -74,6 +75,7 @@ import {
   START_NODES,
   START_RESOURCES,
   STARVATION_ATTACK_MALUS,
+  TRIAL_BOOST,
   TECHS,
   TRAINING_BATCH_PER_LEVEL,
   UNITS,
@@ -397,6 +399,10 @@ export interface GameState {
   stats: Stats
   /** Les quêtes dont la récompense a été reçue, dans l'ordre. */
   quests: string[]
+  /** Les camps vaincus, et l'heure où leurs monstres reviennent : d'ici là, le camp est vide. */
+  campsCleared: Partial<Record<CampId, number>>
+  /** Le mode d'essai : les troupes du joueur sont bien plus fortes (parties sans compte seulement). */
+  trial: boolean
   /** Les bandes de monstres sur la carte des alentours. */
   bands: Band[]
   /** Quand la prochaine bande apparaîtra, ou null si la carte est pleine. */
@@ -444,6 +450,8 @@ export function newGame(race: RaceId, now: number, seed = now): GameState {
     reports: [],
     stats: emptyStats(),
     quests: [],
+    campsCleared: {},
+    trial: false,
     bands: [],
     nextBandAt: null,
     nextRaidAt: null,
@@ -1204,6 +1212,9 @@ function checkTarget(state: GameState, target: Target, armyId: number | null): C
     }
     case 'camp':
       getCamp(target.camp)
+      if (campEmptyUntil(state, target.camp) !== null) {
+        return { ok: false, reason: 'Ce camp est vide : ses monstres ne sont pas encore revenus' }
+      }
       return { ok: true }
     case 'band':
       return getBand(state, target.band) ? { ok: true } : { ok: false, reason: 'Cette bande n’est plus là' }
@@ -1348,6 +1359,22 @@ export function foeLoot(foe: Foe): Partial<Resources> {
   return foe.raid ? raidLoot(foe.kind, foe.level) : bandLoot(foe.kind, foe.level)
 }
 
+/** Le camp est vide (vaincu, ses monstres pas encore revenus) : jusqu'à quelle heure ? Sinon null. */
+export function campEmptyUntil(state: GameState, camp: CampId, at = state.updatedAt): number | null {
+  const back = state.campsCleared[camp]
+  return back !== undefined && back > at ? back : null
+}
+
+/** Le mode d'essai multiplie l'attaque et la vie des troupes du joueur (et de son dragon). */
+export function trialBoost(state: GameState): number {
+  return state.trial ? TRIAL_BOOST : 1
+}
+
+/** Active ou coupe le mode d'essai. (Le serveur refuse cet ordre : il ne sert qu'aux parties sans compte.) */
+export function setTrial(state: GameState, on: boolean, now: number): GameState {
+  return { ...advance(state, now), trial: on }
+}
+
 /** Ce qu'une armée emporte d'un butin quand elle n'a de place que pour `room` ressources : un peu de chaque. */
 export function fitLoad(loot: Partial<Resources>, room: number): Partial<Resources> {
   const size = loadSize(loot)
@@ -1434,6 +1461,8 @@ function arrive(state: GameState, id: number, at: number): GameState {
       return disband(state, army)
     case 'camp': {
       const camp = getCamp(army.order.camp)
+      // Une autre armée l'a vidé entre-temps : il n'y a plus personne à combattre.
+      if (campEmptyUntil(state, camp.id, at) !== null) return updateArmy(state, { ...army, order: null, status: 'idle' })
       return startBattle(state, army, null, at, false, { type: 'camp', camp: camp.id }, camp.defenders)
     }
     case 'node':
@@ -1507,7 +1536,8 @@ function startBattle(
   const foe: Foe = band ? bandFoe(band) : campFoe!
   const monsters = standing(band ? band.monsters : (campDefenders ?? {}))
   const healthFactor =
-    1 + techBonus(state, 'health') + heroBonus(state, army.hero, 'health') + spellBonus(state, 'health')
+    (1 + techBonus(state, 'health') + heroBonus(state, army.hero, 'health') + spellBonus(state, 'health')) *
+    trialBoost(state)
   const armyHealth = emptyArmy()
   for (const id of UNIT_IDS) armyHealth[id] = army.troops[id] * getUnit(id).health * healthFactor
   const foeHealth = monsterHealth(monsters)
@@ -1574,7 +1604,7 @@ function battleArmy(state: GameState, battle: Battle): FieldArmy | undefined {
  */
 function battleStacks(state: GameState, battle: Battle): { attackers: Stack[]; defenders: Stack[]; monsterIds: MonsterId[] } {
   const hero = battleArmy(state, battle)?.hero ?? null
-  const hunger = isStarving(state) ? 1 - STARVATION_ATTACK_MALUS : 1
+  const hunger = (isStarving(state) ? 1 - STARVATION_ATTACK_MALUS : 1) * trialBoost(state)
   const attackBonus = techBonus(state, 'attack') + heroBonus(state, hero, 'attack') + spellBonus(state, 'attack')
   const attackers: Stack[] = UNIT_IDS.map((id) => {
     const unit = getUnit(id)
@@ -1726,8 +1756,11 @@ function endBattle(state: GameState, battle: Battle, at: number, outcome: Outcom
     const stats = next.stats
     const camps = { ...stats.campsDefeated }
     if (foe.type === 'camp') camps[foe.camp] = (camps[foe.camp] ?? 0) + 1
+    // Un camp vaincu reste vide un moment.
+    const cleared = foe.type === 'camp' ? { ...next.campsCleared, [foe.camp]: at + CAMP_RESPAWN_SECONDS * SECOND } : next.campsCleared
     next = {
       ...next,
+      campsCleared: cleared,
       stats: {
         ...stats,
         victories: stats.victories + 1,
@@ -2056,7 +2089,8 @@ function startSiege(state: GameState, bandId: number, at: number): GameState {
 
   const guards = wallGuards(state)
   const healthFactor =
-    1 + techBonus(state, 'health') + spellBonus(state, 'health') + WALL_HEALTH_PER_LEVEL * state.levels.walls
+    (1 + techBonus(state, 'health') + spellBonus(state, 'health') + WALL_HEALTH_PER_LEVEL * state.levels.walls) *
+    trialBoost(state)
   const armyHealth = emptyArmy()
   for (const id of UNIT_IDS) armyHealth[id] = state.troops[id] * getUnit(id).health * healthFactor
   const monsters = standing(band.monsters)

@@ -953,6 +953,18 @@ export const CAMPS: CampDef[] = [
   },
 ]
 
+/**
+ * Un camp vaincu reste vide un moment, puis ses monstres reviennent : toutes les 2 heures pendant
+ * les essais (toutes les 8 heures une fois le jeu en ligne).
+ */
+export const CAMP_RESPAWN_SECONDS = 2 * 60 * 60
+
+/**
+ * Le mode d'essai, pour tester seul ce qui demande normalement plusieurs joueurs : les troupes du
+ * joueur et son dragon frappent et encaissent autant de fois plus. Seulement sans compte.
+ */
+export const TRIAL_BOOST = 10
+
 // --- Les bandes de monstres ---
 // Elles apparaissent peu à peu sur la carte des alentours, d'autant plus fortes qu'elles sont loin
 // de la cité, et patrouillent autour de leur repaire. Chacune a une zone autour d'elle (sa zone

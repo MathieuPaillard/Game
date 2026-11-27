@@ -44,6 +44,11 @@ describe('restoreState', () => {
     expect(restoreState(saved)!.quests).toEqual(chain)
   })
 
+  it('une partie d’avant le repeuplement des camps n’a aucun camp vide, ni le mode d’essai', () => {
+    const { campsCleared: _cleared, trial: _trial, ...old } = newGame('humans', T0)
+    expect(restoreState(old)).toMatchObject({ campsCleared: {}, trial: false })
+  })
+
   it('oublie une bande sans monstres, qu’une ancienne version laissait parfois sur la carte', () => {
     const game = newGame('humans', T0)
     const empty = { ...game.bands[0], monsters: { wolf: 0 } }

@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   DRAGON_EGG_ICON,
   RESOURCES,
+  TRIAL_BOOST,
   RESOURCE_IDS,
   SECOND_CONSTRUCTION_CASTLE_LEVEL,
   type Army,
@@ -83,6 +84,7 @@ const emit = defineEmits<{
   march: [target: Target, troops: Army, hero: HeroId | null, dragon: boolean]
   order: [army: number, target: Target]
   dismiss: [troops: Army]
+  trial: [on: boolean]
   restart: []
   dismissAway: []
   dismissNotice: []
@@ -455,6 +457,10 @@ onBeforeUnmount(() => {
   <div class="game">
     <header class="topbar">
       <p class="city-name">{{ cityName }}</p>
+      <p v-if="state.trial" class="trial-badge">
+        <span aria-hidden="true">🧪</span> Essai ×{{ TRIAL_BOOST }}
+        <span class="sr-only">: le mode d’essai renforce tes troupes</span>
+      </p>
       <ResourceBar :resources="state.resources" :rates="rates" />
     </header>
 
@@ -704,6 +710,15 @@ onBeforeUnmount(() => {
           <button v-if="canFullscreen" class="btn" type="button" @click="toggleFullscreen">
             {{ fullscreen ? 'Quitter le plein écran' : 'Plein écran' }}
           </button>
+          <div v-if="player === null" class="trial">
+            <p class="muted">
+              Mode d’essai : tes troupes et ton dragon frappent et encaissent {{ TRIAL_BOOST }} fois plus, pour tester
+              seul ce qui demandera plusieurs joueurs. Il n’existe que dans les parties sans compte.
+            </p>
+            <button class="btn-quiet" type="button" :aria-pressed="state.trial" @click="emit('trial', !state.trial)">
+              {{ state.trial ? 'Couper le mode d’essai' : 'Activer le mode d’essai' }}
+            </button>
+          </div>
           <div class="restart">
             <button v-if="!confirmingRestart" class="btn-quiet" type="button" @click="confirmingRestart = true">
               Recommencer une partie
@@ -765,6 +780,23 @@ onBeforeUnmount(() => {
 .city-name {
   font: 700 1.4rem/1 var(--font-display);
   white-space: nowrap;
+}
+
+/* Le mode d'essai est actif : on le voit toujours, pour ne pas le confondre avec le vrai jeu. */
+.trial-badge {
+  padding: 0.15rem 0.5rem;
+  border: 1px solid var(--gilt);
+  border-radius: 999px;
+  color: var(--gilt);
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.trial {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.4rem;
 }
 
 @media (max-width: 46rem) {
