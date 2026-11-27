@@ -21,8 +21,9 @@ const SIEGE_OUTCOME_NAMES: Record<Outcome, string> = {
   draw: 'Siège sans vainqueur',
 }
 
-/** Le titre d'un rapport : « Victoire », « Défaite »… ou, pour un siège, « Raid repoussé », « Cité pillée »… */
+/** Le titre d'un rapport : « Victoire », « Défaite »… ou, pour un siège, « Raid repoussé », « Cité pillée »… (et « Piège ».) */
 export function reportTitle(report: BattleReport): string {
+  if (report.foe.type === 'trap') return 'Piège'
   return (report.siege ? SIEGE_OUTCOME_NAMES : OUTCOME_NAMES)[report.outcome]
 }
 
@@ -31,8 +32,12 @@ export function bandLabel(kind: BandKindId, level: number): string {
   return `${getBandKind(kind).name} (niv. ${level})`
 }
 
-/** Le nom d'un adversaire : « Tanière de loups », « Meute de loups (niv. 2) », ou « Raid : Meute de loups (niv. 2) ». */
+/**
+ * Le nom d'un adversaire : « Tanière de loups », « Meute de loups (niv. 2) », « Raid : Meute de loups
+ * (niv. 2) », ou un piège du grand campement.
+ */
 export function foeName(foe: Foe): string {
+  if (foe.type === 'trap') return 'Piège du grand campement'
   if (foe.type === 'camp') return getCamp(foe.camp).name
   return foe.raid ? `Raid : ${bandLabel(foe.kind, foe.level)}` : bandLabel(foe.kind, foe.level)
 }

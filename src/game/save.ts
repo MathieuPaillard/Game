@@ -102,8 +102,9 @@ export function restoreState(saved: unknown): GameState | null {
         troops: { ...emptyArmy(), ...army.troops },
         hero: army.hero ?? null,
         dragon: army.dragon ?? false,
-        // Avant le grand campement, personne ne portait sa clef.
+        // Avant le grand campement, personne ne portait sa clef ; et avant les poursuites, aucune bande n'avait été semée.
         key: army.key ?? false,
+        escaped: army.escaped ?? [],
       })),
       battles: (state.battles ?? []).map((battle) => ({
         ...battle,
@@ -120,8 +121,10 @@ export function restoreState(saved: unknown): GameState | null {
       // Avant le repeuplement des camps, un camp vaincu restait là ; et le mode d'essai n'existait pas.
       campsCleared: state.campsCleared ?? {},
       trial: state.trial ?? false,
-      // Avant le grand campement : il se peuple dès que la partie avance.
-      encampment: state.encampment ?? { resetAt: state.updatedAt, gateOpen: false },
+      // Avant le grand campement : il se peuple dès que la partie avance. Et avant ses pièges, aucun n'était déclenché.
+      encampment: state.encampment
+        ? { ...state.encampment, sprung: state.encampment.sprung ?? [] }
+        : { resetAt: state.updatedAt, gateOpen: false, sprung: [] },
       // Une bande sans monstres (une ancienne version en laissait parfois) n'a plus rien à faire sur la carte.
       bands: (state.bands ?? []).map((band) => upgradeBand(band, state.updatedAt)).filter(hasMonsters),
       // Avant les bandes et les gisements, la carte était vide : ils arrivent peu à peu.
@@ -164,6 +167,8 @@ function isSound(state: GameState): boolean {
     isObject(state.encampment) &&
     finiteOrNull(state.encampment.resetAt) &&
     typeof state.encampment.gateOpen === 'boolean' &&
+    Array.isArray(state.encampment.sprung) &&
+    state.encampment.sprung.every(finite) &&
     works.every((work) => isObject(work) && finite(work.endsAt)) &&
     state.heroes.every((hero) => isObject(hero) && finite(hero.level) && finite(hero.xp)) &&
     state.armies.every(
@@ -173,7 +178,8 @@ function isSound(state: GameState): boolean {
         (army.order === null || isTarget(army.order)) &&
         isCounts(army.troops) &&
         isCounts(army.load) &&
-        Array.isArray(army.fought),
+        Array.isArray(army.fought) &&
+        Array.isArray(army.escaped),
     ) &&
     state.battles.every(
       (battle) =>
@@ -183,7 +189,13 @@ function isSound(state: GameState): boolean {
         Array.isArray(battle.rounds),
     ) &&
     state.bands.every(
-      (band) => finite(band.id) && finite(band.level) && isPoint(band.home) && finite(band.phase) && finiteOrNull(band.since),
+      (band) =>
+        finite(band.id) &&
+        finite(band.level) &&
+        isPoint(band.home) &&
+        finite(band.phase) &&
+        finiteOrNull(band.since) &&
+        (band.chase === null || (isObject(band.chase) && isPoint(band.chase.position) && finiteOrNull(band.chase.army))),
     ) &&
     state.nodes.every((node) => isObject(node) && finite(node.id) && isPoint(node.position) && finite(node.remaining)) &&
     (dragon === null || (isObject(dragon) && finite(dragon.xp) && finiteOrNull(dragon.hatchAt) && finiteOrNull(dragon.restUntil)))
@@ -246,10 +258,19 @@ function hasMonsters(band: Band): boolean {
 
 /**
  * Une bande d'avant les patrouilles se met à faire sa ronde autour de l'endroit où elle était.
- * Et avant les raids, toutes les bandes faisaient des rondes.
+ * Avant les raids, toutes les bandes faisaient des rondes ; et avant les poursuites, aucune ne
+ * poursuivait personne.
  */
 function upgradeBand(band: SavedBand, updatedAt: number): Band {
-  if (band.home) return { ...band, raid: band.raid ?? false, encampment: band.encampment ?? false, still: band.still ?? false } as Band
+  if (band.home) {
+    return {
+      ...band,
+      raid: band.raid ?? false,
+      encampment: band.encampment ?? false,
+      still: band.still ?? false,
+      chase: band.chase ?? null,
+    } as Band
+  }
   return {
     id: band.id ?? 0,
     kind: band.kind ?? 'wolves',
@@ -262,6 +283,7 @@ function upgradeBand(band: SavedBand, updatedAt: number): Band {
     raid: false,
     encampment: false,
     still: false,
+    chase: null,
   }
 }
 

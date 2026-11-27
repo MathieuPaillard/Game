@@ -52,7 +52,7 @@ describe('restoreState', () => {
   it('une partie d’avant le grand campement le voit se peupler dès qu’elle avance', () => {
     const { encampment: _encampment, ...old } = newGame('humans', T0)
     const restored = restoreState({ ...old, bands: [] })!
-    expect(restored.encampment).toEqual({ resetAt: T0, gateOpen: false })
+    expect(restored.encampment).toEqual({ resetAt: T0, gateOpen: false, sprung: [] })
     expect(advance(restored, T0 + 1000).bands.filter((band) => band.encampment).length).toBeGreaterThan(0)
   })
 
@@ -200,7 +200,7 @@ describe('restoreState', () => {
     }
     const state = restoreState({ ...newGame('orcs', T0), heroes: undefined, armies: [army] })!
     expect(state.heroes).toEqual([])
-    expect(state.armies).toEqual([{ ...army, hero: null, dragon: false, key: false }])
+    expect(state.armies).toEqual([{ ...army, hero: null, dragon: false, key: false, escaped: [] }])
   })
 
   it('une cité d’avant les raids attire son premier raid si son Château est assez grand', () => {

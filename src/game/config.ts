@@ -1083,6 +1083,7 @@ export type BandKindId =
   | 'keeper'
   | 'eliteGuard'
   | 'warlord'
+  | 'watchtower'
 
 export interface BandKindDef {
   id: BandKindId
@@ -1165,6 +1166,14 @@ export const BAND_KINDS: BandKindDef[] = [
     loot: { food: 300, wood: 300, stone: 300, gold: 150, mana: 80 },
     minLevel: 99,
   },
+  {
+    // Des archers postés sur une tour, qui voient venir de loin (WATCH_RADIUS).
+    id: 'watchtower',
+    name: 'Tour de guet',
+    monsters: { skeleton: 6, goblin: 2 },
+    loot: { wood: 100, stone: 100, gold: 20 },
+    minLevel: 99,
+  },
 ]
 
 /** Une bande du grand campement : sa sorte, son repaire, son niveau, et si elle garde sa place. */
@@ -1178,11 +1187,11 @@ export interface EncampmentBandDef {
 
 /**
  * Ce que contient le grand campement : cinq patrouilles qui font leur ronde dans le cirque, le gardien
- * de la clef (à l'ouest), et au centre le Seigneur des Crocs, flanqué de deux gardes d'élite. Tout
- * revient toutes les CAMP_RESPAWN_SECONDS.
+ * de la clef (à l'ouest), la tour de guet (au nord-ouest), et au centre le Seigneur des Crocs, flanqué
+ * de deux gardes d'élite. Tout revient toutes les CAMP_RESPAWN_SECONDS.
  */
 export const ENCAMPMENT_BANDS: EncampmentBandDef[] = [
-  { kind: 'crocs', home: { x: 1820, y: 330 }, level: 6, still: false },
+  { kind: 'crocs', home: { x: 1850, y: 330 }, level: 6, still: false },
   { kind: 'crocs', home: { x: 2020, y: 360 }, level: 6, still: false },
   { kind: 'crocs', home: { x: 2060, y: 610 }, level: 6, still: false },
   { kind: 'crocs', home: { x: 1860, y: 700 }, level: 6, still: false },
@@ -1191,11 +1200,32 @@ export const ENCAMPMENT_BANDS: EncampmentBandDef[] = [
   { kind: 'eliteGuard', home: { x: 1790, y: 560 }, level: 6, still: true },
   { kind: 'eliteGuard', home: { x: 2010, y: 560 }, level: 6, still: true },
   { kind: 'warlord', home: { x: 1900, y: 470 }, level: 7, still: true },
+  { kind: 'watchtower', home: { x: 1725, y: 350 }, level: 6, still: true },
 ]
 
 /** Le seuil de la porte, dans le cirque : l'armée qui porte la clef l'ouvre en arrivant à GATE_REACH de là. */
 export const ENCAMPMENT_GATE_FRONT: Point = { x: ENCAMPMENT.center.x + ENCAMPMENT.radius - 45, y: ENCAMPMENT.center.y }
 export const GATE_REACH = 60
+
+/**
+ * La tour de guet voit loin : tant qu'elle tient, toute armée qu'elle aperçoit à cette distance (sans
+ * montagne entre elles) met les patrouilles du campement en alerte, et elles accourent.
+ */
+export const WATCH_RADIUS = 260
+
+/**
+ * Les pièges du grand campement, cachés sur ses passages : à la sortie du col (presque tous les chemins
+ * y passent), sur le chemin du gardien de la clef et de la tour de guet, et devant la porte. Chacun
+ * blesse la première armée qui passe à TRAP_RADIUS de lui, puis reste désarmé jusqu'au repeuplement.
+ */
+export const ENCAMPMENT_TRAPS: Point[] = [
+  { x: 1668, y: 700 },
+  { x: 1676, y: 600 },
+  { x: 2105, y: 520 },
+]
+export const TRAP_RADIUS = 30
+/** Les dégâts d'un piège, répartis entre les troupes de l'armée selon leur nombre (le dragon s'envole à temps). */
+export const TRAP_DAMAGE = 2000
 
 export const MAX_BAND_LEVEL = 5
 export const BAND_GROWTH = 1.45
@@ -1216,6 +1246,16 @@ export const BAND_SPAWN_SECONDS = 90
 /** Une bande fait des rondes autour de son repaire, sur une boucle de ce rayon, à cette vitesse (par seconde). */
 export const PATROL_RADIUS = 60
 export const PATROL_SPEED = 4
+/**
+ * Une bande en patrouille voit plus loin que sa zone d'aggro (de ce facteur) : quand elle aperçoit
+ * une armée, elle quitte sa ronde, la prend en chasse, et l'attaque en l'atteignant. Les chefs du
+ * grand campement gardent leur place, et les raids leur route vers la cité.
+ */
+export const BAND_SIGHT_FACTOR = 1.6
+/** Une bande qui poursuit une armée, ou qui regagne sa ronde, court à cette vitesse (par seconde) : un peu plus vite qu'une armée. */
+export const CHASE_SPEED = 11
+/** Une bande renonce à sa poursuite quand elle s'éloigne autant de son repaire : l'armée l'a semée. */
+export const CHASE_LEASH = 220
 
 /** Les endroits où une bande peut installer son repaire, du plus près au plus loin de la cité. */
 export const BAND_SPOTS: Point[] = [

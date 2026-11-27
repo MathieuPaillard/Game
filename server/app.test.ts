@@ -310,6 +310,7 @@ describe('la partie', () => {
       raid: true,
       encampment: false,
       still: false,
+      chase: null,
     }
     const game = richGame({ castle: 4, walls: 2 })
     server.giveGame('Arthur', { ...game, bands: [raid], nextBandAt: null, troops: { ...emptyArmy(), warrior: 400 } })

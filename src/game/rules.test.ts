@@ -66,6 +66,11 @@ import {
   MOUNTAINS,
   ENCAMPMENT_BANDS,
   ENCAMPMENT_GATE_FRONT,
+  ENCAMPMENT_TRAPS,
+  CHASE_LEASH,
+  CHASE_SPEED,
+  TRAP_DAMAGE,
+  WATCH_RADIUS,
 } from './config.ts'
 import {
   advance,
@@ -143,6 +148,9 @@ import {
   recruitHero,
   researchCost,
   routeBetween,
+  canChase,
+  sightRadius,
+  watchtower,
   siegeOf,
   skillPoints,
   startMarch,
@@ -186,7 +194,7 @@ function richGame(levels: Partial<Record<BuildingId, number>> = {}, troops: Part
     nodes: [],
     nextNodeAt: null,
     // Sans grand campement : ses bandes ne viennent pas gêner les tests (withEncampment le remet).
-    encampment: { resetAt: null, gateOpen: false },
+    encampment: { resetAt: null, gateOpen: false, sprung: [] },
   }
 }
 
@@ -216,7 +224,7 @@ function withFood(food: number, troops: Partial<Army>): GameState {
     nodes: [],
     nextNodeAt: null,
     // Sans grand campement : ses bandes ne viennent pas gêner les tests (withEncampment le remet).
-    encampment: { resetAt: null, gateOpen: false },
+    encampment: { resetAt: null, gateOpen: false, sprung: [] },
   }
 }
 
@@ -245,6 +253,7 @@ function withBand(
     raid: false,
     encampment: false,
     still: false,
+    chase: null,
   }
   return { game: { ...game, bands: [...game.bands, band], nextId: game.nextId + 1 }, id: band.id }
 }
@@ -273,6 +282,7 @@ function withRaid(
     raid: true,
     encampment: false,
     still: false,
+    chase: null,
   }
   return { game: { ...game, bands: [...game.bands, band], nextId: game.nextId + 1 }, id: band.id }
 }
@@ -301,6 +311,23 @@ function withNode(
 ): { game: GameState; id: number } {
   const node: ResourceNode = { id: game.nextId, resource, level: 1, position, remaining }
   return { game: { ...game, nodes: [...game.nodes, node], nextId: game.nextId + 1 }, id: node.id }
+}
+
+/**
+ * Les deux parties sont les mêmes : tout est égal, sauf les ressources, des sommes de petits bouts dont
+ * les tout derniers chiffres dépendent de l'ordre des additions (on les compare à un millième de
+ * milliardième près, ce qui compte avec les réserves immenses des parties de test).
+ */
+function expectSameGame(a: GameState, b: GameState) {
+  expect({ ...a, resources: null }).toEqual({ ...b, resources: null })
+  for (const id of RESOURCE_IDS) {
+    expect(Math.abs(a.resources[id] - b.resources[id])).toBeLessThanOrEqual(1e-12 * Math.max(1, Math.abs(b.resources[id])))
+  }
+}
+
+/** Pose la première armée dehors à cet endroit, sans ordre : pour ne pas dépendre du chemin depuis la cité. */
+function placeArmy(game: GameState, position: Point): GameState {
+  return { ...game, armies: [{ ...game.armies[0], position, order: null, status: 'idle' }, ...game.armies.slice(1)] }
 }
 
 /** Le point situé à la fraction `t` de la route qui va de la cité jusqu'à `to`. */
@@ -876,9 +903,11 @@ describe('les batailles', () => {
     expect(fled.battles).toEqual([])
     expect(fled.reports[0]).toMatchObject({ outcome: 'retreat', loot: {} })
     expect(fled.reports[0].rounds).toHaveLength(5)
-    // La bande garde ses pertes et reprend sa ronde…
+    // La bande garde ses pertes ; elle avait pris l'armée en chasse, et regagne sa ronde…
     expect(total(fled.bands[0].monsters)).toBeLessThan(40)
-    expect(fled.bands[0].since).toBe(fighting.updatedAt)
+    expect(fled.bands[0].chase?.army).toBeNull()
+    const back = runUntil(fled, (s) => s.bands[0].chase === null)
+    expect(back.bands[0].since).toBe(back.updatedAt)
     // … sans plus attaquer l'armée, qui rentre à la cité.
     const home = runUntil(fled, (s) => s.armies.length === 0)
     expect(home.reports).toHaveLength(1)
@@ -925,9 +954,9 @@ describe('les bandes de monstres', () => {
     }
   })
 
-  it('aucune ronde ne passe assez près de la cité pour l’attaquer', () => {
+  it('aucune ronde ne passe assez près de la cité pour voir les armées qui en sortent', () => {
     for (const spot of BAND_SPOTS) {
-      const radius = aggroRadius(Math.min(MAX_BAND_LEVEL, levelAt(spot) + 1))
+      const radius = sightRadius(Math.min(MAX_BAND_LEVEL, levelAt(spot) + 1))
       expect(patrolDistance(spot, WORLD.city)).toBeGreaterThan(radius + 60)
     }
   })
@@ -986,10 +1015,27 @@ describe('les bandes de monstres', () => {
   })
 
   it('victorieuse, une bande garde ses survivants et reprend sa ronde', () => {
+    // Attaquée sur sa ronde, elle la reprend aussitôt.
+    const home = nearCity(350)
+    const { game, id } = withBand(richGame({}, { archer: 1 }), home, { troll: 5 }, 3, 'trolls')
+    const start = startMarch(game, toPoint(nearCity(100)), army({ archer: 1 }), T0)
+    const placed: GameState = {
+      ...start,
+      armies: [{ ...start.armies[0], position: { x: home.x, y: home.y - PATROL_RADIUS - 20 }, order: null, status: 'idle' }],
+    }
+    const after = runUntil(placed, (s) => s.reports.length > 0)
+    expect(after.reports[0]).toMatchObject({ outcome: 'defeat', ambush: true })
+    expect(after.bands[0]).toMatchObject({ id, since: after.reports[0].at, chase: null })
+  })
+
+  it('une bande qui avait poursuivi l’armée regagne sa ronde après la bataille', () => {
     const { game, id } = withBand(richGame({}, { archer: 1 }), nearCity(350), { troll: 5 }, 3, 'trolls')
     const after = runUntil(startMarch(game, toBand(id), army({ archer: 1 }), T0), (s) => s.reports.length > 0)
     expect(after.reports[0].outcome).toBe('defeat')
-    expect(after.bands[0]).toMatchObject({ id, since: after.reports[0].at })
+    expect(after.bands[0]).toMatchObject({ id, since: null, chase: { army: null } })
+    const back = runUntil(after, (s) => s.bands[0].chase === null)
+    expect(back.bands[0].since).toBe(back.updatedAt)
+    expect(distance(bandPosition(back.bands[0], back.updatedAt), nearCity(350))).toBeLessThanOrEqual(PATROL_RADIUS + 1e-9)
   })
 
   it('une nouvelle bande ne s’installe jamais assez près d’une armée pour l’attaquer aussitôt', () => {
@@ -1785,6 +1831,82 @@ describe('recherches', () => {
   })
 })
 
+describe('les poursuites', () => {
+  /** Une bande de niveau 1 près de la cité, et une armée qui s'éloigne vers le nord, à sa vue. */
+  function fleeing(): { game: GameState; id: number; home: Point } {
+    const home = nearCity(400)
+    const { game, id } = withBand(richGame({}, { warrior: 10 }), home, { wolf: 2 })
+    const start = startMarch(game, toPoint({ x: home.x, y: 150 }), army({ warrior: 10 }), T0)
+    // Elle part un peu au nord de la ronde : la bande, qui en passe tout près, la voit.
+    const placed = { ...start, armies: [{ ...start.armies[0], position: { x: home.x, y: home.y - PATROL_RADIUS - 70 } }] }
+    return { game: placed, id, home }
+  }
+
+  it('une bande en patrouille prend en chasse l’armée qu’elle voit, et l’attaque en la rattrapant', () => {
+    const home = nearCity(400)
+    const { game, id } = withBand(richGame({}, { warrior: 500 }), home, { wolf: 2 }, 2)
+    // L'armée attend plus loin que la zone d'aggro de la ronde, mais à la vue de la bande.
+    const spot = { x: home.x, y: home.y - PATROL_RADIUS - 90 }
+    expect(patrolDistance(home, spot)).toBeGreaterThan(aggroRadius(2))
+    expect(patrolDistance(home, spot)).toBeLessThan(sightRadius(2))
+    const placed = placeArmy(startMarch(game, toPoint(nearCity(100)), army({ warrior: 500 }), T0), spot)
+    const chasing = runUntil(placed, (s) => s.bands[0].chase !== null)
+    expect(chasing.bands[0].chase?.army).toBe(placed.armies[0].id)
+    const caught = runUntil(chasing, (s) => s.battles.length > 0)
+    expect(caught.battles[0]).toMatchObject({ band: id, ambush: true })
+    // Elle a quitté sa ronde pour l'atteindre.
+    expect(distance(bandPosition(caught.bands[0], caught.updatedAt), home)).toBeGreaterThan(PATROL_RADIUS + 1)
+  })
+
+  it('une bande renonce quand elle s’éloigne trop de son repaire, puis regagne sa ronde', () => {
+    const { game, id, home } = fleeing()
+    let farthest = 0
+    const gaveUp = runUntil(game, (s) => {
+      farthest = Math.max(farthest, distance(bandPosition(s.bands[0], s.updatedAt), home))
+      return s.armies[0].escaped.includes(id)
+    })
+    // Elle a couru après l'armée sans l'atteindre, jusqu'au bout de sa laisse.
+    expect(gaveUp.reports).toEqual([])
+    expect(gaveUp.bands[0].chase?.army).toBeNull()
+    expect(farthest).toBeGreaterThan(CHASE_LEASH)
+    expect(farthest).toBeLessThanOrEqual(CHASE_LEASH + CHASE_SPEED)
+    const back = runUntil(gaveUp, (s) => s.bands[0].chase === null)
+    expect(back.bands[0].since).toBe(back.updatedAt)
+    expect(distance(bandPosition(back.bands[0], back.updatedAt), home)).toBeLessThanOrEqual(PATROL_RADIUS + 1e-9)
+    // Semée, elle ne la poursuit plus : l'armée arrive au bout de sa route.
+    const arrived = runUntil(back, (s) => s.armies[0].status === 'idle')
+    expect(arrived.reports).toEqual([])
+    expect(arrived.bands[0].chase).toBeNull()
+  })
+
+  it('les chefs et les raids ne poursuivent personne', () => {
+    const { game } = withRaid(richGame(), { wolf: 3 })
+    expect(canChase(game.bands[0])).toBe(false)
+    const encampment = newGame('humans', T0).bands.filter((band) => band.encampment)
+    expect(encampment.filter(canChase).every((band) => band.kind === 'crocs')).toBe(true)
+    expect(encampment.filter((band) => band.still).some(canChase)).toBe(false)
+  })
+
+  it('une armée qui attend derrière une montagne ne fait pas avancer le monde seconde par seconde', () => {
+    // La ronde de la bande passe à sa vue… si la montagne n'était pas là.
+    const { game } = withBand(richGame({}, { warrior: 20 }), { x: 1650, y: 520 }, { goblin: 5 }, 5, 'goblins')
+    const hidden = placeArmy(startMarch(game, toPoint(nearCity(100)), army({ warrior: 10 }), T0), { x: 1555, y: 465 })
+    expect(patrolDistance(game.bands[0].home, hidden.armies[0].position)).toBeLessThan(sightRadius(5))
+    const later = advance(hidden, T0 + HOUR)
+    expect(later.battles).toEqual([])
+    expect(later.bands[0].chase).toBeNull()
+    expect(later.tickedAt).toBeLessThan(T0 + 10_000)
+  })
+
+  it('donne le même résultat d’un coup ou seconde par seconde, poursuites comprises', () => {
+    const { game } = fleeing()
+    const end = T0 + 3 * 60_000
+    let stepped = game
+    for (let t = T0 + 1000; t <= end; t += 1000) stepped = advance(stepped, t)
+    expectSameGame(advance(game, end), stepped)
+  })
+})
+
 describe('le relief', () => {
   const cirque = ENCAMPMENT.center
   const beyond = { x: 2700, y: 520 }
@@ -1848,7 +1970,7 @@ describe('le grand campement', () => {
   /** La même partie, avec le grand campement peuplé. */
   function withEncampment(game: GameState): GameState {
     const at = game.updatedAt + 1000
-    return advance({ ...game, encampment: { resetAt: at, gateOpen: false } }, at)
+    return advance({ ...game, encampment: { resetAt: at, gateOpen: false, sprung: [] } }, at)
   }
 
   const keeperOf = (game: GameState) => game.bands.find((band) => band.kind === 'keeper')
@@ -1858,8 +1980,8 @@ describe('le grand campement', () => {
     const encampment = game.bands.filter((band) => band.encampment)
     expect(encampment).toHaveLength(ENCAMPMENT_BANDS.length)
     const chiefs = encampment.filter((band) => band.still).map((band) => band.kind)
-    expect(chiefs.sort()).toEqual(['eliteGuard', 'eliteGuard', 'keeper', 'warlord'])
-    expect(game.encampment).toEqual({ resetAt: T0 + CAMP_RESPAWN_SECONDS * 1000, gateOpen: false })
+    expect(chiefs.sort()).toEqual(['eliteGuard', 'eliteGuard', 'keeper', 'warlord', 'watchtower'])
+    expect(game.encampment).toEqual({ resetAt: T0 + CAMP_RESPAWN_SECONDS * 1000, gateOpen: false, sprung: [] })
     const warlord = encampment.find((band) => band.kind === 'warlord')!
     expect(bandPosition(warlord, T0 + HOUR)).toEqual(warlord.home)
   })
@@ -1892,6 +2014,78 @@ describe('le grand campement', () => {
     expect(keeperOf(home)).toBeDefined()
   })
 
+  it('tant que la tour de guet tient, les patrouilles du campement accourent vers les armées qu’elle voit', () => {
+    const game = withEncampment(richGame({}, { warrior: 10 }))
+    const tower = watchtower(game)!
+    // Une armée au nord du cirque, que la tour voit ; et la patrouille qui en est la plus loin, hors de sa vue.
+    const spot = { x: 1900, y: 300 }
+    expect(distance(tower.home, spot)).toBeLessThanOrEqual(WATCH_RADIUS)
+    const far = game.bands
+      .filter((band) => band.encampment && canChase(band))
+      .sort((a, b) => distance(b.home, spot) - distance(a.home, spot))[0]
+    expect(patrolDistance(far.home, spot)).toBeGreaterThan(sightRadius(far.level))
+    const placed = placeArmy(startMarch({ ...game, bands: [far, tower] }, toPoint(nearCity(100)), army({ warrior: 10 }), game.updatedAt), spot)
+    const alerted = advance(placed, placed.updatedAt + 2000)
+    expect(alerted.bands.find((band) => band.id === far.id)?.chase?.army).toBe(placed.armies[0].id)
+    // La tour abattue, plus d'alerte : la patrouille garde sa ronde.
+    const unwatched = advance({ ...placed, bands: [far] }, placed.updatedAt + 60_000)
+    expect(unwatched.bands[0].chase).toBeNull()
+  })
+
+  it('ses pièges sont sur des passages où les armées peuvent aller', () => {
+    const game = withEncampment(richGame())
+    for (const trap of ENCAMPMENT_TRAPS) {
+      expect(insideAny(trap, MOUNTAINS)).toBe(false)
+      expect(routeBetween(game, WORLD.city, trap)).not.toBeNull()
+    }
+  })
+
+  it('un piège caché blesse la première armée qui passe dessus, puis reste désarmé jusqu’au repeuplement', () => {
+    const game = { ...withEncampment(richGame({}, { warrior: 300 })), bands: [] }
+    // Le piège de la sortie du col : l'armée le franchit en entrant dans le cirque.
+    const trap = ENCAMPMENT_TRAPS[0]
+    const before = { x: trap.x - 40, y: trap.y + 30 }
+    const after = { x: trap.x + 40, y: trap.y - 30 }
+    expect(insideAny(before, MOUNTAINS) || insideAny(after, MOUNTAINS)).toBe(false)
+    const placed = placeArmy(startMarch(game, toPoint(nearCity(100)), army({ warrior: 300 }), game.updatedAt), before)
+    const id = placed.armies[0].id
+    const crossed = runUntil(orderArmy(placed, id, toPoint(after), placed.updatedAt), (s) => s.armies[0].status === 'idle')
+    const lost = Math.floor(TRAP_DAMAGE / getUnit('warrior').health)
+    expect(crossed.reports).toHaveLength(1)
+    expect(crossed.reports[0]).toMatchObject({ foe: { type: 'trap' }, army: id, sent: army({ warrior: 300 }), lost: army({ warrior: lost }) })
+    expect(crossed.armies[0].troops.warrior).toBe(300 - lost)
+    expect(crossed.encampment.sprung).toEqual([0])
+    // Désarmé : l'armée repasse sans encombre.
+    const again = runUntil(orderArmy(crossed, id, toPoint(before), crossed.updatedAt), (s) => s.armies[0].status === 'idle')
+    expect(again.reports).toHaveLength(1)
+    // Au repeuplement, il est tendu à nouveau.
+    expect(advance(again, again.encampment.resetAt!).encampment.sprung).toEqual([])
+  })
+
+  it('une armée anéantie par un piège disparaît, et la clef qu’elle portait retourne à son gardien', () => {
+    const game = { ...withEncampment(richGame({}, { warrior: 5 })), bands: [] }
+    const trap = ENCAMPMENT_TRAPS[0]
+    const start = startMarch(game, toPoint(nearCity(100)), army({ warrior: 5 }), game.updatedAt)
+    const placed = placeArmy({ ...start, armies: [{ ...start.armies[0], key: true }] }, { x: trap.x - 40, y: trap.y + 30 })
+    const id = placed.armies[0].id
+    const wiped = runUntil(orderArmy(placed, id, toPoint({ x: trap.x + 40, y: trap.y - 30 }), placed.updatedAt), (s) => s.armies.length === 0)
+    expect(wiped.reports[0]).toMatchObject({ foe: { type: 'trap' }, lost: army({ warrior: 5 }) })
+    expect(wiped.bands.some((band) => band.kind === 'keeper')).toBe(true)
+  })
+
+  it('donne le même résultat d’un coup ou seconde par seconde, alertes, poursuites et pièges compris', () => {
+    const game = withEncampment({ ...richGame({}, { warrior: 3000 }), trial: true })
+    const start = startMarch(game, toPoint(ENCAMPMENT.center), army({ warrior: 3000 }), game.updatedAt)
+    const end = start.updatedAt + 30 * 60_000
+    let stepped = start
+    for (let t = start.updatedAt + 1000; t <= end; t += 1000) stepped = advance(stepped, t)
+    const jumped = advance(start, end)
+    expectSameGame(jumped, stepped)
+    // Il s'est bien passé quelque chose : des batailles, et le piège du col.
+    expect(jumped.reports.some((report) => report.foe.type === 'band')).toBe(true)
+    expect(jumped.encampment.sprung).toContain(0)
+  })
+
   it('se repeuple toutes les deux heures : ses chefs reviennent, et sa porte se referme', () => {
     const game = withEncampment(richGame())
     const resetAt = game.encampment.resetAt!
@@ -1901,7 +2095,7 @@ describe('le grand campement', () => {
       bands: game.bands.filter((band) => band.kind !== 'warlord'),
     }
     const later = advance(opened, resetAt)
-    expect(later.encampment).toEqual({ resetAt: resetAt + CAMP_RESPAWN_SECONDS * 1000, gateOpen: false })
+    expect(later.encampment).toEqual({ resetAt: resetAt + CAMP_RESPAWN_SECONDS * 1000, gateOpen: false, sprung: [] })
     expect(later.bands.filter((band) => band.kind === 'warlord')).toHaveLength(1)
     expect(later.bands.filter((band) => band.encampment)).toHaveLength(ENCAMPMENT_BANDS.length)
   })
