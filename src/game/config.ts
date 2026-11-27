@@ -856,12 +856,113 @@ export interface Point {
   y: number
 }
 
-/** La carte des alentours : sa taille, et la cité en son centre. */
+/**
+ * La carte des alentours : sa taille, et la cité. À l'est, au-delà d'une barrière de montagnes et du
+ * grand campement qu'elle abrite, s'étend une région nouvelle.
+ */
 export const WORLD: { width: number; height: number; city: Point } = {
-  width: 1600,
+  width: 3000,
   height: 1200,
   city: { x: 800, y: 620 },
 }
+
+// --- Le relief : une barrière de montagnes, et le grand campement ---
+
+/**
+ * Le grand campement : un cirque au cœur d'une barrière de montagnes infranchissables, qui coupe la
+ * carte du nord au sud (de `barrier.west` à `barrier.east`). Le cercle du cirque a `sides` pans,
+ * comptés depuis l'est dans le sens des aiguilles d'une montre : le col qui y entre part du pan
+ * `entrance` (au sud-ouest, vers la cité), et la porte ferme le pan `gate` (à l'est), qui mène à la
+ * région d'au-delà.
+ */
+export const ENCAMPMENT = {
+  name: 'Le campement des Crocs',
+  center: { x: 1900, y: 520 },
+  radius: 300,
+  barrier: { west: 1560, east: 2320 },
+  sides: 16,
+  entrance: 6,
+  gate: 0,
+  /** L'épaisseur de la porte, en unités de carte. */
+  gateDepth: 26,
+}
+
+/** Le coin `i` (pas forcément entier) du cercle du cirque. Arrondi : le même sur tous les navigateurs. */
+function cirqueCorner(i: number): Point {
+  const { center, radius, sides } = ENCAMPMENT
+  const angle = ((i - 0.5) * 2 * Math.PI) / sides
+  return { x: Math.round(center.x + radius * Math.cos(angle)), y: Math.round(center.y + radius * Math.sin(angle)) }
+}
+
+/** Les bords de la barrière (au-delà du haut et du bas de la carte, pour qu'on ne puisse pas en faire le tour). */
+const BARRIER_TOP = -60
+const BARRIER_BOTTOM = 1260
+
+/**
+ * Le point où le rayon parti du centre du cirque, passant par `point`, sort de la barrière, et le
+ * bord par lequel il sort : 0 en haut, 1 à l'est, 2 en bas, 3 à l'ouest.
+ */
+function barrierExit(point: Point): { point: Point; side: number } {
+  const { center, barrier } = ENCAMPMENT
+  const dx = point.x - center.x
+  const dy = point.y - center.y
+  const exits = [
+    { t: dy < 0 ? (BARRIER_TOP - center.y) / dy : Infinity, side: 0 },
+    { t: dx > 0 ? (barrier.east - center.x) / dx : Infinity, side: 1 },
+    { t: dy > 0 ? (BARRIER_BOTTOM - center.y) / dy : Infinity, side: 2 },
+    { t: dx < 0 ? (barrier.west - center.x) / dx : Infinity, side: 3 },
+  ]
+  const exit = exits.reduce((a, b) => (b.t < a.t ? b : a))
+  const x = Math.round(center.x + dx * exit.t)
+  const y = Math.round(center.y + dy * exit.t)
+  // Les faces ouest et est de la barrière ne sont pas droites : elles avancent et reculent un peu.
+  const jag = exit.side === 1 || exit.side === 3 ? ((((Math.round(y / 45) % 3) + 3) % 3) - 1) * 16 : 0
+  return { point: { x: x + jag, y }, side: exit.side }
+}
+
+/**
+ * Les montagnes de la barrière : un massif pour chaque pan du cirque, du pan jusqu'au bord de la
+ * barrière, sauf le col et la porte. Les massifs voisins se chevauchent un peu, pour ne laisser aucune
+ * fente entre eux.
+ */
+function barrierMountains(): Point[][] {
+  const { sides, entrance, gate, barrier } = ENCAMPMENT
+  // Les coins de la barrière, dans le sens des aiguilles d'une montre : celui qui suit chaque bord.
+  const corners = [
+    { x: barrier.east, y: BARRIER_TOP },
+    { x: barrier.east, y: BARRIER_BOTTOM },
+    { x: barrier.west, y: BARRIER_BOTTOM },
+    { x: barrier.west, y: BARRIER_TOP },
+  ]
+  const mountains: Point[][] = []
+  for (let k = 0; k < sides; k++) {
+    if (k === entrance || k === gate) continue
+    const a = cirqueCorner(k - 0.03)
+    const b = cirqueCorner(k + 1.03)
+    const exitA = barrierExit(a)
+    const exitB = barrierExit(b)
+    const corner = exitA.side === exitB.side ? [] : [corners[exitA.side]]
+    mountains.push([a, b, exitB.point, ...corner, exitA.point])
+  }
+  return mountains
+}
+
+/** Les montagnes qu'aucune armée ne peut traverser. */
+export const MOUNTAINS: Point[][] = barrierMountains()
+
+/** La porte du campement, entre deux massifs : fermée, elle barre le chemin de la région d'au-delà. */
+export const ENCAMPMENT_GATE: Point[] = (() => {
+  const { center, gate, gateDepth } = ENCAMPMENT
+  const outward = (point: Point) => {
+    const dx = point.x - center.x
+    const dy = point.y - center.y
+    const length = Math.sqrt(dx * dx + dy * dy)
+    return { x: Math.round(point.x + (dx / length) * gateDepth), y: Math.round(point.y + (dy / length) * gateDepth) }
+  }
+  const a = cirqueCorner(gate - 0.08)
+  const b = cirqueCorner(gate + 1.08)
+  return [a, b, outward(b), outward(a)]
+})()
 
 /** Vitesse de marche des armées, en unités de carte par seconde (Marche forcée l'augmente). */
 export const MARCH_SPEED = 10
@@ -1069,9 +1170,14 @@ export const BAND_SPOTS: Point[] = [
   { x: 1460, y: 760 },
   { x: 300, y: 1120 },
   { x: 220, y: 200 },
-  { x: 1490, y: 1090 },
+  { x: 1450, y: 1090 },
   { x: 110, y: 110 },
-  { x: 1490, y: 110 },
+  { x: 1450, y: 110 },
+  // La région d'au-delà du grand campement.
+  { x: 2560, y: 420 },
+  { x: 2800, y: 220 },
+  { x: 2700, y: 840 },
+  { x: 2480, y: 1010 },
 ]
 
 // --- Les créatures légendaires : le dragon ---
@@ -1120,8 +1226,8 @@ export const RAID_SIZE = 1.5
 export const RAID_GATES: Point[] = [
   { x: 60, y: 70 },
   { x: 800, y: 30 },
-  { x: 1540, y: 80 },
-  { x: 1550, y: 1130 },
+  { x: 1500, y: 80 },
+  { x: 1500, y: 1130 },
   { x: 800, y: 1170 },
   { x: 60, y: 1140 },
 ]
@@ -1196,6 +1302,12 @@ export const NODE_SPOTS: Point[] = [
   { x: 120, y: 720 },
   { x: 1330, y: 1060 },
   { x: 1510, y: 480 },
+  // La région d'au-delà du grand campement.
+  { x: 2470, y: 260 },
+  { x: 2620, y: 650 },
+  { x: 2870, y: 440 },
+  { x: 2560, y: 940 },
+  { x: 2860, y: 980 },
 ]
 
 /** Nombre de rapports de bataille conservés. */

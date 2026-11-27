@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { CAMPS, NODE_KINDS, WORLD } from '../game/config'
+import { CAMPS, ENCAMPMENT, ENCAMPMENT_GATE, MOUNTAINS, NODE_KINDS, WORLD } from '../game/config'
 import {
   aggroRadius,
   armySize,
@@ -16,6 +16,7 @@ import {
   nodeGatherer,
   patrolLoop,
   raidArrival,
+  routeBetween,
   sameTarget,
   siegeOf,
   targetPosition,
@@ -36,6 +37,14 @@ import { STATUS_ICONS, fightFx, monstersIcon, shot, type Selection } from './wor
 // choisit ; toucher le fond de la carte donne un endroit. On peut aussi tirer une armée du doigt
 // jusqu'à un endroit ou une cible : en relâchant, elle reçoit cet ordre.
 const props = defineProps<{ state: GameState; now: number; selection: Selection | null; cityName: string }>()
+
+// Le relief, qui ne change pas : les massifs de la barrière, et la porte du grand campement.
+const MASSIFS = MOUNTAINS.map((massif) => massif.map((p) => `${p.x},${p.y}`).join(' '))
+const GATE = ENCAMPMENT_GATE.map((p) => `${p.x},${p.y}`).join(' ')
+const GATE_AT = {
+  x: ENCAMPMENT_GATE.reduce((sum, p) => sum + p.x, 0) / ENCAMPMENT_GATE.length,
+  y: ENCAMPMENT_GATE.reduce((sum, p) => sum + p.y, 0) / ENCAMPMENT_GATE.length,
+}
 const emit = defineEmits<{
   select: [selection: Selection]
   tap: [point: Point]
@@ -193,6 +202,14 @@ const route = computed<{ from: Point; to: Point; target: Target | null } | null>
   }
   const to = targetPosition(props.state, selection.target, props.now)
   return to ? { from: city, to, target: selection.target } : null
+})
+
+// Le chemin suivi, montagnes contournées ; tout droit en rouge quand aucun chemin n'y mène.
+const routeLine = computed(() => {
+  const path = route.value
+  if (!path) return null
+  const points = routeBetween(path.from, path.to)
+  return { points: (points ?? [path.from, path.to]).map((p) => `${p.x},${p.y}`).join(' '), blocked: points === null }
 })
 
 // Le but d'une marche vers un simple endroit de la carte : un repère doré.
@@ -361,6 +378,23 @@ const battles = computed(() =>
       class="water-shine"
     />
     <ellipse v-for="(marsh, i) in WORLD_DECOR.marshes" :key="`marsh-${i}`" v-bind="marsh" class="marsh" />
+    <!-- La barrière de montagnes, que rien ne traverse, et le grand campement en son cœur -->
+    <circle :cx="ENCAMPMENT.center.x" :cy="ENCAMPMENT.center.y" :r="ENCAMPMENT.radius" class="cirque" />
+    <!-- Les massifs se chevauchent : leur contour d'abord, puis leur roche, pour qu'ils ne fassent qu'un. -->
+    <polygon v-for="(massif, i) in MASSIFS" :key="`massif-edge-${i}`" :points="massif" class="massif-edge" />
+    <polygon v-for="(massif, i) in MASSIFS" :key="`massif-${i}`" :points="massif" class="massif" />
+    <g v-for="(peak, i) in WORLD_DECOR.peaks" :key="`peak-${i}`" aria-hidden="true">
+      <polygon :points="mountainPoints(peak)" class="rock" />
+      <polygon :points="mountainLight(peak)" class="rock-light" />
+      <polygon :points="mountainSnow(peak)" class="snow" />
+    </g>
+    <g class="gate" aria-label="Porte du grand campement : fermée" role="img">
+      <polygon :points="GATE" class="gate-door" />
+      <text class="emoji" font-size="30" :x="GATE_AT.x" :y="GATE_AT.y">🔒</text>
+    </g>
+    <text class="map-label encampment-name" :x="ENCAMPMENT.center.x" :y="ENCAMPMENT.center.y - ENCAMPMENT.radius + 46">
+      {{ ENCAMPMENT.name }}
+    </text>
     <g v-for="camp in CAMPS" :key="`road-${camp.id}`">
       <line :x1="city.x" :y1="city.y" :x2="camp.position.x" :y2="camp.position.y" class="trail-edge" />
       <line :x1="city.x" :y1="city.y" :x2="camp.position.x" :y2="camp.position.y" class="trail" />
@@ -398,15 +432,7 @@ const battles = computed(() =>
     </g>
 
     <!-- Le chemin : de l'armée vers son but, ou de la cité vers la cible choisie -->
-    <line
-      v-if="route"
-      :x1="route.from.x"
-      :y1="route.from.y"
-      :x2="route.to.x"
-      :y2="route.to.y"
-      class="route"
-      :class="{ aiming: aim }"
-    />
+    <polyline v-if="routeLine" :points="routeLine.points" class="route" :class="{ aiming: aim, blocked: routeLine.blocked }" />
     <g v-if="goal" :transform="`translate(${goal.x} ${goal.y})`" class="goal" aria-hidden="true">
       <circle r="14" class="plan-mark" />
       <circle r="4" class="plan-dot" />
@@ -745,6 +771,7 @@ const battles = computed(() =>
 }
 
 .route {
+  fill: none;
   stroke: var(--gilt);
   stroke-width: 5;
   stroke-linecap: round;
@@ -754,6 +781,39 @@ const battles = computed(() =>
 }
 
 /* Pendant qu'on tire une armée, le trait est plein. */
+/* Aucun chemin n'y mène : le trait reste droit, et rouge. */
+.route.blocked {
+  stroke: var(--ember);
+}
+
+/* La barrière de montagnes : un massif de roche sombre, ourlé d'ombre. */
+.massif-edge {
+  fill: var(--map-massif);
+  stroke: var(--map-shade);
+  stroke-width: 14;
+  stroke-linejoin: round;
+}
+
+.massif {
+  fill: var(--map-massif);
+}
+
+/* Le sol battu du grand campement, au fond de son cirque. */
+.cirque {
+  fill: var(--map-dirt);
+  opacity: 0.5;
+}
+
+.gate-door {
+  fill: var(--map-wall);
+  stroke: var(--map-halo);
+  stroke-width: 3;
+}
+
+.encampment-name {
+  font-size: 30px;
+}
+
 .route.aiming {
   stroke-dasharray: none;
   stroke-width: 6;

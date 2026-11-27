@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { isStrongAgainst } from './battle.ts'
+import { insideAny } from './terrain.ts'
 import {
   BAND_KINDS,
   BAND_SPAWN_SECONDS,
@@ -61,6 +62,8 @@ import {
   type TechId,
   CAMP_RESPAWN_SECONDS,
   TRIAL_BOOST,
+  ENCAMPMENT,
+  MOUNTAINS,
 } from './config.ts'
 import {
   advance,
@@ -1763,5 +1766,64 @@ describe('recherches', () => {
     const plain = attack(richGame({}, { warrior: 40 }))
     const strong = attack(withTechs(richGame({}, { warrior: 40 }), { forge: 5, armor: 5 }))
     expect(strong.lost.warrior).toBeLessThan(plain.lost.warrior)
+  })
+})
+
+describe('le relief', () => {
+  const cirque = ENCAMPMENT.center
+  const beyond = { x: 2700, y: 520 }
+
+  it('une armée contourne les montagnes : elle entre dans le grand campement par son col', () => {
+    const start = startMarch(richGame({}, { warrior: 10 }), toPoint(cirque), army({ warrior: 10 }), T0)
+    const straight = Math.round((distance(WORLD.city, cirque) / marchSpeed(start)) * 1000)
+    expect(marchDuration(start, WORLD.city, cirque)).toBeGreaterThan(straight)
+    const positions: Point[] = []
+    const arrived = runUntil(
+      start,
+      (s) => {
+        positions.push(s.armies[0].position)
+        return s.armies[0].status === 'idle'
+      },
+      2 * HOUR,
+    )
+    expect(distance(arrived.armies[0].position, cirque)).toBeLessThan(1)
+    // Elle n'a jamais mis le pied dans une montagne.
+    expect(positions.some((p) => insideAny(p, MOUNTAINS))).toBe(false)
+  })
+
+  it('refuse d’envoyer une armée dans les montagnes, ou au-delà de la porte fermée', () => {
+    const game = richGame({}, { warrior: 10 })
+    const peak = { x: 1900, y: 1040 }
+    expect(insideAny(peak, MOUNTAINS)).toBe(true)
+    expect(checkMarch(game, toPoint(peak), army({ warrior: 10 }))).toEqual({
+      ok: false,
+      reason: 'Aucune armée ne peut franchir ces montagnes',
+    })
+    expect(checkMarch(game, toPoint(beyond), army({ warrior: 10 }))).toEqual({
+      ok: false,
+      reason: 'Aucun chemin n’y mène : la porte du grand campement est fermée',
+    })
+  })
+
+  it('une armée qui se trouve au-delà de la porte peut toujours rentrer', () => {
+    const start = startMarch(richGame({}, { warrior: 10 }), toPoint(nearCity(100)), army({ warrior: 10 }), T0)
+    const away: GameState = { ...start, armies: [{ ...start.armies[0], position: beyond, order: null, status: 'idle' }] }
+    expect(checkOrder(away, away.armies[0].id, CITY_TARGET)).toEqual({ ok: true })
+    const home = runUntil(orderArmy(away, away.armies[0].id, CITY_TARGET, T0), (s) => s.armies.length === 0, 3 * HOUR)
+    expect(home.troops.warrior).toBe(10)
+  })
+
+  it('une montagne empêche une bande d’attaquer l’armée qui se tient derrière', () => {
+    // Une bande contre le mur ouest du cirque ; une armée de chaque côté du mur, à la même distance.
+    const { game } = withBand(richGame({}, { warrior: 20 }), { x: 1650, y: 520 }, { goblin: 5 }, 5, 'goblins')
+    const start = startMarch(game, toPoint(nearCity(100)), army({ warrior: 10 }), T0)
+    const at = (position: Point): GameState => ({
+      ...start,
+      armies: [{ ...start.armies[0], position, order: null, status: 'idle' }],
+    })
+    const hidden = advance(at({ x: 1555, y: 465 }), T0 + 5000)
+    expect(hidden.battles).toEqual([])
+    const seen = advance(at({ x: 1745, y: 465 }), T0 + 5000)
+    expect(seen.battles).toHaveLength(1)
   })
 })

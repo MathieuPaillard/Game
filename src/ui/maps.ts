@@ -1,7 +1,8 @@
 // Les cartes du jeu : où se trouvent les bâtiments de la cité et les camps des alentours,
 // et le décor (forêts, montagnes, rivière…). Ce sont des choix d'affichage, pas des règles.
 
-import { BAND_SPOTS, CAMPS, WORLD, type BuildingId, type Point } from '../game/config'
+import { BAND_SPOTS, CAMPS, ENCAMPMENT, MOUNTAINS, NODE_SPOTS, WORLD, type BuildingId, type Point } from '../game/config'
+import { inside } from '../game/terrain'
 
 export type { Point }
 
@@ -149,8 +150,40 @@ export const WORLD_DECOR = {
     { x: 150, y: 1130, w: 220, h: 160 },
     { x: 600, y: 1190, w: 200, h: 130 },
   ] as Mountain[],
-  trees: [...scatter(3, 45, 330, 280, 420, 330), ...scatter(5, 30, 40, 40, 420, 230), ...scatter(9, 20, 900, 700, 260, 180)]
+  trees: [
+    ...scatter(3, 45, 330, 280, 420, 330),
+    ...scatter(5, 30, 40, 40, 420, 230),
+    ...scatter(9, 20, 900, 700, 260, 180),
+    // La région d'au-delà du grand campement.
+    ...scatter(11, 45, ENCAMPMENT.barrier.east + 40, 40, WORLD.width - ENCAMPMENT.barrier.east - 80, WORLD.height - 80),
+  ]
     .filter(farFrom([WORLD.city, ...CAMPS.map((camp) => camp.position)], 110))
     .filter(farFrom(BAND_SPOTS, 60))
+    .filter(farFrom(NODE_SPOTS, 50))
     .sort((a, b) => a.y - b.y),
+  /** Les sommets dessinés sur la barrière de montagnes infranchissable. */
+  peaks: barrierPeaks(),
+}
+
+/**
+ * Les sommets de la barrière : en quinconce, partout où le massif les porte entièrement (leur base et
+ * leur pointe), du plus haut au plus bas pour que ceux de devant cachent ceux de derrière.
+ */
+function barrierPeaks(): Mountain[] {
+  const inMassif = (point: Point) => MOUNTAINS.some((massif) => inside(point, massif))
+  const peaks: Mountain[] = []
+  let i = 0
+  for (let row = 0, y = 20; y <= WORLD.height + 60; row++, y += 62) {
+    for (let x = ENCAMPMENT.barrier.west + 20 + (row % 2) * 40; x <= ENCAMPMENT.barrier.east; x += 80) {
+      const peak = { x, y, w: 96 + (i % 3) * 14, h: 70 + (i % 4) * 9 }
+      i++
+      const corners = [
+        { x: peak.x - peak.w / 2 + 8, y: peak.y },
+        { x: peak.x + peak.w / 2 - 8, y: peak.y },
+        { x: peak.x, y: peak.y - peak.h + 12 },
+      ]
+      if (corners.every(inMassif)) peaks.push(peak)
+    }
+  }
+  return peaks
 }

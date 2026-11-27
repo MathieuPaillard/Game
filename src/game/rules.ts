@@ -3,10 +3,13 @@
 // Le navigateur et le serveur utilisent exactement ces mêmes règles.
 
 import { counts, fightRound, roundCap, total, type Stack } from './battle.ts'
+import { clear, findRoute, insideAny, routeLength, walk, type Polygon } from './terrain.ts'
 import {
   BAND_AGGRO_PER_LEVEL,
   BAND_AGGRO_RADIUS,
   CAMP_RESPAWN_SECONDS,
+  ENCAMPMENT,
+  ENCAMPMENT_GATE,
   BAND_GROWTH,
   BAND_KINDS,
   BAND_LEVEL_RING,
@@ -37,6 +40,7 @@ import {
   HERO_MAX_LEVEL,
   HERO_XP_GROWTH,
   MARCH_SPEED,
+  MOUNTAINS,
   MAX_BAND_LEVEL,
   MAX_BANDS,
   MAX_BATTLE_ROUNDS,
@@ -1143,9 +1147,47 @@ export function marchSpeed(state: GameState, hero: HeroId | null = null): number
   return MARCH_SPEED / (1 - bonus)
 }
 
-/** Durée (en millisecondes) d'une marche en ligne droite de `from` à `to`, avec ce héros à sa tête. */
+/** Durée (en millisecondes) d'une marche de `from` à `to`, montagnes contournées, avec ce héros à sa tête. */
 export function marchDuration(state: GameState, from: Point, to: Point, hero: HeroId | null = null): number {
-  return Math.round((distance(from, to) / marchSpeed(state, hero)) * SECOND)
+  const route = routeBetween(from, to)
+  return Math.round(((route ? routeLength(route) : distance(from, to)) / marchSpeed(state, hero)) * SECOND)
+}
+
+// --- Le relief : les montagnes, et la porte du grand campement ---
+
+// Deux tableaux qui ne changent pas, pour que les détours ne se calculent qu'une fois pour chacun.
+const GATE_OPEN: Polygon[] = MOUNTAINS
+const GATE_CLOSED: Polygon[] = [...MOUNTAINS, ENCAMPMENT_GATE]
+
+/** Au-delà de la porte du grand campement : dans la région d'au-delà, ou le passage qui y mène. */
+function beyondGate(point: Point): boolean {
+  return point.x > ENCAMPMENT.center.x + ENCAMPMENT.radius + ENCAMPMENT.gateDepth / 2
+}
+
+/**
+ * Ce qui barre le chemin d'une armée partie de `from` : les montagnes, et la porte du grand campement,
+ * qui reste fermée. Une armée qui se trouve au-delà peut toujours revenir : la porte s'ouvre de ce côté.
+ */
+export function obstaclesFrom(from: Point): Polygon[] {
+  return beyondGate(from) ? GATE_OPEN : GATE_CLOSED
+}
+
+/** Le chemin de `from` à `to`, qui contourne les montagnes : [from, …détours, to], ou null si rien n'y mène. */
+export function routeBetween(from: Point, to: Point): Point[] | null {
+  return findRoute(from, to, obstaclesFrom(from), WORLD)
+}
+
+/**
+ * Les endroits qu'une armée partie de la cité peut atteindre : bandes et gisements ne s'installent
+ * que là, pour ne pas occuper la carte au-delà d'une porte fermée.
+ */
+function reachableFromCity(spots: Point[]): Point[] {
+  return spots.filter((spot) => routeBetween(WORLD.city, spot) !== null)
+}
+
+/** Peut-on voir (et donc attaquer) de `a` à `b`, sans montagne entre les deux ? */
+function inSight(a: Point, b: Point): boolean {
+  return clear(a, b, obstaclesFrom(a))
 }
 
 /** Ce qu'une armée peut porter : le butin et la récolte. Son héros peut l'augmenter. */
@@ -1205,10 +1247,24 @@ export function nodeGatherer(state: GameState, nodeId: number): FieldArmy | unde
 
 /** Une cible valable ? (`armyId` : l'armée qui reçoit l'ordre, ou null pour une armée qui sort de la cité.) */
 function checkTarget(state: GameState, target: Target, armyId: number | null): Check {
+  const kind = checkTargetKind(state, target, armyId)
+  if (!kind.ok || target.type === 'city') return kind
+  // Encore faut-il qu'un chemin y mène, depuis la cité ou depuis là où se trouve l'armée.
+  const origin = armyId === null ? WORLD.city : getArmy(state, armyId)?.position
+  const position = targetPosition(state, target)
+  if (origin && position && !routeBetween(origin, position)) {
+    return { ok: false, reason: 'Aucun chemin n’y mène : la porte du grand campement est fermée' }
+  }
+  return { ok: true }
+}
+
+function checkTargetKind(state: GameState, target: Target, armyId: number | null): Check {
   switch (target.type) {
     case 'point': {
       const inside = target.x >= 0 && target.x <= WORLD.width && target.y >= 0 && target.y <= WORLD.height
-      return inside ? { ok: true } : { ok: false, reason: 'Cet endroit est hors de la carte' }
+      if (!inside) return { ok: false, reason: 'Cet endroit est hors de la carte' }
+      if (insideAny(target, GATE_CLOSED)) return { ok: false, reason: 'Aucune armée ne peut franchir ces montagnes' }
+      return { ok: true }
     }
     case 'camp':
       getCamp(target.camp)
@@ -1339,9 +1395,12 @@ export function orderArmy(state: GameState, armyId: number, target: Target, now:
  */
 export function bandsNearPath(state: GameState, from: Point, to: Point, except?: Target): Band[] {
   const center = (band: Band) => (band.raid ? bandPosition(band, state.updatedAt) : band.home)
+  const route = routeBetween(from, to) ?? [from, to]
+  const near = (band: Band) =>
+    route.some((point, i) => i > 0 && distanceToSegment(center(band), route[i - 1], point) <= PATROL_RADIUS + aggroRadius(band.level))
   return state.bands
     .filter((band) => !(except?.type === 'band' && except.band === band.id))
-    .filter((band) => distanceToSegment(center(band), from, to) <= PATROL_RADIUS + aggroRadius(band.level))
+    .filter(near)
     .sort((a, b) => distance(from, center(a)) - distance(from, center(b)))
 }
 
@@ -1438,17 +1497,20 @@ function stepArmy(state: GameState, id: number, at: number): GameState {
   const destination = order && targetPosition(state, order, at)
   // Plus d'ordre, ou la cible a disparu (bande vaincue, gisement épuisé) : l'armée s'arrête là.
   if (!order || !destination) return updateArmy(state, { ...army, order: null, status: 'idle' })
-  const gap = distance(army.position, destination)
 
-  // Une bande visée : l'armée l'attaque dès qu'elle est à portée, ou attend qu'elle ait fini un autre combat.
+  // Une bande visée : l'armée l'attaque dès qu'elle est à portée (et pas derrière une montagne), ou attend
+  // qu'elle ait fini un autre combat.
   if (order.type === 'band') {
     const band = getBand(state, order.band)
-    if (band && gap <= aggroRadius(band.level)) {
+    if (band && distance(army.position, destination) <= aggroRadius(band.level) && inSight(army.position, destination)) {
       return band.since === null ? state : startBattle(state, army, band, at, false)
     }
   }
+  // L'armée suit son chemin, en contournant les montagnes. Si plus rien n'y mène, elle s'arrête là.
+  const route = routeBetween(army.position, destination)
+  if (!route) return updateArmy(state, { ...army, order: null, status: 'idle' })
   const step = marchSpeed(state, army.hero) * WORLD_TICK_SECONDS
-  if (gap > step) return updateArmy(state, { ...army, position: along(army.position, destination, step / gap) })
+  if (routeLength(route) > step) return updateArmy(state, { ...army, position: walk(route, step) })
   return arrive(updateArmy(state, { ...army, position: { ...destination } }), army.id, at)
 }
 
@@ -1509,7 +1571,8 @@ function checkAggro(state: GameState, at: number): GameState {
     if (!army || army.status === 'fighting') continue
     for (const band of next.bands) {
       if (band.since === null || army.fought.includes(band.id)) continue
-      if (distance(army.position, bandPosition(band, at)) > aggroRadius(band.level)) continue
+      const position = bandPosition(band, at)
+      if (distance(army.position, position) > aggroRadius(band.level) || !inSight(position, army.position)) continue
       const targeted = army.order?.type === 'band' && army.order.band === band.id
       next = startBattle(next, army, band, at, !targeted)
       break
@@ -1948,7 +2011,7 @@ function draws(seed: number, count: number): { values: number[]; seed: number } 
  * jamais assez près d'une armée pour l'attaquer aussitôt.
  */
 function spawnBand(state: GameState, at: number): GameState {
-  const free = BAND_SPOTS.filter((spot) => {
+  const free = reachableFromCity(BAND_SPOTS).filter((spot) => {
     if (state.bands.some((band) => distance(band.home, spot) < 1)) return false
     const radius = aggroRadius(Math.min(MAX_BAND_LEVEL, levelAt(spot) + 1))
     return state.armies.every((army) => patrolDistance(spot, army.position) > radius)
@@ -2211,7 +2274,7 @@ export function nodeAmount(resource: ResourceId, level: number): number {
 
 /** Un nouveau gisement apparaît sur un endroit libre, tiré au sort, avec une ressource tirée au sort. */
 function spawnNode(state: GameState, at: number): GameState {
-  const free = NODE_SPOTS.filter((spot) => !state.nodes.some((node) => distance(node.position, spot) < 1))
+  const free = reachableFromCity(NODE_SPOTS).filter((spot) => !state.nodes.some((node) => distance(node.position, spot) < 1))
   let next = state
   if (free.length > 0 && state.nodes.length < MAX_NODES) {
     const { values, seed } = draws(state.seed, 2)
