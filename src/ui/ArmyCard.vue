@@ -16,7 +16,7 @@ import {
   type Target,
 } from '../game/rules'
 import { formatAmount, formatArmy, formatDuration } from './format'
-import { STATUS_ICONS, armyStatusText } from './world'
+import { STATUS_ICONS, armyStatusText, bandName, chasers } from './world'
 
 // La fiche d'une armée dehors : où elle en est, et ce qu'elle porte. Pour lui donner un ordre, on
 // touche la carte : elle part aussitôt.
@@ -33,6 +33,12 @@ const hero = computed(() => {
   return recruited ? { def: getHeroDef(recruited.id), level: recruited.level } : null
 })
 const battle = computed(() => props.state.battles.find((b) => b.army === props.army.id))
+// Les bandes qui la poursuivent (sans celle qu'elle combat).
+const hunters = computed(() =>
+  chasers(props.state, props.army.id)
+    .filter((band) => band.id !== battle.value?.band)
+    .map(bandName),
+)
 
 // Le temps qu'il lui reste à marcher.
 const eta = computed(() => {
@@ -81,6 +87,14 @@ const load = computed(() =>
     <p v-if="army.key" class="hint">
       <span aria-hidden="true">🗝️</span> Ton armée porte la clef du campement : mène-la au seuil de la porte, à l’est du
       cirque, pour l’ouvrir. Si elle tombe ou rentre à la cité, la clef retourne à son gardien.
+    </p>
+    <p v-if="hunters.length" class="warning" role="status">
+      Poursuivie par : {{ hunters.join(', ') }}.
+      {{
+        hunters.length > 1
+          ? 'Plus rapides que ton armée, ces bandes ne renonceront qu’en s’éloignant trop de leur repaire.'
+          : 'Plus rapide que ton armée, cette bande ne renoncera qu’en s’éloignant trop de son repaire.'
+      }}
     </p>
     <p v-if="eta !== null">Arrivée dans {{ formatDuration(eta) }}.</p>
     <div v-if="fight" class="fight">
@@ -142,6 +156,11 @@ const load = computed(() =>
 .load-item {
   margin-right: 0.6rem;
   font-variant-numeric: tabular-nums;
+}
+
+.warning {
+  font-size: 0.9rem;
+  color: var(--ember);
 }
 
 .hint {

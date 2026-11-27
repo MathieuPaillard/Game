@@ -62,11 +62,13 @@ function ofResource(id: keyof typeof RESOURCES): string {
 /** Ce que sont les bandes du grand campement. */
 const ENCAMPMENT_TEXTS: Partial<Record<string, string>> = {
   crocs:
-    'Une patrouille du campement des Crocs : elle fait sa ronde dans le cirque, et attaque toute armée qui entre dans sa zone d’aggro.',
+    'Une patrouille du campement des Crocs : elle fait sa ronde dans le cirque, prend en chasse toute armée qu’elle aperçoit, et accourt à l’alerte de la tour de guet.',
   keeper:
     'Il garde la clef de la porte du campement. Vaincs-le : ton armée emportera la clef, qui ouvre la porte à l’est du cirque, vers la région d’au-delà.',
   eliteGuard: 'Un garde d’élite du Seigneur des Crocs : il ne quitte pas sa place, et attaque toute armée qui l’approche.',
   warlord: 'Le Seigneur des Crocs, chef du campement : il tient le centre du cirque, entouré de sa garde.',
+  watchtower:
+    'La tour de guet voit loin (le grand cercle autour d’elle) : tant qu’elle tient, toute armée qu’elle aperçoit met les patrouilles du campement en alerte, et elles accourent toutes. L’abattre d’abord rend le campement moins dangereux.',
 }
 
 function total(monsters: Monsters): number {
@@ -105,6 +107,9 @@ const info = computed(() => {
       besieging: siegeOf(props.state)?.band === band.id,
       encampment: band.encampment,
       bandKind: band.kind,
+      // Elle a quitté sa ronde : elle poursuit une de tes armées, ou elle y retourne.
+      hunting: band.chase !== null && band.chase.army !== null,
+      returning: band.chase !== null && band.chase.army === null,
     }
   }
   if (target.type === 'node') {
@@ -257,21 +262,28 @@ const fieldArmies = computed(() =>
       </p>
       <template v-else-if="info.kind === 'band' && info.encampment">
         <p class="muted">{{ ENCAMPMENT_TEXTS[info.bandKind] ?? '' }}</p>
+        <p v-if="info.hunting" class="warning" role="status">Elle poursuit une de tes armées !</p>
         <p class="warning">
           Une épreuve pour plusieurs armées : seule, la tienne n’en viendra sans doute pas à bout. (Pour tester seul,
-          le mode d’essai du Menu renforce tes troupes.)
+          le mode d’essai du Menu renforce tes troupes.) Gare aussi aux pièges cachés sur les passages du campement :
+          la première armée qui passe dessus y laisse des troupes.
         </p>
         <p v-if="state.encampment.resetAt !== null" class="muted">
           Le campement se repeuple dans {{ formatDuration(Math.max(0, state.encampment.resetAt - now)) }} : patrouilles
-          et chefs reviennent, et sa porte se referme.
+          et chefs reviennent, ses pièges sont tendus à nouveau, et sa porte se referme.
         </p>
       </template>
-      <p v-else-if="info.kind === 'band'" class="muted">
-        Une bande de monstres : elle patrouille autour de son repaire et attaque toute armée qui entre dans sa zone
-        d’aggro, le cercle rouge sur la carte.<template v-if="info.weakened">
-          Une bataille l’a affaiblie : elle n’est plus au complet.</template
-        >
-      </p>
+      <template v-else-if="info.kind === 'band'">
+        <p v-if="info.hunting" class="warning" role="status">Elle poursuit une de tes armées !</p>
+        <p v-else-if="info.returning" class="muted" role="status">Elle a renoncé à sa poursuite, et regagne sa ronde.</p>
+        <p class="muted">
+          Une bande de monstres : elle patrouille autour de son repaire. Si elle aperçoit une de tes armées (le cercle
+          rouge sur la carte), elle la prend en chasse et l’attaque en la rattrapant ; elle renonce si elle s’éloigne
+          trop de son repaire.<template v-if="info.weakened"> Une bataille l’a affaiblie : elle n’est plus au
+            complet.</template
+          >
+        </p>
+      </template>
       <ul class="foes" aria-label="Monstres">
         <li v-for="f in foes" :key="f.monster.id">
           <span aria-hidden="true">{{ f.monster.icon }}</span> {{ f.monster.name }} <strong>{{ f.count }}</strong>
@@ -288,8 +300,8 @@ const fieldArmies = computed(() =>
     </template>
 
     <p v-if="dangers.length" class="warning">
-      Attention, des monstres rôdent sur le chemin depuis la cité : {{ dangers.join(', ') }}. Ils attaqueront
-      ton armée si elle entre dans leur zone d’aggro.
+      Attention, des monstres rôdent près du chemin depuis la cité : {{ dangers.join(', ') }}. Ils attaqueront
+      ton armée s’ils la voient passer.
     </p>
 
     <section v-if="fieldArmies.length" class="field-armies" aria-labelledby="field-title">

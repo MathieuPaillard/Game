@@ -33,6 +33,11 @@ export function bandName(band: Band): string {
   return foeName({ type: 'band', kind: band.kind, level: band.level, raid: band.raid })
 }
 
+/** Les bandes lancées à la poursuite de cette armée. */
+export function chasers(state: GameState, armyId: number): Band[] {
+  return state.bands.filter((band) => band.chase?.army === armyId)
+}
+
 /**
  * Les raids sur la carte, du premier qui atteindra la cité au dernier. `arrival` : l'heure de son
  * arrivée, ou null s'il se bat (contre une armée, ou aux portes de la cité).

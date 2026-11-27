@@ -58,7 +58,7 @@ import WorldMap from './WorldMap.vue'
 import { formatAmount, formatClock, formatDuration } from './format'
 import type { Point } from './maps'
 import type { CitySelection, Panel } from './screen'
-import { STATUS_ICONS, armyStatusText, incomingRaids, type Selection } from './world'
+import { STATUS_ICONS, armyStatusText, chasers, incomingRaids, type Selection } from './world'
 
 // L'écran de jeu, pensé pour le mode paysage : la carte (la cité, ou ses alentours) remplit l'écran.
 // Par-dessus : les ressources en haut, des boutons aux coins, et ce qui est en cours sur les côtés.
@@ -376,6 +376,8 @@ const armies = computed(() =>
     hero: army.hero === null ? null : getHeroDef(army.hero).icon,
     size: armySize(army.troops),
     status: armyStatusText(props.state, army),
+    // Une bande la poursuit (sans compter celle qu'elle combat déjà).
+    chased: chasers(props.state, army.id).some((band) => !props.state.battles.some((b) => b.band === band.id)),
   })),
 )
 
@@ -553,6 +555,9 @@ onBeforeUnmount(() => {
                   <span v-if="army.hero" aria-hidden="true">{{ army.hero }}</span>
                   <span>{{ army.size }}</span>
                   <span class="text tag">{{ army.status }}</span>
+                  <span v-if="army.chased" class="chased" title="Une bande la poursuit">
+                    <span aria-hidden="true">❗</span><span class="sr-only">poursuivie</span>
+                  </span>
                 </button>
               </li>
             </ul>
@@ -897,6 +902,11 @@ onBeforeUnmount(() => {
 
 .army-list li {
   max-width: 100%;
+}
+
+/* Une bande poursuit cette armée. */
+.army-chip .chased {
+  flex: none;
 }
 
 .hud-chip {

@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { CAMPS, ENCAMPMENT, ENCAMPMENT_GATE, MOUNTAINS, NODE_KINDS, WORLD } from '../game/config'
+import { CAMPS, ENCAMPMENT, ENCAMPMENT_GATE, ENCAMPMENT_TRAPS, MOUNTAINS, NODE_KINDS, WATCH_RADIUS, WORLD } from '../game/config'
 import {
   aggroRadius,
   armySize,
   bandPosition,
   bandsNearPath,
   campEmptyUntil,
+  canChase,
   distance,
   getArmy,
   getBand,
@@ -19,7 +20,9 @@ import {
   routeBetween,
   sameTarget,
   siegeOf,
+  sightRadius,
   targetPosition,
+  watchtower,
   type Band,
   type Battle,
   type GameState,
@@ -32,14 +35,24 @@ import { formatClock, formatDuration, formatShort } from './format'
 import { WORLD_DECOR, WORLD_MAP, mountainLight, mountainPoints, mountainSnow, type Point } from './maps'
 import { STATUS_ICONS, fightFx, monstersIcon, shot, type Selection } from './world'
 
-// Les alentours de la cité : les camps, les gisements, les bandes qui patrouillent (avec leur zone
-// d'aggro), les raids qui marchent sur la cité, tes armées et leurs batailles. Toucher un repère le
-// choisit ; toucher le fond de la carte donne un endroit. On peut aussi tirer une armée du doigt
-// jusqu'à un endroit ou une cible : en relâchant, elle reçoit cet ordre.
+// Les alentours de la cité : les camps, les gisements, les bandes qui patrouillent (avec la zone où
+// elles voient venir une armée, et leur poursuite), les raids qui marchent sur la cité, tes armées et
+// leurs batailles. Toucher un repère le choisit ; toucher le fond de la carte donne un endroit. On peut
+// aussi tirer une armée du doigt jusqu'à un endroit ou une cible : en relâchant, elle reçoit cet ordre.
 const props = defineProps<{ state: GameState; now: number; selection: Selection | null; cityName: string }>()
 
-/** L'insigne des chefs du grand campement. */
-const CHIEF_BADGES: Partial<Record<string, string>> = { keeper: '🗝️', eliteGuard: '🛡️', warlord: '👑' }
+/** L'insigne des chefs du grand campement, et de sa tour de guet. */
+const CHIEF_BADGES: Partial<Record<string, string>> = { keeper: '🗝️', eliteGuard: '🛡️', warlord: '👑', watchtower: '👁️' }
+
+// La tour de guet, tant qu'elle tient : ce qu'elle voit.
+const tower = computed(() => watchtower(props.state)?.home ?? null)
+
+// Les pièges du grand campement déjà déclenchés : ils se voient, jusqu'au repeuplement. (Les autres restent cachés.)
+const sprungTraps = computed(() =>
+  props.state.encampment.resetAt === null
+    ? []
+    : props.state.encampment.sprung.flatMap((i) => (ENCAMPMENT_TRAPS[i] ? [{ key: i, ...ENCAMPMENT_TRAPS[i] }] : [])),
+)
 
 // Le grand campement se repeuple bientôt : dans combien de temps.
 const encampmentBack = computed(() => {
@@ -286,6 +299,11 @@ const bands = computed(() => {
         : left === null
           ? 'au combat'
           : `arrive dans ${formatClock(left)}`
+    // Une bande qui a quitté sa ronde : elle poursuit une de tes armées, ou elle y retourne.
+    const hunting = !battle && band.chase !== null && band.chase.army !== null
+    const returning = !battle && band.chase !== null && band.chase.army === null
+    const doing = battle ? 'au combat' : hunting ? 'poursuit ton armée' : returning ? 'regagne sa ronde' : 'en patrouille'
+    const chief = band.kind === 'watchtower' ? 'tour de guet du grand campement' : 'chef du grand campement'
     return {
       key: `band-${band.id}`,
       target,
@@ -300,24 +318,41 @@ const bands = computed(() => {
           : patrolLoop(band.home)
               .map((p) => `${p.x},${p.y}`)
               .join(' '),
-      radius: aggroRadius(band.level),
+      // Une bande en patrouille prend en chasse l'armée qu'elle voit : son cercle, c'est sa vue. Les
+      // chefs et les raids attaquent ce qui entre dans leur zone d'aggro.
+      radius: canChase(band) ? sightRadius(band.level) : aggroRadius(band.level),
       name: band.raid ? `Raid : ${name}` : name,
-      sublabel: band.raid ? raidState : null,
+      sublabel: band.raid ? raidState : hunting ? 'Te poursuit !' : returning ? 'Regagne sa ronde' : null,
       label: band.raid
         ? `Raid : ${name}, niveau ${band.level}, ${besieging === band.id ? 'assiège la cité' : left === null ? 'au combat' : `arrive à la cité dans ${formatDuration(left)}`}`
         : band.still
-          ? `${name}, chef du grand campement, niveau ${band.level}${band.since === null ? ', au combat' : ''}`
-          : `${name}, bande de niveau ${band.level}${band.since === null ? ', au combat' : ', en patrouille'}`,
+          ? `${name}, ${chief}, niveau ${band.level}${battle ? ', au combat' : ''}`
+          : `${name}, bande de niveau ${band.level}, ${doing}`,
       level: band.level,
       icon: monstersIcon(band.monsters),
       danger: dangers.value.has(band.id),
       selected: isSelectedTarget(target) || isOrdered(target),
       fight: battle ? fightFx(battle) : null,
-      // Elle avance : sur sa ronde, ou vers la cité.
-      walking: band.since !== null && band.since <= props.now,
+      hunting,
+      // Au grand campement, les cercles se chevauchent tous : on n'en trace le bord que pour la bande
+      // choisie, ou celles qui guettent le chemin.
+      faint: band.encampment,
+      // Elle avance : sur sa ronde, vers la cité, ou à la poursuite d'une armée (en courant).
+      walking: (band.since !== null && band.since <= props.now) || hunting || returning,
+      hurry: band.raid || hunting,
     }
   })
 })
+
+// Les poursuites : une ligne entre chaque bande lancée à la poursuite d'une armée, et cette armée.
+const chases = computed(() =>
+  props.state.bands.flatMap((band) => {
+    const chase = band.chase
+    const army = chase?.army === null || chase?.army === undefined ? undefined : getArmy(props.state, chase.army)
+    if (!chase || !army || props.state.battles.some((battle) => battle.band === band.id)) return []
+    return [{ key: band.id, from: chase.position, to: armyPosition(army) }]
+  }),
+)
 const patrols = computed(() => bands.value.filter((band) => !band.raid && !band.still))
 const raids = computed(() => bands.value.filter((band) => band.raid))
 
@@ -438,6 +473,8 @@ const battles = computed(() =>
       <line x1="-46" y1="-17" x2="46" y2="-17" class="rail" />
       <line x1="-46" y1="17" x2="46" y2="17" class="rail" />
     </g>
+    <!-- Ce que voit la tour de guet du grand campement : les armées qui y entrent mettent ses patrouilles en alerte -->
+    <circle v-if="tower" :cx="tower.x" :cy="tower.y" :r="WATCH_RADIUS" class="watch-zone" />
     <!-- Les rondes des bandes, et le chemin des raids jusqu'à la cité -->
     <polygon v-for="band in patrols" :key="`loop-${band.key}`" :points="band.loop" class="patrol" />
     <line
@@ -548,7 +585,43 @@ const battles = computed(() =>
       </text>
     </g>
 
-    <!-- Les bandes, en patrouille, et les raids, avec leur zone d'aggro -->
+    <!-- Les pièges déclenchés du grand campement -->
+    <g
+      v-for="trap in sprungTraps"
+      :key="`trap-${trap.key}`"
+      :transform="`translate(${trap.x} ${trap.y})`"
+      class="trap"
+      role="img"
+      aria-label="Piège déclenché : désarmé jusqu’au repeuplement du campement"
+    >
+      <circle r="22" class="trap-base" />
+      <text class="emoji" font-size="28">🪤</text>
+    </g>
+
+    <!-- Ce que voit chaque bande en patrouille, et la zone d'aggro des chefs et des raids : sous les
+         poursuites, pour qu'elles restent nettes -->
+    <g
+      v-for="band in bands"
+      :key="`zone-${band.key}`"
+      class="mover zone"
+      :class="{ raid: band.raid }"
+      :style="{ transform: `translate(${band.x}px, ${band.y}px)` }"
+      aria-hidden="true"
+    >
+      <circle
+        :r="band.radius"
+        class="aggro"
+        :class="{ danger: band.danger, faint: band.faint && !band.danger && !band.selected }"
+      />
+    </g>
+
+    <!-- Les poursuites : la bande court vers l'armée qu'elle a repérée (le trait file vers l'armée) -->
+    <g v-for="chase in chases" :key="`chase-${chase.key}`" aria-hidden="true">
+      <line :x1="chase.from.x" :y1="chase.from.y" :x2="chase.to.x" :y2="chase.to.y" class="chase-halo" />
+      <line :x1="chase.from.x" :y1="chase.from.y" :x2="chase.to.x" :y2="chase.to.y" class="chase-line" />
+    </g>
+
+    <!-- Les bandes, en patrouille, et les raids -->
     <g
       v-for="band in bands"
       :key="band.key"
@@ -564,10 +637,9 @@ const battles = computed(() =>
       @keydown.enter.prevent="select({ kind: 'target', target: band.target })"
       @keydown.space.prevent="select({ kind: 'target', target: band.target })"
     >
-      <circle :r="band.radius" class="aggro" :class="{ danger: band.danger }" />
       <ellipse class="spot-base band-base" rx="34" ry="13" cy="20" />
       <ellipse class="spot-ring" rx="44" ry="19" cy="20" />
-      <g class="walker" :class="{ walking: band.walking, hurry: band.raid }">
+      <g class="walker" :class="{ walking: band.walking, hurry: band.hurry }">
         <g :key="`band-hit-${band.fight?.round ?? 0}`" :class="{ hit: (band.fight?.round ?? 0) > 0 }">
           <text class="emoji" font-size="44">{{ band.icon }}</text>
         </g>
@@ -579,6 +651,11 @@ const battles = computed(() =>
       <g v-if="band.chief" transform="translate(-28 -22)">
         <circle r="15" class="badge key-badge" />
         <text class="emoji" font-size="18">{{ band.chief }}</text>
+      </g>
+      <!-- Elle a repéré une de tes armées -->
+      <g v-if="band.hunting" transform="translate(-28 -22)" class="alert-badge">
+        <circle r="14" class="badge hunt-badge" />
+        <text class="badge-text">!</text>
       </g>
       <text class="map-label" y="50">{{ band.name }}</text>
       <text v-if="band.sublabel" class="map-sublabel raid-state" y="72">{{ band.sublabel }}</text>
@@ -748,7 +825,7 @@ const battles = computed(() =>
 }
 
 /* Un raid : sa zone d'aggro bat comme une alarme, en deux temps (moins coûteux à repeindre). */
-.band.raid .aggro {
+.zone.raid .aggro {
   animation: alarm 1.2s steps(2, jump-none) infinite alternate;
 }
 
@@ -807,6 +884,11 @@ const battles = computed(() =>
   opacity: 1;
 }
 
+.aggro.faint {
+  stroke: none;
+  opacity: 0.55;
+}
+
 .route {
   fill: none;
   stroke: var(--gilt);
@@ -855,6 +937,58 @@ const battles = computed(() =>
   fill: var(--stone);
   stroke: var(--gilt);
   stroke-width: 2;
+}
+
+/* Ce que voit la tour de guet : un grand cercle discret. */
+.watch-zone {
+  fill: var(--map-aggro);
+  stroke: var(--ember);
+  stroke-width: 3;
+  stroke-dasharray: 4 14;
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+/* Une bande lancée à la poursuite d'une armée : un trait rouge cerné de sombre, de la bande à sa
+   proie, dont les tirets filent vers l'armée ; et un « ! » sur la bande. */
+.chase-halo,
+.chase-line {
+  stroke-linecap: round;
+  pointer-events: none;
+}
+
+.chase-halo {
+  stroke: var(--map-halo);
+  stroke-width: 14;
+}
+
+.chase-line {
+  stroke: var(--ember);
+  stroke-width: 7;
+  stroke-dasharray: 20 10;
+  animation: chase-flow 0.6s linear infinite;
+}
+
+@keyframes chase-flow {
+  from {
+    stroke-dashoffset: 30;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.hunt-badge {
+  fill: var(--ember);
+  stroke: var(--map-halo);
+}
+
+/* Un piège déclenché : il reste là, désarmé, jusqu'au repeuplement. */
+.trap-base {
+  fill: var(--stone);
+  stroke: var(--ember);
+  stroke-width: 3;
+  opacity: 0.9;
 }
 
 .route.aiming {

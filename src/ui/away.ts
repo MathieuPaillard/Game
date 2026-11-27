@@ -2,6 +2,7 @@
 
 import { RESOURCES, RESOURCE_IDS, type Resources } from '../game/config'
 import {
+  armySize,
   currentQuest,
   dragonLevel,
   emptyResources,
@@ -53,13 +54,17 @@ export function makeAwayReport(before: GameState, after: GameState): AwayReport 
       events.push(siegeText(report))
       continue
     }
+    if (report.foe.type === 'trap') {
+      events.push(trapText(report))
+      continue
+    }
     const ambush = report.ambush ? ' (embuscade)' : ''
     events.push(`${OUTCOME_NAMES[report.outcome]} contre : ${foeName(report.foe)}${ambush}.`)
   }
   for (const army of before.armies) {
     if (after.armies.some((a) => a.id === army.id)) continue
-    // Anéantie, l'armée n'est pas rentrée : son rapport le dit.
-    const wiped = after.reports.some((r) => r.army === army.id && r.outcome === 'defeat')
+    // Anéantie (même dans une victoire, ou par un piège), l'armée n'est pas rentrée : son rapport le dit.
+    const wiped = after.reports.some((r) => r.army === army.id && armySize(r.lost) >= armySize(r.sent))
     if (!wiped) events.push('Une de tes armées est rentrée à la cité, avec ce qu’elle portait.')
   }
   for (const hero of after.heroes) {
@@ -93,6 +98,16 @@ export function makeAwayReport(before: GameState, after: GameState): AwayReport 
   if (newNodes === 1) events.push('Un nouveau gisement de ressources est apparu.')
   if (newNodes > 1) events.push(`${newNodes} nouveaux gisements de ressources sont apparus.`)
   return { duration, gains, events }
+}
+
+/** Une armée tombée dans un piège du grand campement. */
+function trapText(report: BattleReport): string {
+  const lost = armySize(report.lost)
+  const what =
+    lost >= armySize(report.sent)
+      ? 'personne n’a survécu'
+      : `${formatAmount(lost)} troupe${lost > 1 ? 's' : ''} perdue${lost > 1 ? 's' : ''}`
+  return `Une de tes armées est tombée dans un piège du grand campement : ${what}.`
 }
 
 /** Ce qui s'est passé aux portes de la cité. */
