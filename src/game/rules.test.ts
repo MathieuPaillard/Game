@@ -64,6 +64,8 @@ import {
   TRIAL_BOOST,
   ENCAMPMENT,
   MOUNTAINS,
+  ENCAMPMENT_BANDS,
+  ENCAMPMENT_GATE_FRONT,
 } from './config.ts'
 import {
   advance,
@@ -140,6 +142,7 @@ import {
   raidMonsters,
   recruitHero,
   researchCost,
+  routeBetween,
   siegeOf,
   skillPoints,
   startMarch,
@@ -182,11 +185,18 @@ function richGame(levels: Partial<Record<BuildingId, number>> = {}, troops: Part
     nextBandAt: null,
     nodes: [],
     nextNodeAt: null,
+    // Sans grand campement : ses bandes ne viennent pas gêner les tests (withEncampment le remet).
+    encampment: { resetAt: null, gateOpen: false },
   }
 }
 
 function army(troops: Partial<Army>): Army {
   return { ...emptyArmy(), ...troops }
+}
+
+/** Les bandes de la carte, sans celles du grand campement. */
+function patrols(game: GameState): Band[] {
+  return game.bands.filter((band) => !band.encampment)
 }
 
 /** La même partie, avec certaines recherches déjà faites. */
@@ -205,6 +215,8 @@ function withFood(food: number, troops: Partial<Army>): GameState {
     nextBandAt: null,
     nodes: [],
     nextNodeAt: null,
+    // Sans grand campement : ses bandes ne viennent pas gêner les tests (withEncampment le remet).
+    encampment: { resetAt: null, gateOpen: false },
   }
 }
 
@@ -231,6 +243,8 @@ function withBand(
     since: game.updatedAt,
     direction: 1,
     raid: false,
+    encampment: false,
+    still: false,
   }
   return { game: { ...game, bands: [...game.bands, band], nextId: game.nextId + 1 }, id: band.id }
 }
@@ -257,6 +271,8 @@ function withRaid(
     since: game.updatedAt,
     direction: 1,
     raid: true,
+    encampment: false,
+    still: false,
   }
   return { game: { ...game, bands: [...game.bands, band], nextId: game.nextId + 1 }, id: band.id }
 }
@@ -355,7 +371,7 @@ describe('production', () => {
 
     expect(oneShot.techs.agriculture).toBe(1)
     expect(oneShot.reports.length).toBeGreaterThanOrEqual(1)
-    expect(oneShot.bands).toHaveLength(MAX_BANDS)
+    expect(patrols(oneShot)).toHaveLength(MAX_BANDS)
     expect(stepped.levels).toEqual(oneShot.levels)
     expect(stepped.techs).toEqual(oneShot.techs)
     expect(stepped.troops).toEqual(oneShot.troops)
@@ -873,8 +889,8 @@ describe('les batailles', () => {
 describe('les bandes de monstres', () => {
   it('une nouvelle partie commence avec quelques bandes, puis la carte se remplit', () => {
     const game = newGame('humans', T0)
-    expect(game.bands).toHaveLength(START_BANDS)
-    for (const band of game.bands) {
+    expect(patrols(game)).toHaveLength(START_BANDS)
+    for (const band of patrols(game)) {
       expect(BAND_SPOTS).toContainEqual(band.home)
       const base = levelAt(band.home)
       expect([base, Math.min(MAX_BAND_LEVEL, base + 1)]).toContain(band.level)
@@ -882,10 +898,10 @@ describe('les bandes de monstres', () => {
       expect(band.monsters).toEqual(bandMonsters(band.kind, band.level))
     }
     // Un repaire par endroit.
-    expect(new Set(game.bands.map((band) => `${band.home.x},${band.home.y}`)).size).toBe(START_BANDS)
+    expect(new Set(patrols(game).map((band) => `${band.home.x},${band.home.y}`)).size).toBe(START_BANDS)
 
     const full = advance(game, T0 + (MAX_BANDS - START_BANDS) * BAND_SPAWN_SECONDS * 1000)
-    expect(full.bands).toHaveLength(MAX_BANDS)
+    expect(patrols(full)).toHaveLength(MAX_BANDS)
     expect(full.nextBandAt).toBeNull()
   })
 
@@ -1825,5 +1841,68 @@ describe('le relief', () => {
     expect(hidden.battles).toEqual([])
     const seen = advance(at({ x: 1745, y: 465 }), T0 + 5000)
     expect(seen.battles).toHaveLength(1)
+  })
+})
+
+describe('le grand campement', () => {
+  /** La même partie, avec le grand campement peuplé. */
+  function withEncampment(game: GameState): GameState {
+    const at = game.updatedAt + 1000
+    return advance({ ...game, encampment: { resetAt: at, gateOpen: false } }, at)
+  }
+
+  const keeperOf = (game: GameState) => game.bands.find((band) => band.kind === 'keeper')
+
+  it('est peuplé dès le début ; ses bandes ne comptent pas parmi celles de la carte, et ses chefs ne bougent pas', () => {
+    const game = newGame('humans', T0)
+    const encampment = game.bands.filter((band) => band.encampment)
+    expect(encampment).toHaveLength(ENCAMPMENT_BANDS.length)
+    const chiefs = encampment.filter((band) => band.still).map((band) => band.kind)
+    expect(chiefs.sort()).toEqual(['eliteGuard', 'eliteGuard', 'keeper', 'warlord'])
+    expect(game.encampment).toEqual({ resetAt: T0 + CAMP_RESPAWN_SECONDS * 1000, gateOpen: false })
+    const warlord = encampment.find((band) => band.kind === 'warlord')!
+    expect(bandPosition(warlord, T0 + HOUR)).toEqual(warlord.home)
+  })
+
+  it('l’armée qui bat le gardien emporte la clef, et ouvre la porte en arrivant à son seuil', () => {
+    const game = withEncampment({ ...richGame({}, { warrior: 2000 }), trial: true })
+    const keeper = keeperOf(game)!
+    // L'armée est posée près du gardien, dans le cirque, pour ne pas avoir à traverser tout le campement.
+    const start = startMarch(game, toPoint(nearCity(100)), army({ warrior: 2000 }), game.updatedAt)
+    const placed: GameState = {
+      ...start,
+      armies: [{ ...start.armies[0], position: { x: keeper.home.x + 20, y: keeper.home.y }, order: null, status: 'idle' }],
+    }
+    const id = placed.armies[0].id
+    const won = runUntil(orderArmy(placed, id, toBand(keeper.id), placed.updatedAt), (s) => !keeperOf(s) && s.battles.length === 0)
+    expect(won.armies[0].key).toBe(true)
+    const beyond = { x: 2700, y: 520 }
+    expect(routeBetween(won, WORLD.city, beyond)).toBeNull()
+    const opened = runUntil(orderArmy(won, id, toPoint(ENCAMPMENT_GATE_FRONT), won.updatedAt), (s) => s.encampment.gateOpen, 2 * HOUR)
+    expect(opened.armies[0].key).toBe(false)
+    expect(routeBetween(opened, WORLD.city, beyond)).not.toBeNull()
+  })
+
+  it('la clef perdue retourne à son gardien', () => {
+    const game = withEncampment(richGame({}, { warrior: 10 }))
+    const withoutKeeper = { ...game, bands: game.bands.filter((band) => band.kind !== 'keeper') }
+    const start = startMarch(withoutKeeper, toPoint(nearCity(100)), army({ warrior: 10 }), game.updatedAt)
+    const carrying: GameState = { ...start, armies: [{ ...start.armies[0], key: true }] }
+    const home = runUntil(orderArmy(carrying, carrying.armies[0].id, CITY_TARGET, carrying.updatedAt), (s) => s.armies.length === 0)
+    expect(keeperOf(home)).toBeDefined()
+  })
+
+  it('se repeuple toutes les deux heures : ses chefs reviennent, et sa porte se referme', () => {
+    const game = withEncampment(richGame())
+    const resetAt = game.encampment.resetAt!
+    const opened: GameState = {
+      ...game,
+      encampment: { ...game.encampment, gateOpen: true },
+      bands: game.bands.filter((band) => band.kind !== 'warlord'),
+    }
+    const later = advance(opened, resetAt)
+    expect(later.encampment).toEqual({ resetAt: resetAt + CAMP_RESPAWN_SECONDS * 1000, gateOpen: false })
+    expect(later.bands.filter((band) => band.kind === 'warlord')).toHaveLength(1)
+    expect(later.bands.filter((band) => band.encampment)).toHaveLength(ENCAMPMENT_BANDS.length)
   })
 })

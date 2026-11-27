@@ -1071,7 +1071,18 @@ export const TRIAL_BOOST = 10
 // de la cité, et patrouillent autour de leur repaire. Chacune a une zone autour d'elle (sa zone
 // d'aggro) : elle attaque toute armée qui y entre.
 
-export type BandKindId = 'wolves' | 'goblins' | 'skeletons' | 'trolls' | 'boars' | 'wyverns'
+export type BandKindId =
+  | 'wolves'
+  | 'goblins'
+  | 'skeletons'
+  | 'trolls'
+  | 'boars'
+  | 'wyverns'
+  // Celles du grand campement, qu'on ne croise nulle part ailleurs.
+  | 'crocs'
+  | 'keeper'
+  | 'eliteGuard'
+  | 'warlord'
 
 export interface BandKindDef {
   id: BandKindId
@@ -1124,7 +1135,67 @@ export const BAND_KINDS: BandKindDef[] = [
     loot: { stone: 150, gold: 150, mana: 120 },
     minLevel: 5,
   },
+  // Le grand campement : ses patrouilles et ses chefs. Ils n'apparaissent que là (d'où leur niveau
+  // minimal, qu'aucune bande n'atteint ailleurs), et sont faits pour plusieurs armées à la fois.
+  {
+    id: 'crocs',
+    name: 'Patrouille des Crocs',
+    monsters: { troll: 1, boar: 3, wolf: 6 },
+    loot: { food: 80, wood: 80, stone: 50, gold: 20 },
+    minLevel: 99,
+  },
+  {
+    id: 'keeper',
+    name: 'Gardien de la clef',
+    monsters: { troll: 3, wyvern: 1, goblin: 10 },
+    loot: { gold: 60, mana: 30 },
+    minLevel: 99,
+  },
+  {
+    id: 'eliteGuard',
+    name: 'Garde d’élite',
+    monsters: { troll: 4, boar: 4 },
+    loot: { food: 120, wood: 120, stone: 120 },
+    minLevel: 99,
+  },
+  {
+    id: 'warlord',
+    name: 'Seigneur des Crocs',
+    monsters: { troll: 6, wyvern: 3, boar: 6 },
+    loot: { food: 300, wood: 300, stone: 300, gold: 150, mana: 80 },
+    minLevel: 99,
+  },
 ]
+
+/** Une bande du grand campement : sa sorte, son repaire, son niveau, et si elle garde sa place. */
+export interface EncampmentBandDef {
+  kind: BandKindId
+  home: Point
+  level: number
+  /** Un chef immobile : il attaque toute armée qui l'approche, mais ne fait pas de ronde. */
+  still: boolean
+}
+
+/**
+ * Ce que contient le grand campement : cinq patrouilles qui font leur ronde dans le cirque, le gardien
+ * de la clef (à l'ouest), et au centre le Seigneur des Crocs, flanqué de deux gardes d'élite. Tout
+ * revient toutes les CAMP_RESPAWN_SECONDS.
+ */
+export const ENCAMPMENT_BANDS: EncampmentBandDef[] = [
+  { kind: 'crocs', home: { x: 1820, y: 330 }, level: 6, still: false },
+  { kind: 'crocs', home: { x: 2020, y: 360 }, level: 6, still: false },
+  { kind: 'crocs', home: { x: 2060, y: 610 }, level: 6, still: false },
+  { kind: 'crocs', home: { x: 1860, y: 700 }, level: 6, still: false },
+  { kind: 'crocs', home: { x: 1700, y: 600 }, level: 6, still: false },
+  { kind: 'keeper', home: { x: 1690, y: 450 }, level: 6, still: true },
+  { kind: 'eliteGuard', home: { x: 1790, y: 560 }, level: 6, still: true },
+  { kind: 'eliteGuard', home: { x: 2010, y: 560 }, level: 6, still: true },
+  { kind: 'warlord', home: { x: 1900, y: 470 }, level: 7, still: true },
+]
+
+/** Le seuil de la porte, dans le cirque : l'armée qui porte la clef l'ouvre en arrivant à GATE_REACH de là. */
+export const ENCAMPMENT_GATE_FRONT: Point = { x: ENCAMPMENT.center.x + ENCAMPMENT.radius - 45, y: ENCAMPMENT.center.y }
+export const GATE_REACH = 60
 
 export const MAX_BAND_LEVEL = 5
 export const BAND_GROWTH = 1.45

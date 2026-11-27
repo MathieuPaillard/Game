@@ -9,7 +9,10 @@ import {
   BAND_AGGRO_RADIUS,
   CAMP_RESPAWN_SECONDS,
   ENCAMPMENT,
+  ENCAMPMENT_BANDS,
   ENCAMPMENT_GATE,
+  ENCAMPMENT_GATE_FRONT,
+  GATE_REACH,
   BAND_GROWTH,
   BAND_KINDS,
   BAND_LEVEL_RING,
@@ -189,6 +192,16 @@ export interface Band {
   direction: number
   /** Un raid : il ne fait pas de ronde, il marche sur la cité. */
   raid: boolean
+  /** Une bande du grand campement : elle revient à chaque repeuplement, et n'occupe aucun repaire de la carte. */
+  encampment: boolean
+  /** Un chef immobile : il garde sa place, sans faire de ronde. */
+  still: boolean
+}
+
+/** Le grand campement : quand il se repeuplera (null : pas de campement, pour les tests), et sa porte. */
+export interface EncampmentState {
+  resetAt: number | null
+  gateOpen: boolean
 }
 
 /** Un gisement de ressources : champs, scierie, carrière, mine d'or ou source de mana. */
@@ -220,6 +233,8 @@ export interface FieldArmy {
   hero: HeroId | null
   /** Le dragon l'accompagne. */
   dragon: boolean
+  /** Elle porte la clef du grand campement, prise à son gardien. */
+  key: boolean
 }
 
 /**
@@ -407,6 +422,8 @@ export interface GameState {
   campsCleared: Partial<Record<CampId, number>>
   /** Le mode d'essai : les troupes du joueur sont bien plus fortes (parties sans compte seulement). */
   trial: boolean
+  /** Le grand campement : son prochain repeuplement, et sa porte. */
+  encampment: EncampmentState
   /** Les bandes de monstres sur la carte des alentours. */
   bands: Band[]
   /** Quand la prochaine bande apparaîtra, ou null si la carte est pleine. */
@@ -456,6 +473,7 @@ export function newGame(race: RaceId, now: number, seed = now): GameState {
     quests: [],
     campsCleared: {},
     trial: false,
+    encampment: { resetAt: null, gateOpen: false },
     bands: [],
     nextBandAt: null,
     nextRaidAt: null,
@@ -469,7 +487,8 @@ export function newGame(race: RaceId, now: number, seed = now): GameState {
   // Quelques bandes rôdent déjà, et quelques gisements attendent d'être récoltés.
   for (let i = 0; i < START_BANDS; i++) state = spawnBand(state, now)
   for (let i = 0; i < START_NODES; i++) state = spawnNode(state, now)
-  return state
+  // Le grand campement est peuplé dès le début.
+  return resetEncampment(state, now)
 }
 
 export function emptyResources(): Resources {
@@ -1149,7 +1168,7 @@ export function marchSpeed(state: GameState, hero: HeroId | null = null): number
 
 /** Durée (en millisecondes) d'une marche de `from` à `to`, montagnes contournées, avec ce héros à sa tête. */
 export function marchDuration(state: GameState, from: Point, to: Point, hero: HeroId | null = null): number {
-  const route = routeBetween(from, to)
+  const route = routeBetween(state, from, to)
   return Math.round(((route ? routeLength(route) : distance(from, to)) / marchSpeed(state, hero)) * SECOND)
 }
 
@@ -1165,29 +1184,30 @@ function beyondGate(point: Point): boolean {
 }
 
 /**
- * Ce qui barre le chemin d'une armée partie de `from` : les montagnes, et la porte du grand campement,
- * qui reste fermée. Une armée qui se trouve au-delà peut toujours revenir : la porte s'ouvre de ce côté.
+ * Ce qui barre le chemin d'une armée partie de `from` : les montagnes, et la porte du grand campement
+ * tant qu'elle est fermée. Une armée qui se trouve au-delà peut toujours revenir : la porte s'ouvre de
+ * ce côté.
  */
-export function obstaclesFrom(from: Point): Polygon[] {
-  return beyondGate(from) ? GATE_OPEN : GATE_CLOSED
+export function obstaclesFrom(state: GameState, from: Point): Polygon[] {
+  return state.encampment.gateOpen || beyondGate(from) ? GATE_OPEN : GATE_CLOSED
 }
 
 /** Le chemin de `from` à `to`, qui contourne les montagnes : [from, …détours, to], ou null si rien n'y mène. */
-export function routeBetween(from: Point, to: Point): Point[] | null {
-  return findRoute(from, to, obstaclesFrom(from), WORLD)
+export function routeBetween(state: GameState, from: Point, to: Point): Point[] | null {
+  return findRoute(from, to, obstaclesFrom(state, from), WORLD)
 }
 
 /**
  * Les endroits qu'une armée partie de la cité peut atteindre : bandes et gisements ne s'installent
  * que là, pour ne pas occuper la carte au-delà d'une porte fermée.
  */
-function reachableFromCity(spots: Point[]): Point[] {
-  return spots.filter((spot) => routeBetween(WORLD.city, spot) !== null)
+function reachableFromCity(state: GameState, spots: Point[]): Point[] {
+  return spots.filter((spot) => routeBetween(state, WORLD.city, spot) !== null)
 }
 
 /** Peut-on voir (et donc attaquer) de `a` à `b`, sans montagne entre les deux ? */
-function inSight(a: Point, b: Point): boolean {
-  return clear(a, b, obstaclesFrom(a))
+function inSight(state: GameState, a: Point, b: Point): boolean {
+  return clear(a, b, obstaclesFrom(state, a))
 }
 
 /** Ce qu'une armée peut porter : le butin et la récolte. Son héros peut l'augmenter. */
@@ -1252,7 +1272,7 @@ function checkTarget(state: GameState, target: Target, armyId: number | null): C
   // Encore faut-il qu'un chemin y mène, depuis la cité ou depuis là où se trouve l'armée.
   const origin = armyId === null ? WORLD.city : getArmy(state, armyId)?.position
   const position = targetPosition(state, target)
-  if (origin && position && !routeBetween(origin, position)) {
+  if (origin && position && !routeBetween(state, origin, position)) {
     return { ok: false, reason: 'Aucun chemin n’y mène : la porte du grand campement est fermée' }
   }
   return { ok: true }
@@ -1358,6 +1378,7 @@ export function startMarch(
     fought: [],
     hero,
     dragon,
+    key: false,
   }
   return { ...current, troops: home, armies: [...current.armies, army], nextId: current.nextId + 1 }
 }
@@ -1395,7 +1416,7 @@ export function orderArmy(state: GameState, armyId: number, target: Target, now:
  */
 export function bandsNearPath(state: GameState, from: Point, to: Point, except?: Target): Band[] {
   const center = (band: Band) => (band.raid ? bandPosition(band, state.updatedAt) : band.home)
-  const route = routeBetween(from, to) ?? [from, to]
+  const route = routeBetween(state, from, to) ?? [from, to]
   const near = (band: Band) =>
     route.some((point, i) => i > 0 && distanceToSegment(center(band), route[i - 1], point) <= PATROL_RADIUS + aggroRadius(band.level))
   return state.bands
@@ -1465,7 +1486,7 @@ function worldTick(state: GameState, at: number): GameState {
     if (at >= battle.startedAt + (battle.rounds.length + 1) * ROUND) next = playRound(next, battle.id, at)
   }
   for (const army of state.armies) next = stepArmy(next, army.id, at)
-  return checkAggro(next, at)
+  return checkAggro(openGate(next), at)
 }
 
 /**
@@ -1482,7 +1503,10 @@ function worldIsQuiet(state: GameState): boolean {
     (army) =>
       army.status === 'idle' &&
       state.bands.every(
-        (band) => army.fought.includes(band.id) || patrolDistance(band.home, army.position) > aggroRadius(band.level),
+        (band) =>
+          army.fought.includes(band.id) ||
+          (band.still ? distance(band.home, army.position) : patrolDistance(band.home, army.position)) >
+            aggroRadius(band.level),
       ),
   )
 }
@@ -1502,12 +1526,12 @@ function stepArmy(state: GameState, id: number, at: number): GameState {
   // qu'elle ait fini un autre combat.
   if (order.type === 'band') {
     const band = getBand(state, order.band)
-    if (band && distance(army.position, destination) <= aggroRadius(band.level) && inSight(army.position, destination)) {
+    if (band && distance(army.position, destination) <= aggroRadius(band.level) && inSight(state, army.position, destination)) {
       return band.since === null ? state : startBattle(state, army, band, at, false)
     }
   }
   // L'armée suit son chemin, en contournant les montagnes. Si plus rien n'y mène, elle s'arrête là.
-  const route = routeBetween(army.position, destination)
+  const route = routeBetween(state, army.position, destination)
   if (!route) return updateArmy(state, { ...army, order: null, status: 'idle' })
   const step = marchSpeed(state, army.hero) * WORLD_TICK_SECONDS
   if (routeLength(route) > step) return updateArmy(state, { ...army, position: walk(route, step) })
@@ -1520,7 +1544,7 @@ function arrive(state: GameState, id: number, at: number): GameState {
   if (!army?.order) return state
   switch (army.order.type) {
     case 'city':
-      return disband(state, army)
+      return disband(state, army, at)
     case 'camp': {
       const camp = getCamp(army.order.camp)
       // Une autre armée l'a vidé entre-temps : il n'y a plus personne à combattre.
@@ -1538,10 +1562,12 @@ function arrive(state: GameState, id: number, at: number): GameState {
 }
 
 /** L'armée rentre : ses troupes retrouvent la cité, et ce qu'elle porte rejoint les réserves. */
-function disband(state: GameState, army: FieldArmy): GameState {
+function disband(state: GameState, army: FieldArmy, at: number): GameState {
   const troops = { ...state.troops }
   for (const id of UNIT_IDS) troops[id] += army.troops[id]
-  return { ...removeArmy(state, army.id), troops, resources: addResources(state.resources, army.load) }
+  const home = { ...removeArmy(state, army.id), troops, resources: addResources(state.resources, army.load) }
+  // La clef du grand campement ne sert qu'à sa porte : rapportée à la cité, elle retourne à son gardien.
+  return army.key ? returnKey(home, at) : home
 }
 
 /**
@@ -1572,7 +1598,7 @@ function checkAggro(state: GameState, at: number): GameState {
     for (const band of next.bands) {
       if (band.since === null || army.fought.includes(band.id)) continue
       const position = bandPosition(band, at)
-      if (distance(army.position, position) > aggroRadius(band.level) || !inSight(position, army.position)) continue
+      if (distance(army.position, position) > aggroRadius(band.level) || !inSight(next, position, army.position)) continue
       const targeted = army.order?.type === 'band' && army.order.band === band.id
       next = startBattle(next, army, band, at, !targeted)
       break
@@ -1873,12 +1899,18 @@ function endBattle(state: GameState, battle: Battle, at: number, outcome: Outcom
     next = outcome === 'victory' ? removeBand(next, band.id, at) : updateBand(next, { ...band, monsters: monstersLeft, since: at })
   }
   const army = battleArmy(next, battle)
-  if (!army) return next
-  if (armySize(survivors) === 0) return removeArmy(next, army.id)
+  // Vaincu, le gardien de la clef la laisse à l'armée qui l'a battu.
+  const wonKey = outcome === 'victory' && foe.type === 'band' && foe.kind === 'keeper'
+  if (!army) return wonKey ? returnKey(next, at) : next
+  if (armySize(survivors) === 0) {
+    // Personne pour porter la clef : elle retourne à son gardien.
+    const gone = removeArmy(next, army.id)
+    return army.key || wonKey ? returnKey(gone, at) : gone
+  }
   const fought = battle.band === null || army.fought.includes(battle.band) ? army.fought : [...army.fought, battle.band]
   // Blessé, le dragon quitte l'armée pour regagner son aire.
   const dragon = army.dragon && !withDragon.gain?.wounded
-  const after: FieldArmy = { ...army, troops: survivors, load: mergeLoot(army.load, loot), fought, dragon }
+  const after: FieldArmy = { ...army, troops: survivors, load: mergeLoot(army.load, loot), fought, dragon, key: army.key || wonKey }
   const resume = battle.ambush && army.order !== null
   return updateArmy(next, resume ? { ...after, status: 'marching' } : { ...after, status: 'idle', order: null })
 }
@@ -1960,6 +1992,7 @@ function bandPhase(band: Band, at: number): number {
  * cité), sauf pendant un combat.
  */
 export function bandPosition(band: Band, at: number): Point {
+  if (band.still) return { ...band.home }
   if (band.raid) {
     const length = raidLength(band)
     return along(band.home, WORLD.city, length === 0 ? 1 : bandPhase(band, at) / length)
@@ -2011,7 +2044,7 @@ function draws(seed: number, count: number): { values: number[]; seed: number } 
  * jamais assez près d'une armée pour l'attaquer aussitôt.
  */
 function spawnBand(state: GameState, at: number): GameState {
-  const free = reachableFromCity(BAND_SPOTS).filter((spot) => {
+  const free = reachableFromCity(state, BAND_SPOTS).filter((spot) => {
     if (state.bands.some((band) => distance(band.home, spot) < 1)) return false
     const radius = aggroRadius(Math.min(MAX_BAND_LEVEL, levelAt(spot) + 1))
     return state.armies.every((army) => patrolDistance(spot, army.position) > radius)
@@ -2033,6 +2066,8 @@ function spawnBand(state: GameState, at: number): GameState {
       since: at,
       direction: values[4] < 0.5 ? 1 : -1,
       raid: false,
+      encampment: false,
+      still: false,
     }
     next = { ...state, bands: [...state.bands, band], seed, nextId: state.nextId + 1 }
   }
@@ -2042,7 +2077,7 @@ function spawnBand(state: GameState, at: number): GameState {
 
 /** Les bandes qui font leur ronde : les raids ne prennent pas leur place sur la carte. */
 function patrolCount(state: GameState): number {
-  return state.bands.filter((band) => !band.raid).length
+  return state.bands.filter((band) => !band.raid && !band.encampment).length
 }
 
 /**
@@ -2054,8 +2089,73 @@ function removeBand(state: GameState, id: number, at: number): GameState {
   return {
     ...state,
     bands: state.bands.filter((other) => other.id !== id),
-    nextBandAt: band?.raid ? state.nextBandAt : (state.nextBandAt ?? at + BAND_SPAWN_SECONDS * SECOND),
+    nextBandAt: band?.raid || band?.encampment ? state.nextBandAt : (state.nextBandAt ?? at + BAND_SPAWN_SECONDS * SECOND),
   }
+}
+
+// --- Le grand campement ---
+
+/**
+ * Le grand campement se repeuple : ses patrouilles et ses chefs reviennent au complet, sa porte se
+ * referme, et la clef retourne à son gardien. Une bande du campement en pleine bataille la finit
+ * d'abord (sa place reste vide jusqu'au repeuplement suivant).
+ */
+function resetEncampment(state: GameState, at: number): GameState {
+  const fighting = state.bands.filter((band) => band.encampment && band.since === null)
+  let next: GameState = {
+    ...state,
+    bands: state.bands.filter((band) => !band.encampment || band.since === null),
+    armies: state.armies.map((army) => (army.key ? { ...army, key: false } : army)),
+    encampment: { resetAt: at + CAMP_RESPAWN_SECONDS * SECOND, gateOpen: false },
+  }
+  for (const def of ENCAMPMENT_BANDS) {
+    if (!fighting.some((band) => distance(band.home, def.home) < 1)) next = placeEncampmentBand(next, def, at)
+  }
+  return next
+}
+
+function placeEncampmentBand(state: GameState, def: (typeof ENCAMPMENT_BANDS)[number], at: number): GameState {
+  const band: Band = {
+    id: state.nextId,
+    kind: def.kind,
+    level: def.level,
+    home: { ...def.home },
+    monsters: bandMonsters(def.kind, def.level),
+    phase: 0,
+    since: at,
+    direction: 1,
+    raid: false,
+    encampment: true,
+    still: def.still,
+  }
+  return { ...state, bands: [...state.bands, band], nextId: state.nextId + 1 }
+}
+
+/**
+ * La clef est perdue (son armée est tombée, ou l'a rapportée à la cité) : elle retourne à son gardien,
+ * qui revient la garder. (Sauf si la porte est déjà ouverte, ou une autre armée porte une clef.)
+ */
+function returnKey(state: GameState, at: number): GameState {
+  if (state.encampment.resetAt === null || state.encampment.gateOpen) return state
+  if (state.armies.some((army) => army.key) || state.bands.some((band) => band.kind === 'keeper')) return state
+  const keeper = ENCAMPMENT_BANDS.find((def) => def.kind === 'keeper')
+  return keeper ? placeEncampmentBand(state, keeper, at) : state
+}
+
+/** L'armée qui porte la clef arrive au seuil de la porte : la porte s'ouvre, jusqu'au prochain repeuplement. */
+function openGate(state: GameState): GameState {
+  const bearer = state.armies.find((army) => army.key && distance(army.position, ENCAMPMENT_GATE_FRONT) <= GATE_REACH)
+  if (!bearer) return state
+  return {
+    ...state,
+    armies: state.armies.map((army) => (army.id === bearer.id ? { ...army, key: false } : army)),
+    encampment: { ...state.encampment, gateOpen: true },
+  }
+}
+
+/** Le grand campement est-il là, et sa porte ouverte ? (Pour l'affichage et les tests.) */
+export function gateOpen(state: GameState): boolean {
+  return state.encampment.gateOpen
 }
 
 // --- Les raids et la défense de la cité ---
@@ -2128,6 +2228,8 @@ function spawnRaid(state: GameState, at: number): GameState {
     since: at,
     direction: 1,
     raid: true,
+    encampment: false,
+    still: false,
   }
   return {
     ...state,
@@ -2274,7 +2376,7 @@ export function nodeAmount(resource: ResourceId, level: number): number {
 
 /** Un nouveau gisement apparaît sur un endroit libre, tiré au sort, avec une ressource tirée au sort. */
 function spawnNode(state: GameState, at: number): GameState {
-  const free = reachableFromCity(NODE_SPOTS).filter((spot) => !state.nodes.some((node) => distance(node.position, spot) < 1))
+  const free = reachableFromCity(state, NODE_SPOTS).filter((spot) => !state.nodes.some((node) => distance(node.position, spot) < 1))
   let next = state
   if (free.length > 0 && state.nodes.length < MAX_NODES) {
     const { values, seed } = draws(state.seed, 2)
@@ -2389,6 +2491,8 @@ function nextEvent(state: GameState): PendingEvent | null {
   if (nextBandAt !== null) events.push({ at: nextBandAt, apply: (s) => spawnBand(s, nextBandAt) })
   if (nextNodeAt !== null) events.push({ at: nextNodeAt, apply: (s) => spawnNode(s, nextNodeAt) })
   if (nextRaidAt !== null) events.push({ at: nextRaidAt, apply: (s) => spawnRaid(s, nextRaidAt) })
+  const resetAt = state.encampment.resetAt
+  if (resetAt !== null) events.push({ at: resetAt, apply: (s) => resetEncampment(s, resetAt) })
   const hatchAt = state.dragon?.stage === 'hatching' ? state.dragon.hatchAt : null
   if (hatchAt !== null) {
     events.push({ at: hatchAt, apply: (s) => ({ ...s, dragon: { stage: 'grown', hatchAt: null, xp: 0, restUntil: null } }) })

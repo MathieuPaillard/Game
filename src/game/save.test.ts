@@ -49,6 +49,13 @@ describe('restoreState', () => {
     expect(restoreState(old)).toMatchObject({ campsCleared: {}, trial: false })
   })
 
+  it('une partie d’avant le grand campement le voit se peupler dès qu’elle avance', () => {
+    const { encampment: _encampment, ...old } = newGame('humans', T0)
+    const restored = restoreState({ ...old, bands: [] })!
+    expect(restored.encampment).toEqual({ resetAt: T0, gateOpen: false })
+    expect(advance(restored, T0 + 1000).bands.filter((band) => band.encampment).length).toBeGreaterThan(0)
+  })
+
   it('oublie une bande sans monstres, qu’une ancienne version laissait parfois sur la carte', () => {
     const game = newGame('humans', T0)
     const empty = { ...game.bands[0], monsters: { wolf: 0 } }
@@ -106,7 +113,7 @@ describe('restoreState', () => {
     // Avant les bandes et les gisements, la carte était vide : ils arrivent peu à peu.
     expect(state).toMatchObject({ bands: [], nextBandAt: T0, nodes: [], nextNodeAt: T0, nextId: 1 })
     const later = advance(state!, T0 + 1000)
-    expect(later.bands).toHaveLength(1)
+    expect(later.bands.filter((band) => !band.encampment)).toHaveLength(1)
     expect(later.nodes).toHaveLength(1)
     // Ce qui n'existe plus dans le jeu est oublié.
     expect(state).not.toHaveProperty('desertions')
@@ -193,7 +200,7 @@ describe('restoreState', () => {
     }
     const state = restoreState({ ...newGame('orcs', T0), heroes: undefined, armies: [army] })!
     expect(state.heroes).toEqual([])
-    expect(state.armies).toEqual([{ ...army, hero: null, dragon: false }])
+    expect(state.armies).toEqual([{ ...army, hero: null, dragon: false, key: false }])
   })
 
   it('une cité d’avant les raids attire son premier raid si son Château est assez grand', () => {

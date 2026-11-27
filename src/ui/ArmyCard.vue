@@ -78,6 +78,10 @@ const load = computed(() =>
       (niveau {{ hero.level }})
     </p>
     <p v-if="army.dragon"><span aria-hidden="true">🐉</span> Le dragon l’accompagne (niveau {{ dragonLevel(state) }}).</p>
+    <p v-if="army.key" class="hint">
+      <span aria-hidden="true">🗝️</span> Ton armée porte la clef du campement : mène-la au seuil de la porte, à l’est du
+      cirque, pour l’ouvrir. Si elle tombe ou rentre à la cité, la clef retourne à son gardien.
+    </p>
     <p v-if="eta !== null">Arrivée dans {{ formatDuration(eta) }}.</p>
     <div v-if="fight" class="fight">
       <p>

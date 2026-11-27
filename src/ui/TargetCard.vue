@@ -59,6 +59,16 @@ function ofResource(id: keyof typeof RESOURCES): string {
   return /^[aeiouh]/.test(name) ? `d’${name}` : `de ${name}`
 }
 
+/** Ce que sont les bandes du grand campement. */
+const ENCAMPMENT_TEXTS: Partial<Record<string, string>> = {
+  crocs:
+    'Une patrouille du campement des Crocs : elle fait sa ronde dans le cirque, et attaque toute armée qui entre dans sa zone d’aggro.',
+  keeper:
+    'Il garde la clef de la porte du campement. Vaincs-le : ton armée emportera la clef, qui ouvre la porte à l’est du cirque, vers la région d’au-delà.',
+  eliteGuard: 'Un garde d’élite du Seigneur des Crocs : il ne quitte pas sa place, et attaque toute armée qui l’approche.',
+  warlord: 'Le Seigneur des Crocs, chef du campement : il tient le centre du cirque, entouré de sa garde.',
+}
+
 function total(monsters: Monsters): number {
   return Object.values(monsters).reduce((sum, count) => sum + (count ?? 0), 0)
 }
@@ -93,6 +103,8 @@ const info = computed(() => {
       raid: band.raid,
       arrival: raidArrival(band),
       besieging: siegeOf(props.state)?.band === band.id,
+      encampment: band.encampment,
+      bandKind: band.kind,
     }
   }
   if (target.type === 'node') {
@@ -243,6 +255,17 @@ const fieldArmies = computed(() =>
         Ce camp est vide : tes troupes l’ont vaincu. Ses monstres reviendront dans
         <strong>{{ formatDuration(info.emptyUntil - now) }}</strong>.
       </p>
+      <template v-else-if="info.kind === 'band' && info.encampment">
+        <p class="muted">{{ ENCAMPMENT_TEXTS[info.bandKind] ?? '' }}</p>
+        <p class="warning">
+          Une épreuve pour plusieurs armées : seule, la tienne n’en viendra sans doute pas à bout. (Pour tester seul,
+          le mode d’essai du Menu renforce tes troupes.)
+        </p>
+        <p v-if="state.encampment.resetAt !== null" class="muted">
+          Le campement se repeuple dans {{ formatDuration(Math.max(0, state.encampment.resetAt - now)) }} : patrouilles
+          et chefs reviennent, et sa porte se referme.
+        </p>
+      </template>
       <p v-else-if="info.kind === 'band'" class="muted">
         Une bande de monstres : elle patrouille autour de son repaire et attaque toute armée qui entre dans sa zone
         d’aggro, le cercle rouge sur la carte.<template v-if="info.weakened">

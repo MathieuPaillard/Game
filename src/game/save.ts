@@ -102,6 +102,8 @@ export function restoreState(saved: unknown): GameState | null {
         troops: { ...emptyArmy(), ...army.troops },
         hero: army.hero ?? null,
         dragon: army.dragon ?? false,
+        // Avant le grand campement, personne ne portait sa clef.
+        key: army.key ?? false,
       })),
       battles: (state.battles ?? []).map((battle) => ({
         ...battle,
@@ -118,6 +120,8 @@ export function restoreState(saved: unknown): GameState | null {
       // Avant le repeuplement des camps, un camp vaincu restait là ; et le mode d'essai n'existait pas.
       campsCleared: state.campsCleared ?? {},
       trial: state.trial ?? false,
+      // Avant le grand campement : il se peuple dès que la partie avance.
+      encampment: state.encampment ?? { resetAt: state.updatedAt, gateOpen: false },
       // Une bande sans monstres (une ancienne version en laissait parfois) n'a plus rien à faire sur la carte.
       bands: (state.bands ?? []).map((band) => upgradeBand(band, state.updatedAt)).filter(hasMonsters),
       // Avant les bandes et les gisements, la carte était vide : ils arrivent peu à peu.
@@ -157,6 +161,9 @@ function isSound(state: GameState): boolean {
     [state.nextBandAt, state.nextNodeAt, state.nextRaidAt].every(finiteOrNull) &&
     [state.resources, state.levels, state.techs, state.troops, state.campsCleared].every(isCounts) &&
     typeof state.trial === 'boolean' &&
+    isObject(state.encampment) &&
+    finiteOrNull(state.encampment.resetAt) &&
+    typeof state.encampment.gateOpen === 'boolean' &&
     works.every((work) => isObject(work) && finite(work.endsAt)) &&
     state.heroes.every((hero) => isObject(hero) && finite(hero.level) && finite(hero.xp)) &&
     state.armies.every(
@@ -242,7 +249,7 @@ function hasMonsters(band: Band): boolean {
  * Et avant les raids, toutes les bandes faisaient des rondes.
  */
 function upgradeBand(band: SavedBand, updatedAt: number): Band {
-  if (band.home) return { ...band, raid: band.raid ?? false } as Band
+  if (band.home) return { ...band, raid: band.raid ?? false, encampment: band.encampment ?? false, still: band.still ?? false } as Band
   return {
     id: band.id ?? 0,
     kind: band.kind ?? 'wolves',
@@ -253,6 +260,8 @@ function upgradeBand(band: SavedBand, updatedAt: number): Band {
     since: updatedAt,
     direction: 1,
     raid: false,
+    encampment: false,
+    still: false,
   }
 }
 

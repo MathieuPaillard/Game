@@ -38,6 +38,15 @@ import { STATUS_ICONS, fightFx, monstersIcon, shot, type Selection } from './wor
 // jusqu'à un endroit ou une cible : en relâchant, elle reçoit cet ordre.
 const props = defineProps<{ state: GameState; now: number; selection: Selection | null; cityName: string }>()
 
+/** L'insigne des chefs du grand campement. */
+const CHIEF_BADGES: Partial<Record<string, string>> = { keeper: '🗝️', eliteGuard: '🛡️', warlord: '👑' }
+
+// Le grand campement se repeuple bientôt : dans combien de temps.
+const encampmentBack = computed(() => {
+  const at = props.state.encampment.resetAt
+  return at === null ? null : Math.max(0, at - props.now)
+})
+
 // Le relief, qui ne change pas : les massifs de la barrière, et la porte du grand campement.
 const MASSIFS = MOUNTAINS.map((massif) => massif.map((p) => `${p.x},${p.y}`).join(' '))
 const GATE = ENCAMPMENT_GATE.map((p) => `${p.x},${p.y}`).join(' ')
@@ -208,7 +217,7 @@ const route = computed<{ from: Point; to: Point; target: Target | null } | null>
 const routeLine = computed(() => {
   const path = route.value
   if (!path) return null
-  const points = routeBetween(path.from, path.to)
+  const points = routeBetween(props.state, path.from, path.to)
   return { points: (points ?? [path.from, path.to]).map((p) => `${p.x},${p.y}`).join(' '), blocked: points === null }
 })
 
@@ -282,17 +291,23 @@ const bands = computed(() => {
       target,
       ...drawnPosition(band, props.now),
       raid: band.raid,
-      loop: band.raid
-        ? ''
-        : patrolLoop(band.home)
-            .map((p) => `${p.x},${p.y}`)
-            .join(' '),
+      // Un chef du grand campement garde sa place : pas de ronde, mais un insigne.
+      still: band.still,
+      chief: band.still ? (CHIEF_BADGES[band.kind] ?? null) : null,
+      loop:
+        band.raid || band.still
+          ? ''
+          : patrolLoop(band.home)
+              .map((p) => `${p.x},${p.y}`)
+              .join(' '),
       radius: aggroRadius(band.level),
       name: band.raid ? `Raid : ${name}` : name,
       sublabel: band.raid ? raidState : null,
       label: band.raid
         ? `Raid : ${name}, niveau ${band.level}, ${besieging === band.id ? 'assiège la cité' : left === null ? 'au combat' : `arrive à la cité dans ${formatDuration(left)}`}`
-        : `${name}, bande de niveau ${band.level}${band.since === null ? ', au combat' : ', en patrouille'}`,
+        : band.still
+          ? `${name}, chef du grand campement, niveau ${band.level}${band.since === null ? ', au combat' : ''}`
+          : `${name}, bande de niveau ${band.level}${band.since === null ? ', au combat' : ', en patrouille'}`,
       level: band.level,
       icon: monstersIcon(band.monsters),
       danger: dangers.value.has(band.id),
@@ -303,7 +318,7 @@ const bands = computed(() => {
     }
   })
 })
-const patrols = computed(() => bands.value.filter((band) => !band.raid))
+const patrols = computed(() => bands.value.filter((band) => !band.raid && !band.still))
 const raids = computed(() => bands.value.filter((band) => band.raid))
 
 const armies = computed(() =>
@@ -320,6 +335,7 @@ const armies = computed(() =>
       status: army.status,
       fight: battle ? fightFx(battle) : null,
       dragon: army.dragon,
+      hasKey: army.key,
     }
   }),
 )
@@ -388,12 +404,25 @@ const battles = computed(() =>
       <polygon :points="mountainLight(peak)" class="rock-light" />
       <polygon :points="mountainSnow(peak)" class="snow" />
     </g>
-    <g class="gate" aria-label="Porte du grand campement : fermée" role="img">
-      <polygon :points="GATE" class="gate-door" />
-      <text class="emoji" font-size="30" :x="GATE_AT.x" :y="GATE_AT.y">🔒</text>
+    <g
+      class="gate"
+      role="img"
+      :aria-label="state.encampment.gateOpen ? 'Porte du grand campement : ouverte' : 'Porte du grand campement : fermée, il faut sa clef'"
+    >
+      <polygon v-if="!state.encampment.gateOpen" :points="GATE" class="gate-door" />
+      <text class="emoji" font-size="30" :x="GATE_AT.x" :y="GATE_AT.y">{{ state.encampment.gateOpen ? '🔓' : '🔒' }}</text>
     </g>
-    <text class="map-label encampment-name" :x="ENCAMPMENT.center.x" :y="ENCAMPMENT.center.y - ENCAMPMENT.radius + 46">
+    <!-- Son nom, sur la crête au-dessus du cirque, où rien ne le cache -->
+    <text class="map-label encampment-name" :x="ENCAMPMENT.center.x" :y="ENCAMPMENT.center.y - ENCAMPMENT.radius - 34">
       {{ ENCAMPMENT.name }}
+    </text>
+    <text
+      v-if="encampmentBack !== null"
+      class="map-sublabel"
+      :x="ENCAMPMENT.center.x"
+      :y="ENCAMPMENT.center.y - ENCAMPMENT.radius - 8"
+    >
+      Se repeuple dans {{ formatClock(encampmentBack) }}
     </text>
     <g v-for="camp in CAMPS" :key="`road-${camp.id}`">
       <line :x1="city.x" :y1="city.y" :x2="camp.position.x" :y2="camp.position.y" class="trail-edge" />
@@ -547,6 +576,10 @@ const battles = computed(() =>
         <circle r="14" class="badge level" />
         <text class="badge-text">{{ band.level }}</text>
       </g>
+      <g v-if="band.chief" transform="translate(-28 -22)">
+        <circle r="15" class="badge key-badge" />
+        <text class="emoji" font-size="18">{{ band.chief }}</text>
+      </g>
       <text class="map-label" y="50">{{ band.name }}</text>
       <text v-if="band.sublabel" class="map-sublabel raid-state" y="72">{{ band.sublabel }}</text>
       <template v-if="band.fight">
@@ -588,6 +621,10 @@ const battles = computed(() =>
       <g v-if="army.dragon" transform="translate(-28 -24)">
         <circle r="17" class="badge dragon-badge" />
         <text class="emoji" font-size="20">🐉</text>
+      </g>
+      <g v-if="army.hasKey" transform="translate(30 20)">
+        <circle r="15" class="badge key-badge" />
+        <text class="emoji" font-size="18">🗝️</text>
       </g>
       <text class="map-label" y="-44">{{ army.size }}</text>
       <template v-if="army.fight">
@@ -812,6 +849,12 @@ const battles = computed(() =>
 
 .encampment-name {
   font-size: 30px;
+}
+
+.key-badge {
+  fill: var(--stone);
+  stroke: var(--gilt);
+  stroke-width: 2;
 }
 
 .route.aiming {
