@@ -1,7 +1,15 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { MAX_LEVEL, RESOURCES, RESOURCE_IDS, type BuildingDef } from '../game/config'
-import { buildingOutput, checkUpgrade, constructionOf, upgradeCost, upgradeDuration, type GameState } from '../game/rules'
+import {
+  buildingOutput,
+  checkUpgrade,
+  constructionOf,
+  storageCapacity,
+  upgradeCost,
+  upgradeDuration,
+  type GameState,
+} from '../game/rules'
 import { formatAmount, formatDuration } from './format'
 
 const props = defineProps<{ building: BuildingDef; state: GameState; now: number }>()
@@ -29,6 +37,9 @@ const cost = computed(() => {
 const duration = computed(() => upgradeDuration(props.state, props.building, target.value))
 const outputNow = computed(() => buildingOutput(props.state, props.building, level.value))
 const outputNext = computed(() => buildingOutput(props.state, props.building, target.value))
+// L'Entrepôt : ce que gardent les réserves de chaque ressource, maintenant et au niveau suivant.
+const roomNow = computed(() => storageCapacity(props.state))
+const roomNext = computed(() => storageCapacity(props.state, target.value))
 </script>
 
 <template>
@@ -46,6 +57,10 @@ const outputNext = computed(() => buildingOutput(props.state, props.building, ta
     <p v-if="building.produces" class="plaque-output">
       {{ RESOURCES[building.produces].icon }} {{ formatAmount(outputNow) }}/h
       <span v-if="!maxed" class="muted">→ {{ formatAmount(outputNext) }}/h au niveau {{ target }}</span>
+    </p>
+    <p v-if="building.id === 'warehouse'" class="plaque-output">
+      Tes réserves gardent <strong>{{ formatAmount(roomNow) }}</strong> de chaque ressource
+      <span v-if="!maxed" class="muted">→ {{ formatAmount(roomNext) }} au niveau {{ target }}</span>
     </p>
 
     <div class="plaque-foot">

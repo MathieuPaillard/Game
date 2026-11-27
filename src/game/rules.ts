@@ -94,6 +94,8 @@ import {
   START_NODES,
   START_RESOURCES,
   STARVATION_ATTACK_MALUS,
+  STORAGE_BASE,
+  STORAGE_GROWTH,
   TRIAL_BOOST,
   TECHS,
   TRAINING_BATCH_PER_LEVEL,
@@ -653,16 +655,40 @@ export function canAfford(resources: Resources, cost: Partial<Resources>): boole
   return RESOURCE_IDS.every((id) => resources[id] >= (cost[id] ?? 0))
 }
 
-/** Peut-on payer ? Sinon, ce qui manque : « Il manque 65 de mana et 120 de pierre ». */
-export function checkCost(resources: Resources, cost: Partial<Resources>): Check {
-  const missing = RESOURCE_IDS.filter((id) => resources[id] < (cost[id] ?? 0)).map((id) => {
-    const name = RESOURCES[id].name.toLowerCase()
-    const of = /^[aeiouh]/.test(name) ? 'd’' : 'de '
-    return `${Math.ceil((cost[id] ?? 0) - resources[id])} ${of}${name}`
-  })
-  if (missing.length === 0) return { ok: true }
+/** « de pierre », « d’or » : le nom d'une ressource, après un nombre. */
+function ofResource(id: ResourceId): string {
+  const name = RESOURCES[id].name.toLowerCase()
+  return `${/^[aeiouh]/.test(name) ? 'd’' : 'de '}${name}`
+}
+
+/**
+ * Peut-on payer ? Sinon, ce qui manque : « Il manque 65 de mana et 120 de pierre ». Avec la place des
+ * réserves (`capacity`), un coût qui la dépasse demande d'abord un plus grand Entrepôt : la production
+ * ne pourra jamais l'atteindre.
+ */
+export function checkCost(resources: Resources, cost: Partial<Resources>, capacity = Infinity): Check {
+  const short = RESOURCE_IDS.filter((id) => resources[id] < (cost[id] ?? 0))
+  if (short.length === 0) return { ok: true }
+  const tooBig = short.find((id) => (cost[id] ?? 0) > capacity)
+  if (tooBig) {
+    return { ok: false, reason: `Tes réserves ne gardent que ${Math.floor(capacity)} ${ofResource(tooBig)} : agrandis l’Entrepôt` }
+  }
+  const missing = short.map((id) => `${Math.ceil((cost[id] ?? 0) - resources[id])} ${ofResource(id)}`)
   const list = missing.length === 1 ? missing[0] : `${missing.slice(0, -1).join(', ')} et ${missing[missing.length - 1]}`
   return { ok: false, reason: `Il manque ${list}` }
+}
+
+/**
+ * Ce que les réserves gardent de chaque ressource : l'Entrepôt, plus l'Intendance. Au-delà, la
+ * production s'arrête (voir accrue) ; le butin, les récoltes et les récompenses entrent quand même.
+ */
+export function storageCapacity(state: GameState, warehouseLevel = state.levels.warehouse): number {
+  return Math.floor(STORAGE_BASE * STORAGE_GROWTH ** warehouseLevel * (1 + techBonus(state, 'storage')))
+}
+
+/** Peut-on payer ce coût ? Avec la place des réserves : un coût qui la dépasse demande un plus grand Entrepôt. */
+function checkPay(state: GameState, cost: Partial<Resources>): Check {
+  return checkCost(state.resources, cost, storageCapacity(state))
 }
 
 /** Ajoute (ou retire, avec sign = -1) des ressources. */
@@ -785,7 +811,7 @@ export function checkUpgrade(state: GameState, buildingId: BuildingId): Check {
   if (state.constructions.length >= slots) {
     return { ok: false, reason: slots === 1 ? 'Un chantier est déjà en cours' : `Tes ${slots} chantiers sont occupés` }
   }
-  return checkCost(state.resources, upgradeCost(building, level + 1))
+  return checkPay(state, upgradeCost(building, level + 1))
 }
 
 /** Lance l'amélioration d'un bâtiment : retire son coût et ouvre le chantier. */
@@ -843,7 +869,7 @@ export function checkResearch(state: GameState, techId: TechId): Check {
   if (level >= tech.maxLevel) return { ok: false, reason: 'Niveau maximum atteint' }
   if (level + 1 > academy) return { ok: false, reason: `Nécessite l’Académie niveau ${level + 1}` }
   if (state.research) return { ok: false, reason: 'Une recherche est déjà en cours' }
-  return checkCost(state.resources, researchCost(tech, level + 1))
+  return checkPay(state, researchCost(tech, level + 1))
 }
 
 /** Lance une recherche : retire son coût, le nouveau niveau s'applique à la fin. */
@@ -952,7 +978,7 @@ export function checkCast(state: GameState, spellId: SpellId): Check {
   if (state.spells.some((active) => active.spell === spellId)) return { ok: false, reason: 'Ce sort agit déjà' }
   const ready = state.spellsReadyAt[spellId]
   if (ready !== undefined && state.updatedAt < ready) return { ok: false, reason: 'Ce sort se recharge' }
-  return checkCost(state.resources, spell.cost)
+  return checkPay(state, spell.cost)
 }
 
 /** Lance un sort : il coûte du mana, et agit tout de suite, pour sa durée. */
@@ -1103,7 +1129,7 @@ export function checkHatch(state: GameState): Check {
   if (dragon.stage === 'hatching') return { ok: false, reason: 'L’œuf est déjà en train d’éclore' }
   if (dragon.stage === 'grown') return { ok: false, reason: 'Le dragon est déjà né' }
   if (state.levels.dragonRoost < 1) return { ok: false, reason: 'Construis d’abord l’Aire du dragon' }
-  return checkCost(state.resources, DRAGON_HATCH_COST)
+  return checkPay(state, DRAGON_HATCH_COST)
 }
 
 /** On couve l'œuf dans l'Aire du dragon : il éclora dans DRAGON_HATCH_SECONDS. */
@@ -1212,7 +1238,7 @@ export function checkRecruit(state: GameState, heroId: HeroId): Check {
   if (state.levels.castle < hero.castleLevel) {
     return { ok: false, reason: `Nécessite le Château niveau ${hero.castleLevel}` }
   }
-  return checkCost(state.resources, hero.cost)
+  return checkPay(state, hero.cost)
 }
 
 /** Recrute un héros : il arrive au niveau 1, avec un point de compétence à placer. */
@@ -3330,12 +3356,20 @@ export function advance(state: GameState, now: number): GameState {
   return accrue(current, now)
 }
 
-/** Ajoute la production gagnée (moins l'entretien) entre `state.updatedAt` et `until`. */
+/**
+ * Ajoute la production gagnée (moins l'entretien) entre `state.updatedAt` et `until`. Une réserve pleine
+ * ne grandit plus : la production s'arrête à la place des réserves (storageCapacity), sans rien retirer
+ * de ce qui la dépasse déjà (un butin, une récompense). L'entretien, lui, continue de la vider.
+ */
 function accrue(state: GameState, until: number): GameState {
   const hours = Math.max(0, until - state.updatedAt) / HOUR
   const rates = netPerHour(state)
+  const room = storageCapacity(state)
   const resources = { ...state.resources }
-  // Les réserves ne descendent jamais sous zéro. Quand la nourriture manque, les troupes ont faim (isStarving).
-  for (const id of RESOURCE_IDS) resources[id] = Math.max(0, resources[id] + rates[id] * hours)
+  for (const id of RESOURCE_IDS) {
+    const reached = resources[id] + rates[id] * hours
+    // Les réserves ne descendent jamais sous zéro. Quand la nourriture manque, les troupes ont faim (isStarving).
+    resources[id] = rates[id] > 0 ? Math.max(resources[id], Math.min(room, reached)) : Math.max(0, reached)
+  }
   return { ...state, resources, updatedAt: Math.max(state.updatedAt, until) }
 }

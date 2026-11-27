@@ -78,6 +78,8 @@ export const CITY_PLOTS: Record<BuildingId, Point> = {
   walls: { x: 700, y: 760 },
   // L'Aire du dragon domine la cité, au nord, hors de l'enceinte.
   dragonRoost: { x: 560, y: 165 },
+  // L'Entrepôt lui fait face, au nord-est, lui aussi hors de l'enceinte.
+  warehouse: { x: 840, y: 165 },
 }
 
 /** Dans la cité, on peut aussi toucher la garnison (les troupes au repos) et le quartier des héros. */
@@ -120,7 +122,7 @@ export const CITY_DECOR = {
     ...scatter(11, 18, 760, 880, 520, 110),
   ]
     .filter(outsideWall)
-    .filter(farFrom([CITY_PLOTS.sawmill, CITY_PLOTS.quarry, CITY_PLOTS.dragonRoost], 100))
+    .filter(farFrom([CITY_PLOTS.sawmill, CITY_PLOTS.quarry, CITY_PLOTS.dragonRoost, CITY_PLOTS.warehouse], 100))
     .sort((a, b) => a.y - b.y),
 }
 

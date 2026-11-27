@@ -47,6 +47,7 @@ Pour chaque image : le nom du fichier à utiliser, puis ce qu'il faut écrire ap
 | `batiment-tour-mages.png` | Bâtiment : une haute tour de pierre bleu nuit, au sommet pointu entouré d'un halo violet et d'étincelles. |
 | `batiment-remparts.png` | Bâtiment : une porte fortifiée en pierre grise, entre deux tours crénelées, avec une herse de bois et de fer à demi levée. |
 | `batiment-aire-dragon.png` | Bâtiment : un piton rocheux sombre, creusé d'une grande alcôve où rougeoient des braises, avec un nid de branches calcinées. |
+| `batiment-entrepot.png` | Bâtiment : un grand entrepôt de bois et de pierre au toit de tuiles, portes ouvertes sur des sacs de grain, des tonneaux, des rondins et des caisses. |
 
 ### Races
 

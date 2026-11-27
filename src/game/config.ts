@@ -93,6 +93,7 @@ export type BuildingId =
   | 'mageTower'
   | 'walls'
   | 'dragonRoost'
+  | 'warehouse'
 
 export interface BuildingDef {
   id: BuildingId
@@ -222,10 +223,27 @@ export const BUILDINGS: BuildingDef[] = [
     baseCost: { wood: 900, stone: 1200, gold: 500, mana: 300 },
     baseDurationSeconds: 60,
   },
+  {
+    id: 'warehouse',
+    name: 'Entrepôt',
+    icon: '📦',
+    description:
+      'Il garde tes réserves. Quand une réserve est pleine, la production de cette ressource s’arrête : chaque niveau garde davantage.',
+    unlockedAtCastleLevel: 1,
+    baseCost: { wood: 120, stone: 100 },
+    baseDurationSeconds: 8,
+  },
 ]
 
 /** Niveau maximum des bâtiments, pour l'instant. */
 export const MAX_LEVEL = 10
+
+// Les réserves ont une limite : ce que garde l'Entrepôt, la même pour chaque ressource. Au-delà, la
+// production s'arrête ; ce que rapportent les armées, les objectifs et les sièges entre quand même.
+/** Ce que les réserves gardent de chaque ressource, sans Entrepôt. */
+export const STORAGE_BASE = 1000
+/** Chaque niveau d'Entrepôt garde 1,6 fois plus que le précédent : autant que grandissent les coûts. */
+export const STORAGE_GROWTH = 1.6
 /** Un seul chantier à la fois au début : un second s'ouvre à ce niveau du Château. */
 export const SECOND_CONSTRUCTION_CASTLE_LEVEL = 5
 /** Chaque niveau coûte 1,6 fois plus que le précédent. */
@@ -366,6 +384,7 @@ export type TechId =
   | 'armor'
   | 'masonry'
   | 'forcedMarch'
+  | 'stewardship'
 
 /** Ce que rapporte chaque niveau d'une recherche. */
 export type TechEffect =
@@ -375,6 +394,8 @@ export type TechEffect =
   | { kind: 'armies'; perLevel: number }
   | { kind: 'marchSpeed'; perLevel: number }
   | { kind: 'constructionSpeed'; perLevel: number }
+  /** Place en plus dans les réserves (voir STORAGE_BASE). */
+  | { kind: 'storage'; perLevel: number }
 
 export interface TechDef {
   id: TechId
@@ -481,6 +502,17 @@ export const TECHS: TechDef[] = [
     unlockedAtAcademyLevel: 3,
     baseCost: { food: 300, gold: 120 },
     baseDurationSeconds: 30,
+  },
+  {
+    id: 'stewardship',
+    name: 'Intendance',
+    icon: '🧮',
+    description: '+10 % de place dans les réserves, par niveau',
+    effect: { kind: 'storage', perLevel: 0.1 },
+    maxLevel: 5,
+    unlockedAtAcademyLevel: 2,
+    baseCost: { wood: 200, stone: 200, gold: 60 },
+    baseDurationSeconds: 25,
   },
 ]
 
@@ -1542,6 +1574,13 @@ export const QUESTS: QuestDef[] = [
     reward: { wood: 200, stone: 150 },
   },
   {
+    id: 'warehouse',
+    name: 'Un entrepôt pour tes réserves',
+    description: 'Construis l’Entrepôt : quand une réserve est pleine, sa production s’arrête.',
+    goal: { kind: 'building', building: 'warehouse', level: 1 },
+    reward: { wood: 200, stone: 200 },
+  },
+  {
     id: 'barracks',
     name: 'Une caserne pour la garde',
     description: 'Construis la Caserne.',
@@ -1723,4 +1762,5 @@ export const START_LEVELS: Record<BuildingId, number> = {
   mageTower: 0,
   walls: 0,
   dragonRoost: 0,
+  warehouse: 0,
 }

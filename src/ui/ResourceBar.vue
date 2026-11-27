@@ -1,20 +1,40 @@
 <script setup lang="ts">
-import { RESOURCES, RESOURCE_IDS, type Resources } from '../game/config'
-import { formatRate, formatShort } from './format'
+import { RESOURCES, RESOURCE_IDS, type ResourceId, type Resources } from '../game/config'
+import { formatAmount, formatRate, formatShort } from './format'
 
 // Le registre des ressources, en haut de l'écran de jeu.
 // `rates` : ce que la cité gagne vraiment par heure (production moins entretien des troupes).
-defineProps<{ resources: Resources; rates: Resources }>()
+// `capacity` : ce que gardent les réserves de chaque ressource (l'Entrepôt) ; pleine, une réserve ne grandit plus.
+const props = defineProps<{ resources: Resources; rates: Resources; capacity: number }>()
+
+/** La réserve est pleine et sa production s'arrête (une réserve qui baisse ne l'est plus pour longtemps). */
+function full(id: ResourceId): boolean {
+  return props.resources[id] >= props.capacity && props.rates[id] > 0
+}
+
+/** Ce que la réserve remplit de sa place, de 0 à 1. */
+function fill(id: ResourceId): number {
+  return Math.min(1, props.resources[id] / props.capacity)
+}
 </script>
 
 <template>
   <ul class="ledger" aria-label="Ressources">
-    <li v-for="id in RESOURCE_IDS" :key="id" class="res">
+    <li
+      v-for="id in RESOURCE_IDS"
+      :key="id"
+      class="res"
+      :class="{ full: full(id), nearly: fill(id) >= 0.9 }"
+      :title="`${RESOURCES[id].name} : ${formatAmount(resources[id])} sur ${formatAmount(capacity)} (Entrepôt)`"
+    >
       <span class="res-icon" aria-hidden="true">{{ RESOURCES[id].icon }}</span>
       <span class="res-text">
         <span class="sr-only">{{ RESOURCES[id].name }} :</span>
         <span class="res-amount">{{ formatShort(resources[id]) }}</span>
-        <span class="res-rate" :class="{ negative: rates[id] < -0.5 }">{{ formatRate(rates[id]) }}</span>
+        <span class="sr-only">sur {{ formatAmount(capacity) }}</span>
+        <span v-if="full(id)" class="res-rate">plein</span>
+        <span v-else class="res-rate" :class="{ negative: rates[id] < -0.5 }">{{ formatRate(rates[id]) }}</span>
+        <span class="res-room" aria-hidden="true"><span :style="{ width: `${fill(id) * 100}%` }"></span></span>
       </span>
     </li>
   </ul>
@@ -69,6 +89,36 @@ defineProps<{ resources: Resources; rates: Resources }>()
   font-weight: 700;
 }
 
+/* La place de la réserve : un mince trait qui se remplit. */
+.res-room {
+  display: block;
+  height: 2px;
+  margin-top: 2px;
+  border-radius: 1px;
+  background: var(--seam);
+  overflow: hidden;
+}
+
+.res-room > span {
+  display: block;
+  height: 100%;
+  background: var(--faded);
+}
+
+/* Presque pleine, puis pleine : la production va s'arrêter, puis s'arrête. Il faut agrandir l'Entrepôt. */
+.res.nearly .res-room > span {
+  background: var(--gilt);
+}
+
+.res.full .res-amount,
+.res.full .res-rate {
+  color: var(--gilt);
+}
+
+.res.full .res-rate {
+  font-weight: 700;
+}
+
 /* Écran étroit (téléphone tenu en hauteur) : chaque ressource sur une colonne, l'icône au-dessus. */
 @media (max-width: 34rem) {
   .ledger {
@@ -85,6 +135,10 @@ defineProps<{ resources: Resources; rates: Resources }>()
 
   .res-text {
     align-items: center;
+  }
+
+  .res-room {
+    align-self: stretch;
   }
 
   .res-amount {

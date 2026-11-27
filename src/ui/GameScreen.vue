@@ -34,6 +34,7 @@ import {
   questProgress,
   siegeOf,
   skillPoints,
+  storageCapacity,
   timeUntilFamine,
   type GameState,
   type Target,
@@ -260,6 +261,7 @@ watch(
 const race = computed(() => getRace(props.state.race))
 const cityName = computed(() => `Cité des ${race.value.name}`)
 const rates = computed(() => netPerHour(props.state))
+const capacity = computed(() => storageCapacity(props.state))
 // La famine ne s'affiche sur la carte que lorsqu'elle approche : avant, le débit rouge du registre suffit.
 const FAMINE_ALERT_MS = 2 * 60 * 60 * 1000
 const famine = computed(() => {
@@ -470,7 +472,7 @@ onBeforeUnmount(() => {
         <span aria-hidden="true">🧪</span> Essai ×{{ TRIAL_BOOST }}
         <span class="sr-only">: le mode d’essai renforce tes troupes</span>
       </p>
-      <ResourceBar :resources="state.resources" :rates="rates" />
+      <ResourceBar :resources="state.resources" :rates="rates" :capacity="capacity" />
     </header>
 
     <div class="body">

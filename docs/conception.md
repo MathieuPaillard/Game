@@ -40,6 +40,9 @@ Boucle de jeu : récolter des ressources → construire et améliorer → entra�
 
 - **[Décidé]** On récolte aussi des ressources hors de la cité, sur les gisements de la carte des alentours (voir « Le monde »).
 - **[Décidé]** Les réserves ont une limite, qui dépend de bâtiments et de recherches : pour stocker davantage, il faut agrandir ses entrepôts.
+- **[Proposition]** L'**Entrepôt** (dès le Château niveau 1) fixe la place des réserves, la même pour chaque ressource : 1 000 sans Entrepôt, puis 1,6 fois plus à chaque niveau (1 600 au niveau 1, 4 096 au niveau 3, 16 777 au niveau 6, près de 110 000 au niveau 10). C'est autant que grandissent les coûts : avec un Entrepôt au niveau du Château, chaque coût du jeu tient dans les réserves (un test le vérifie, pour qu'aucune partie ne se bloque). La recherche **Intendance** (Académie niveau 2) ajoute 10 % de place par niveau, jusqu'à +50 %.
+- **[Proposition]** Quand une réserve est pleine, la production de cette ressource s'arrête : on le sent surtout pendant les absences. Ce que rapportent les armées (butin, récolte), les récompenses des objectifs et le butin des sièges entrent toujours, même au-delà de la limite : rien de ce qu'on gagne n'est perdu, mais la production ne reprend que quand la réserve redescend sous la limite. L'entretien des troupes, lui, continue de vider la nourriture. Un coût plus grand que la place des réserves le dit : « agrandis l'Entrepôt ».
+- **[Proposition]** Le registre des ressources, en haut de l'écran, montre sous chaque ressource la place prise dans sa réserve (dorée quand elle est presque pleine), et « plein » quand sa production s'arrête. Le résumé « Bon retour » dit quelles réserves sont pleines. Un objectif, juste après la Ferme niveau 2, fait construire l'Entrepôt.
 
 ## 4. Les races
 
@@ -174,7 +177,7 @@ Boucle de jeu : récolter des ressources → construire et améliorer → entra�
 ## 10. Les quêtes
 
 - **[Proposition]** Une suite d'objectifs guide le joueur, du premier chantier aux grandes batailles : un objectif à la fois, dans l'ordre, comme une histoire. Chaque objectif atteint donne une récompense en ressources, à recevoir d'un geste. Un bouton grisé dit pourquoi, et quand il manque des ressources, lesquelles et combien. L'objectif du moment s'affiche sur l'écran de jeu : quand il est atteint, un toucher suffit pour recevoir sa récompense.
-- **[Proposition]** Vingt-six objectifs pour commencer, environ trois heures et demie de jeu : construire la Mine d'or, monter le Château au niveau 2, la Ferme au niveau 2, construire la Caserne, rassembler 20 guerriers, recruter un héros, remporter une bataille, récolter 500 ressources sur les gisements, construire le Puits de mana (le Château 3 demande du mana, et un joueur ne le devinait pas), Château niveau 3, construire les Remparts, construire l'Académie, terminer une recherche, vaincre 3 bandes de monstres, monter un héros au niveau 3, repousser un raid, Château niveau 5 et remporter 10 batailles. Puis vient la légende du dragon : Château niveau 6, une victoire contre l'Antre du troll, les Remparts au niveau 3, le Nid de la vouivre (qui garde un œuf de dragon), l'Aire du dragon, l'éclosion, 3 raids repoussés, et le dragon au niveau 3.
+- **[Proposition]** Vingt-sept objectifs pour commencer, environ trois heures et demie de jeu : construire la Mine d'or, monter le Château au niveau 2, la Ferme au niveau 2, construire l'Entrepôt, construire la Caserne, rassembler 20 guerriers, recruter un héros, remporter une bataille, récolter 500 ressources sur les gisements, construire le Puits de mana (le Château 3 demande du mana, et un joueur ne le devinait pas), Château niveau 3, construire les Remparts, construire l'Académie, terminer une recherche, vaincre 3 bandes de monstres, monter un héros au niveau 3, repousser un raid, Château niveau 5 et remporter 10 batailles. Puis vient la légende du dragon : Château niveau 6, une victoire contre l'Antre du troll, les Remparts au niveau 3, le Nid de la vouivre (qui garde un œuf de dragon), l'Aire du dragon, l'éclosion, 3 raids repoussés, et le dragon au niveau 3.
 - **[Proposition]** Un objectif peut donner un présent en plus des ressources : « La légende du dragon » donne l'œuf de dragon.
 - **[À trancher]** La suite : des quêtes qui racontent l'histoire du royaume (avec des personnages), des quêtes quotidiennes, et les créatures légendaires, à gagner par des quêtes.
 
@@ -194,14 +197,14 @@ Chaque étape donne un jeu jouable.
 2. **Armées** : troupes, recherches, combats contre des monstres. *En place* : Caserne, quatre troupes, Académie et recherches, cartes de la cité et des alentours, plusieurs armées qu'on dirige sur la carte, camps de monstres, bandes de monstres qui patrouillent (avec leurs niveaux et leurs zones d'aggro), batailles qui durent et leurs rapports, gisements de ressources à récolter, des héros qui mènent les armées, et les Remparts contre les raids de monstres sur la cité.
 3. **Serveur et comptes joueurs** : sauvegarde en ligne ; le serveur décide de tout. *En cours* : comptes (nom et mot de passe), parties gardées sur le serveur, qui applique les règles, et partie sans compte toujours possible. Reste à mettre le jeu en ligne chez un hébergeur, plus tard.
 4. **Monde partagé** : la carte commune, les attaques entre joueurs (contre leurs Remparts), les alliances.
-5. **Contenu et mobile** : quêtes, livre de sorts, créatures légendaires, puis l'appli Android. *Commencé* : une première suite de vingt-six objectifs, avec leurs récompenses, les cinq premiers sorts de la Tour des mages, et le dragon, première créature légendaire.
+5. **Contenu et mobile** : quêtes, livre de sorts, créatures légendaires, puis l'appli Android. *Commencé* : une première suite de vingt-sept objectifs, avec leurs récompenses, les cinq premiers sorts de la Tour des mages, et le dragon, première créature légendaire.
 
 La suite, décidée le 27 novembre 2026, dans l'ordre :
 
 1. Les camps qui se repeuplent, et un mode d'essai qui renforce les troupes. *Fait.*
 2. Le premier grand campement, d'après le plan. *Fait* : montagnes et col, porte et clef, chefs, tour de guet, pièges, patrouilles qui poursuivent les armées.
 3. Des sorts de plusieurs dizaines de minutes, et des sorts de défense pour les absences. *Fait.*
-4. La limite des réserves : entrepôts et recherches.
+4. La limite des réserves : entrepôts et recherches. *Fait* : l'Entrepôt et l'Intendance.
 5. L'hôpital et les soigneurs de chaque race.
 6. Le dragon dans l'armée : le cône de flammes et les natures de dragon.
 7. La progression sur plusieurs mois : des durées bien plus longues, des niveaux sans limite.

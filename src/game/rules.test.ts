@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { isStrongAgainst } from './battle.ts'
 import { insideAny } from './terrain.ts'
 import {
+  BUILDINGS,
+  TECHS,
+  type Resources,
   BAND_KINDS,
   BAND_SPAWN_SECONDS,
   BAND_SPOTS,
@@ -113,6 +116,9 @@ import {
   dragonXpForLevel,
   emptyArmy,
   emptyResources,
+  emptyTechs,
+  netPerHour,
+  storageCapacity,
   gainXp,
   gatherRate,
   getBandKind,
@@ -184,6 +190,13 @@ const CITY_TARGET: Target = { type: 'city' }
  * Une partie aux ressources illimitées, sans bandes ni gisements sur la carte (ni à venir) :
  * pour tester les règles sans dépendre de l'équilibrage ni du hasard.
  */
+/** Un Entrepôt démesuré : des réserves sans limite, pour les tests qui ne portent pas sur elle. */
+const ROOMY = 100
+
+function roomy(game: GameState): GameState {
+  return { ...game, levels: { ...game.levels, warehouse: ROOMY } }
+}
+
 function richGame(levels: Partial<Record<BuildingId, number>> = {}, troops: Partial<Army> = {}): GameState {
   const game = newGame('humans', T0)
   const resources = emptyResources()
@@ -191,7 +204,7 @@ function richGame(levels: Partial<Record<BuildingId, number>> = {}, troops: Part
   return {
     ...game,
     resources,
-    levels: { ...game.levels, ...levels },
+    levels: { ...game.levels, warehouse: ROOMY, ...levels },
     troops: { ...game.troops, ...troops },
     bands: [],
     nextBandAt: null,
@@ -370,7 +383,7 @@ function runUntil(game: GameState, done: (state: GameState) => boolean, limit = 
 
 describe('production', () => {
   it('accumule les ressources avec le temps', () => {
-    const game = newGame('humans', T0)
+    const game = roomy(newGame('humans', T0))
     const later = advance(game, T0 + HOUR)
     expect(later.resources.food).toBeCloseTo(START_RESOURCES.food + productionPerHour(game).food)
   })
@@ -463,6 +476,95 @@ describe('constructions', () => {
     const expected =
       productionPerHour(start).food * ((endsAt - T0) / HOUR) + productionPerHour(after).food
     expect(after.resources.food - start.resources.food).toBeCloseTo(expected)
+  })
+})
+
+describe('la limite des réserves', () => {
+  /** Une cité sans grand Entrepôt (sauf s'il est demandé) : la place de ses réserves compte. */
+  function cramped(resources: Partial<Resources>, warehouse = 0): GameState {
+    return { ...richGame({ warehouse }), resources: { ...emptyResources(), ...resources } }
+  }
+
+  it('l’Entrepôt et l’Intendance agrandissent les réserves', () => {
+    const game = cramped({})
+    expect(storageCapacity(cramped({}, 3))).toBeGreaterThan(storageCapacity(game))
+    expect(storageCapacity(game, 3)).toBe(storageCapacity(cramped({}, 3)))
+    const studied = { ...game, techs: { ...game.techs, stewardship: 2 } }
+    const effect = getTech('stewardship').effect
+    expect(effect.kind).toBe('storage')
+    expect(storageCapacity(studied) / storageCapacity(game)).toBeCloseTo(1 + 2 * effect.perLevel, 2)
+  })
+
+  it('une réserve pleine ne grandit plus : la production s’arrête, sans rien retirer de ce qui dépasse', () => {
+    const room = storageCapacity(cramped({}))
+    const game = cramped({ food: room - 10, wood: room * 2, stone: 0 })
+    expect(netPerHour(game).food).toBeGreaterThan(0)
+    const later = advance(game, T0 + 10 * HOUR)
+    expect(later.resources.food).toBe(room)
+    expect(later.resources.wood).toBe(room * 2)
+    expect(later.resources.stone).toBe(room)
+  })
+
+  it('l’entretien des troupes vide une réserve, même au-delà de la limite', () => {
+    const room = storageCapacity(cramped({}))
+    const hungry = { ...cramped({}), troops: army({ warrior: 50_000 }) }
+    const net = netPerHour(hungry).food
+    expect(net).toBeLessThan(0)
+    const full = room * 2 - 2 * net
+    const later = advance({ ...hungry, resources: { ...hungry.resources, food: full } }, T0 + HOUR)
+    expect(later.resources.food).toBeCloseTo(full + net)
+  })
+
+  it('d’un coup ou seconde par seconde, la limite donne le même résultat', () => {
+    const room = storageCapacity(cramped({}))
+    const game = cramped({ food: room - 300, wood: room / 2 })
+    const jump = advance(game, T0 + HOUR)
+    let step = game
+    for (let t = T0 + 1000; t <= T0 + HOUR; t += 1000) step = advance(step, t)
+    expectSameGame(jump, step)
+    expect(jump.resources.food).toBe(room)
+  })
+
+  it('le butin entre même au-delà de la limite : rien de ce que rapporte une armée n’est perdu', () => {
+    const den = getCamp('wolfDen')
+    const room = storageCapacity(cramped({}))
+    const kept = RESOURCE_IDS.find((id) => id !== 'food' && (den.loot[id] ?? 0) > 0)!
+    const game = { ...cramped({ food: 1e9, wood: room, stone: room, gold: room, mana: room }), troops: army({ warrior: 1000 }) }
+    const won = runUntil(startMarch(game, toCamp('wolfDen'), army({ warrior: 1000 }), T0), (s) => s.reports.length > 0)
+    const home = runUntil(orderArmy(won, won.armies[0].id, CITY_TARGET, won.updatedAt), (s) => s.armies.length === 0)
+    expect(home.resources[kept]).toBeCloseTo(room + (den.loot[kept] ?? 0))
+  })
+
+  it('un coût plus grand que les réserves demande d’abord un plus grand Entrepôt', () => {
+    expect(checkCost(emptyResources(), { stone: 500, gold: 50 }, 400)).toEqual({
+      ok: false,
+      reason: 'Tes réserves ne gardent que 400 de pierre : agrandis l’Entrepôt',
+    })
+    expect(checkCost(emptyResources(), { stone: 300 }, 400)).toEqual({ ok: false, reason: 'Il manque 300 de pierre' })
+    // Des réserves qui débordent (un butin) paient quand même un coût plus grand que leur place.
+    expect(checkCost({ ...emptyResources(), stone: 600 }, { stone: 500 }, 400)).toEqual({ ok: true })
+    const roost = { ...cramped({}), levels: { ...cramped({}).levels, castle: MAX_LEVEL, dragonRoost: MAX_LEVEL - 1 } }
+    expect(checkUpgrade(roost, 'dragonRoost')).toMatchObject({ ok: false, reason: expect.stringMatching(/agrandis l’Entrepôt$/) })
+  })
+
+  it('chaque coût tient dans les réserves qu’on peut avoir à ce moment-là : la partie ne peut pas se bloquer', () => {
+    for (let castle = 1; castle <= MAX_LEVEL; castle++) {
+      // Un Entrepôt au niveau du Château (il ne peut pas le dépasser), sans Intendance.
+      const room = storageCapacity({ ...cramped({}), techs: emptyTechs() }, castle)
+      const costs: Partial<Resources>[] = []
+      for (const building of BUILDINGS) {
+        if (building.unlockedAtCastleLevel > castle) continue
+        const top = building.id === 'castle' ? Math.min(castle + 1, MAX_LEVEL) : castle
+        for (let level = 1; level <= top; level++) costs.push(upgradeCost(building, level))
+      }
+      for (const tech of TECHS) {
+        for (let level = 1; level <= Math.min(tech.maxLevel, castle); level++) costs.push(researchCost(tech, level))
+      }
+      costs.push(...SPELLS.filter((spell) => spell.towerLevel <= castle).map((spell) => spell.cost))
+      costs.push(...HEROES.filter((hero) => hero.castleLevel <= castle).map((hero) => hero.cost))
+      if (castle >= getBuilding('dragonRoost').unlockedAtCastleLevel) costs.push(DRAGON_HATCH_COST)
+      for (const cost of costs) for (const id of RESOURCE_IDS) expect(cost[id] ?? 0).toBeLessThanOrEqual(room)
+    }
   })
 })
 
@@ -616,7 +718,7 @@ describe('entraînement', () => {
 
 describe('entretien des troupes', () => {
   it('les troupes mangent de la nourriture chaque heure', () => {
-    const game = { ...newGame('humans', T0), troops: army({ warrior: 100 }) }
+    const game = { ...roomy(newGame('humans', T0)), troops: army({ warrior: 100 }) }
     expect(upkeepPerHour(game)).toBe(100 * getUnit('warrior').upkeepPerHour)
     const later = advance(game, T0 + HOUR)
     expect(later.resources.food).toBeCloseTo(

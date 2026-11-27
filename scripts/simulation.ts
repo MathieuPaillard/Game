@@ -11,7 +11,7 @@
 // sur la cité, son armée part l'intercepter. Il couve l'œuf de dragon dès qu'il peut, et emmène le
 // dragon à chaque combat. Un vrai joueur fera mieux, ou moins bien.
 
-import { CAMPS, QUESTS, RACES, WORLD, type BuildingId, type RaceId } from '../src/game/config.ts'
+import { CAMPS, QUESTS, RACES, RESOURCE_IDS, WORLD, type BuildingId, type RaceId } from '../src/game/config.ts'
 import {
   advance,
   checkDragon,
@@ -41,6 +41,7 @@ import {
   startResearch,
   startTraining,
   startUpgrade,
+  storageCapacity,
   type GameState,
   type Target,
 } from '../src/game/rules.ts'
@@ -66,10 +67,16 @@ function upgrade(state: GameState, id: BuildingId, now: number): GameState | nul
   return checkUpgrade(state, id).ok ? startUpgrade(state, id, now) : null
 }
 
-/** Le bâtiment qu'il faut améliorer pour avancer vers ce bâtiment : lui, ou le Château d'abord. */
+/**
+ * Le bâtiment qu'il faut améliorer pour avancer vers ce bâtiment : lui, le Château d'abord, ou
+ * l'Entrepôt quand ses réserves ne peuvent pas garder ce qu'il coûte.
+ */
 function nextStep(state: GameState, id: BuildingId): BuildingId {
   const check = checkUpgrade(state, id)
-  return !check.ok && check.reason.startsWith('Nécessite le Château') ? 'castle' : id
+  if (check.ok) return id
+  if (check.reason.startsWith('Nécessite le Château')) return 'castle'
+  if (check.reason.startsWith('Tes réserves ne gardent') && id !== 'warehouse') return nextStep(state, 'warehouse')
+  return id
 }
 
 /** Construire : ce que demande l'objectif, puis le Château et l'économie, tant que c'est possible. */
@@ -83,6 +90,8 @@ function build(state: GameState, now: number): GameState {
   if (goal?.kind === 'research') wanted.push('academy')
   // La nourriture d'abord, quand l'armée mange presque tout ce que les fermes produisent.
   if (netPerHour(state).food < 200) wanted.push('farm')
+  // Une réserve presque pleine : sa production va s'arrêter, l'Entrepôt grandit.
+  if (RESOURCE_IDS.some((id) => state.resources[id] >= storageCapacity(state) * 0.9)) wanted.push('warehouse')
   const economy = [...ECONOMY].sort((a, b) => state.levels[a] - state.levels[b])
   for (const id of [...wanted, 'castle' as const, ...economy, 'barracks' as const, 'academy' as const]) {
     const next = upgrade(state, nextStep(state, id), now)

@@ -11,8 +11,10 @@ import {
   getSpell,
   getTech,
   getUnit,
+  netPerHour,
   questDone,
   siegeOf,
+  storageCapacity,
   type BattleReport,
   type GameState,
 } from '../game/rules'
@@ -37,6 +39,17 @@ export function makeAwayReport(before: GameState, after: GameState): AwayReport 
   for (const id of RESOURCE_IDS) gains[id] = after.resources[id] - before.resources[id]
 
   const events: string[] = []
+  // Des réserves pleines : leur production s'est arrêtée, et les gains avec elle.
+  const room = storageCapacity(after)
+  const rates = netPerHour(after)
+  const full = RESOURCE_IDS.filter((id) => after.resources[id] >= room && rates[id] > 0)
+  if (full.length > 0) {
+    const names = full.map((id) => `${RESOURCES[id].icon} ${RESOURCES[id].name.toLowerCase()}`).join(', ')
+    const one = full.length === 1
+    events.push(
+      `${one ? 'Réserve pleine' : 'Réserves pleines'} (${names}) : ${one ? 'sa' : 'leur'} production s’est arrêtée. Agrandis l’Entrepôt pour en garder davantage.`,
+    )
+  }
   for (const works of before.constructions) {
     const finished = !after.constructions.some((c) => c.building === works.building && c.startedAt === works.startedAt)
     if (finished) events.push(`${getBuilding(works.building).name} : le niveau ${works.targetLevel} est terminé.`)
