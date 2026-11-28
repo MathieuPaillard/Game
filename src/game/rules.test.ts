@@ -84,6 +84,7 @@ import {
 import {
   advance,
   aggroRadius,
+  allySurvivors,
   armySize,
   bandLoot,
   bandMonsters,
@@ -782,7 +783,12 @@ describe('entraînement', () => {
   })
 
   it('chaque race a sa propre troupe, que les autres races ne peuvent pas entraîner', () => {
-    for (const race of RACES) expect(UNITS.filter((unit) => unit.race === race.id)).toHaveLength(1)
+    for (const race of RACES) {
+      // Une troupe de combat, et des soigneurs.
+      const own = UNITS.filter((unit) => unit.race === race.id)
+      expect(own.filter((unit) => !unit.heal)).toHaveLength(1)
+      expect(own.filter((unit) => unit.heal)).toHaveLength(1)
+    }
     const paladin = getUnit('paladin')
     const humans = richGame({ castle: 5, barracks: paladin.barracksLevel })
     expect(checkTraining(humans, 'paladin', 1).ok).toBe(true)
@@ -2199,6 +2205,78 @@ describe('les poursuites', () => {
     let stepped = game
     for (let t = T0 + 1000; t <= end; t += 1000) stepped = advance(stepped, t)
     expectSameGame(advance(game, end), stepped)
+  })
+})
+
+describe('les soigneurs', () => {
+  /** Une armée face à une bande de trolls, jusqu'à sa première manche : son combattant dans la mêlée. */
+  function firstRound(troops: Partial<Army>, monsters: Monsters = { troll: 40 }) {
+    const { game, id } = withBand(richGame({}, troops), nearCity(300), monsters, 2, 'trolls')
+    const start = startMarch(game, toBand(id), army(troops), T0)
+    return allyIn(runUntil(start, (s) => (allyIn(s)?.rounds.length ?? 0) > 0))!
+  }
+
+  /** La vie de toutes les troupes d'un combattant, à son entrée dans la mêlée et maintenant. */
+  function troopHealth(ally: ReturnType<typeof firstRound>) {
+    return {
+      start: UNIT_IDS.reduce((sum, id) => sum + ally.sent[id] * getUnit(id).health * ally.healthFactor, 0),
+      now: UNIT_IDS.reduce((sum, id) => sum + ally.health[id], 0),
+    }
+  }
+
+  it('chaque race a les siens : ils se battent à peine, et les autres races ne peuvent pas les entraîner', () => {
+    const healers = UNITS.filter((unit) => unit.heal)
+    expect(new Set(healers.map((unit) => unit.race)).size).toBe(RACES.length)
+    for (const healer of healers) expect(healer.attack).toBeLessThan(getUnit(healer.family).attack)
+    const priest = getUnit('priest')
+    const humans = richGame({ castle: 5, barracks: priest.barracksLevel })
+    expect(checkTraining(humans, 'priest', 1).ok).toBe(true)
+    expect(checkTraining({ ...humans, race: 'orcs' }, 'priest', 1)).toEqual({ ok: false, reason: 'Réservés aux Humains' })
+  })
+
+  it('à chaque manche, ils rendent de la vie à leur armée, sans dépasser ce qu’elle a perdu', () => {
+    // Une petite bande : ses coups, répartis sur toute l'armée, ne font tomber personne.
+    const ally = firstRound({ warrior: 50, priest: 10 }, { troll: 10 })
+    expect(allySurvivors(ally).troops).toEqual(army({ warrior: 50, priest: 10 }))
+    const round = ally.rounds[0]
+    const power = 10 * getUnit('priest').heal! * ally.healthFactor
+    expect(round.taken).toBeGreaterThan(0)
+    expect(Math.abs(round.healed! - Math.min(power, round.taken))).toBeLessThanOrEqual(1)
+    const { start, now } = troopHealth(ally)
+    expect(Math.abs(start - now - (round.taken - round.healed!))).toBeLessThanOrEqual(1)
+    // Sans soigneurs, rien n'est rendu.
+    expect(firstRound({ warrior: 60 }).rounds[0].healed).toBeUndefined()
+  })
+
+  it('ils relèvent des troupes tombées', () => {
+    const { game, id } = withBand(richGame({}, { warrior: 20, priest: 10 }), nearCity(300), { wolf: 3 })
+    const fighting = runUntil(startMarch(game, toBand(id), army({ warrior: 20, priest: 10 }), T0), (s) => (allyIn(s)?.rounds.length ?? 0) > 0)
+    // Les guerriers ont beaucoup souffert : il n'en reste qu'un quart debout.
+    const battle = fighting.battles[0]
+    const ally = battle.allies[0]
+    const hurt = { ...ally, health: { ...ally.health, warrior: ally.sent.warrior * getUnit('warrior').health * ally.healthFactor * 0.25 } }
+    const standing = allySurvivors(hurt).troops.warrior
+    const next = runUntil({ ...fighting, battles: [{ ...battle, allies: [hurt] }] }, (s) => (allyIn(s)?.rounds.length ?? 0) > 1)
+    expect(allySurvivors(allyIn(next)!).troops.warrior).toBeGreaterThan(standing)
+    // Le journal de la manche le dit.
+    expect(allyIn(next)!.rounds[1].raised?.warrior).toBeGreaterThan(0)
+  })
+
+  it('ceux de la cité soignent ses défenseurs pendant un siège', () => {
+    const { game } = withRaid(richGame({}, { warrior: 40, priest: 10 }), { troll: 30 }, RAID_SPEED, 2, 'trolls')
+    const besieged = runUntil(game, (s) => (siegeOf(s)?.allies[0].rounds.length ?? 0) > 0)
+    expect(siegeOf(besieged)!.allies[0].rounds[0].healed).toBeGreaterThan(0)
+  })
+
+  it('donnent le même résultat d’un coup ou seconde par seconde', () => {
+    const { game, id } = withBand(richGame({}, { warrior: 30, priest: 8 }), nearCity(300), { troll: 25 }, 2, 'trolls')
+    const start = startMarch(game, toBand(id), army({ warrior: 30, priest: 8 }), T0)
+    const end = T0 + 3 * 60_000
+    let step = start
+    for (let t = T0 + 1000; t <= end; t += 1000) step = advance(step, t)
+    expectSameGame(advance(start, end), step)
+    const rounds = [...(allyIn(step)?.rounds ?? []), ...(step.reports[0]?.rounds ?? [])]
+    expect(rounds.some((round) => (round.healed ?? 0) > 0)).toBe(true)
   })
 })
 

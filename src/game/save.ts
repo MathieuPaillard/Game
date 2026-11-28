@@ -94,6 +94,60 @@ type SavedState = Partial<Omit<GameState, 'reports' | 'bands' | 'battles'>> & {
 
 const TICK = WORLD_TICK_SECONDS * 1000
 
+/** Les Druides de ces troupes deviennent des Arcanistes (voir druidsBecomeArcanists). */
+function arcanists<T>(army: T): T {
+  if (!isObject(army) || !('druid' in army)) return army
+  const { druid, ...rest } = army as Partial<Record<string, number>>
+  return { ...rest, arcanist: (rest.arcanist ?? 0) + (druid ?? 0) } as T
+}
+
+/**
+ * Avant les soigneurs, les Druides étaient la troupe de combat des elfes. Ce sont maintenant leurs
+ * soigneurs, et les Arcanistes ont pris leur ancienne place, avec les mêmes chiffres : les Druides d'une
+ * partie plus ancienne deviennent des Arcanistes, pour que son armée ne perde rien. On reconnaît une
+ * telle partie à ses troupes, qui ne comptaient pas encore d'Arcanistes.
+ */
+function druidsBecomeArcanists(state: SavedState): SavedState {
+  if (!isObject(state.troops) || 'arcanist' in state.troops) return state
+  const rounds = (list: BattleRound[] | undefined) => list?.map((round) => ({ ...round, lost: arcanists(round.lost) }))
+  const expedition = (old: OldExpedition): OldExpedition => ({
+    ...old,
+    troops: arcanists(old.troops),
+    result: old.result ? { ...old.result, survivors: arcanists(old.result.survivors) } : old.result,
+  })
+  return {
+    ...state,
+    troops: arcanists(state.troops),
+    wounded: arcanists(state.wounded),
+    healing: state.healing ? { ...state.healing, troops: arcanists(state.healing.troops) } : state.healing,
+    trainings: state.trainings?.map((t) => (t.unit === 'druid' ? { ...t, unit: 'arcanist' } : t)),
+    training: state.training?.unit === 'druid' ? { ...state.training, unit: 'arcanist' } : state.training,
+    armies: state.armies?.map((army) => ({ ...army, troops: arcanists(army.troops) })),
+    expeditions: state.expeditions?.map(expedition),
+    expedition: state.expedition ? expedition(state.expedition) : state.expedition,
+    battles: state.battles?.map((battle) =>
+      'allies' in battle
+        ? {
+            ...battle,
+            allies: battle.allies.map((ally) => ({
+              ...ally,
+              sent: arcanists(ally.sent),
+              health: arcanists(ally.health),
+              rounds: rounds(ally.rounds) ?? ally.rounds,
+            })),
+          }
+        : { ...battle, sent: arcanists(battle.sent), armyHealth: arcanists(battle.armyHealth), rounds: rounds(battle.rounds) },
+    ),
+    reports: state.reports?.map((report) => ({
+      ...report,
+      sent: arcanists(report.sent),
+      lost: arcanists(report.lost),
+      wounded: arcanists(report.wounded),
+      rounds: rounds(report.rounds),
+    })),
+  }
+}
+
 /**
  * Reconstruit la partie champ par champ : ce qui manque dans une partie enregistrée par une
  * version plus ancienne prend sa valeur par défaut, et ce qui n'existe plus dans le jeu est oublié.
@@ -102,9 +156,11 @@ const TICK = WORLD_TICK_SECONDS * 1000
  */
 export function restoreState(saved: unknown): GameState | null {
   if (typeof saved !== 'object' || saved === null) return null
-  const state = saved as SavedState
-  if (typeof state.updatedAt !== 'number' || !RACES.some((race) => race.id === state.race)) return null
+  if (typeof (saved as SavedState).updatedAt !== 'number' || !RACES.some((race) => race.id === (saved as SavedState).race)) {
+    return null
+  }
   try {
+    const state = druidsBecomeArcanists(saved as SavedState)
     // Les armées parties avec une version plus ancienne rentrent à la cité, avec ce qu'elles portaient.
     let troops = { ...emptyArmy(), ...state.troops }
     let resources = { ...emptyResources(), ...state.resources }

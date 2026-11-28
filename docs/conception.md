@@ -49,18 +49,22 @@ Boucle de jeu : récolter des ressources → construire et améliorer → entra�
 - **[Décidé]** Plusieurs races jouables, chacune avec ses avantages.
 - **[Décidé]** Quatre races pour commencer. D'autres pourront s'ajouter, et on pourra leur donner des noms propres à notre univers.
 
-| Race    | Style                 | Bonus (chiffres à équilibrer)                   | Troupe propre                     |
-|---------|-----------------------|-------------------------------------------------|-----------------------------------|
-| Humains | polyvalents           | constructions 10 % plus rapides                 | Paladins (famille des Guerriers)  |
-| Elfes   | magie et archerie     | +10 % de bois et de mana                        | Druides (famille des Mages)       |
-| Nains   | défense et artisanat  | +10 % de pierre et d'or                         | Arbalétriers nains (des Archers)  |
-| Orcs    | force brute et nombre | +10 % de nourriture, entraînement plus rapide   | Chevaucheurs de loups (Cavaliers) |
+| Race    | Style                 | Bonus (chiffres à équilibrer)                   | Troupe propre                     | Soigneurs |
+|---------|-----------------------|-------------------------------------------------|-----------------------------------|-----------|
+| Humains | polyvalents           | constructions 10 % plus rapides                 | Paladins (famille des Guerriers)  | Prêtres   |
+| Elfes   | magie et archerie     | +10 % de bois et de mana                        | Arcanistes (famille des Mages)    | Druides   |
+| Nains   | défense et artisanat  | +10 % de pierre et d'or                         | Arbalétriers nains (des Archers)  | Runistes  |
+| Orcs    | force brute et nombre | +10 % de nourriture, entraînement plus rapide   | Chevaucheurs de loups (Cavaliers) | Chamans   |
 
 - **[Décidé]** Chaque race a aussi une troupe qui lui est propre.
 - **[Proposition]** Chaque troupe propre appartient à l'une des quatre familles (une famille différente pour chaque race) : elle en a les forces et les faiblesses, et profite des compétences de héros qui renforcent cette famille. Elle est plus forte que la troupe de base de sa famille, mais plus chère, et s'entraîne à partir de la Caserne niveau 4. Les autres races ne peuvent pas l'entraîner.
 - **[Décidé]** Chaque race a aussi ses **soigneurs**, qui soignent leur armée pendant les batailles : druides pour les elfes, chamans pour les orcs, prêtres pour les humains, runistes pour les nains.
 - **[Décidé]** Les Druides deviennent les soigneurs des elfes et ne font plus que soigner. Les elfes reçoivent une nouvelle troupe de combat propre, de la famille des Mages (le 28 novembre 2026).
 - **[Décidé]** Les soigneurs des nains sont les **Runistes** : ils gravent des runes de guérison sur les armures et les boucliers.
+- **[Proposition]** Les soigneurs se forment à la Caserne dès le niveau 3, et chaque race n'entraîne que les siens. Les quatre ont les mêmes chiffres : ils frappent à peine (attaque 4, vie 40), mais à chaque manche, chaque soigneur encore debout après les coups rend 3 points de vie à son armée (grandis par les Armures, le héros et les sorts, comme la vie des troupes). Cette vie va à chaque groupe selon ce qu'il a perdu, sans dépasser sa vie du début : des troupes tombées se relèvent. Ils ne soignent ni les gardes des Remparts ni le dragon. Pendant un siège, les soigneurs de la garnison soignent les défenseurs. Chacun coûte 40 de nourriture, 20 d'or et 25 de mana.
+- **[Proposition]** Repères, pour régler ces chiffres : face à 90 loups, 100 guerriers perdent 32 troupes ; avec 10 soigneurs parmi les 100, ils en perdent 23, et 13 avec 20 soigneurs. Une bataille perdue d'avance le reste (les soigneurs tombent avec les autres).
+- **[Proposition]** Les **Arcanistes**, la nouvelle troupe de combat des elfes, reprennent les chiffres des anciens Druides. Dans une partie déjà commencée, les Druides (qui se battaient) deviennent des Arcanistes : l'armée ne perd rien.
+- **[Proposition]** Pendant une bataille, la vie rendue s'élève en vert au-dessus de l'armée, à chaque manche ; le journal du combat dit la vie rendue et les troupes relevées.
 
 ## 5. La cité
 
@@ -209,7 +213,7 @@ La suite, décidée le 27 novembre 2026, dans l'ordre :
 2. Le premier grand campement, d'après le plan. *Fait* : montagnes et col, porte et clef, chefs, tour de guet, pièges, patrouilles qui poursuivent les armées.
 3. Des sorts de plusieurs dizaines de minutes, et des sorts de défense pour les absences. *Fait.*
 4. La limite des réserves : entrepôts et recherches. *Fait* : l'Entrepôt et l'Intendance.
-5. L'hôpital et les soigneurs de chaque race.
+5. L'hôpital et les soigneurs de chaque race. *Fait* : l'Hôpital, ses lits et ses soins ; Prêtres, Chamans, Druides et Runistes ; les Arcanistes des elfes.
 6. Le dragon dans l'armée : le cône de flammes et les natures de dragon.
 7. La progression sur plusieurs mois : des durées bien plus longues, des niveaux sans limite.
 8. Les éclaireurs et le brouillard de guerre.

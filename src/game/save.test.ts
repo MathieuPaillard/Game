@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { QUESTS, RAID_CASTLE_LEVEL, RAID_FIRST_SECONDS, START_LEVELS } from './config.ts'
-import { advance, bandPosition, emptyArmy, emptyTechs, newGame } from './rules.ts'
+import { advance, bandPosition, emptyArmy, emptyTechs, newGame, startMarch } from './rules.ts'
 import { restoreState } from './save.ts'
 
 const T0 = Date.UTC(2026, 0, 1)
@@ -47,6 +47,21 @@ describe('restoreState', () => {
   it('une partie d’avant le repeuplement des camps n’a aucun camp vide, ni le mode d’essai', () => {
     const { campsCleared: _cleared, trial: _trial, ...old } = newGame('humans', T0)
     expect(restoreState(old)).toMatchObject({ campsCleared: {}, trial: false })
+  })
+
+  it('les Druides d’une partie d’avant les soigneurs deviennent des Arcanistes : son armée ne perd rien', () => {
+    const elves = { ...newGame('elves', T0), troops: { ...emptyArmy(), druid: 12, warrior: 3 } }
+    const marched = startMarch(elves, { type: 'camp', camp: 'wolfDen' }, { ...emptyArmy(), druid: 2 }, T0)
+    const training = { unit: 'druid', count: 4, startedAt: T0, endsAt: T0 + 1000 }
+    // Une partie de ce temps-là ne comptait pas encore d'Arcanistes.
+    const text = JSON.stringify({ ...marched, trainings: [training] }).replaceAll('"arcanist":0,', '')
+    expect(text).not.toContain('arcanist')
+    const restored = restoreState(JSON.parse(text))!
+    expect(restored.troops).toEqual({ ...emptyArmy(), arcanist: 10, warrior: 3 })
+    expect(restored.armies[0].troops).toEqual({ ...emptyArmy(), arcanist: 2 })
+    expect(restored.trainings[0].unit).toBe('arcanist')
+    // Une partie d'aujourd'hui garde ses Druides : ce sont des soigneurs.
+    expect(restoreState(JSON.parse(JSON.stringify(elves)))!.troops.druid).toBe(12)
   })
 
   it('reprend les blessés et leurs soins, mais pas des soins abîmés', () => {

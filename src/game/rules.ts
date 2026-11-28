@@ -341,6 +341,9 @@ export interface BattleRound {
   attackers?: number
   /** Ta troupe était encerclée : son attaque était réduite. */
   encircled?: true
+  /** La vie que ses soigneurs ont rendue à ses troupes pendant la manche, et les tombés qu'ils ont relevés. */
+  healed?: number
+  raised?: Army
 }
 
 /** Le dragon dans une bataille : son attaque, sa vie au début de la bataille et ce qu'il en reste. */
@@ -2403,6 +2406,24 @@ function allyStacks(state: GameState, ally: AllyFighter): { stacks: Stack[]; hea
   return { stacks, health }
 }
 
+/**
+ * Les soigneurs d'un des tiens encore debout après les coups de la manche (`standing` : ceux qui
+ * tombent ne soignent plus) rendent de la vie à ses troupes (pas aux gardes des Remparts ni au
+ * dragon) : chaque groupe en reçoit selon ce qu'il a perdu depuis son entrée dans la mêlée, sans
+ * dépasser sa vie du début. Ceux qui étaient tombés peuvent se relever. Change `health` (la vie de
+ * chaque groupe après les coups), et renvoie la vie rendue.
+ */
+function healTroops(ally: AllyFighter, standing: number[], health: number[]): number {
+  const power = UNIT_IDS.reduce((sum, id, i) => sum + standing[i] * (getUnit(id).heal ?? 0), 0) * ally.healthFactor
+  if (power <= 0) return 0
+  const missing = UNIT_IDS.map((id, i) => Math.max(0, ally.sent[id] * getUnit(id).health * ally.healthFactor - health[i]))
+  const wanted = total(missing)
+  if (wanted <= 0) return 0
+  const share = Math.min(1, power / wanted)
+  UNIT_IDS.forEach((_, i) => (health[i] += missing[i] * share))
+  return Math.min(power, wanted)
+}
+
 /** Les groupes d'un combattant monstre, et la vie qui leur reste. */
 function foeStacks(foe: FoeFighter): { stacks: Stack[]; health: number[] } {
   const ids = Object.keys(foe.enemies) as MonsterId[]
@@ -2496,12 +2517,17 @@ function playRound(state: GameState, battleId: number, at: number): GameState {
     const damage = hits.get(ally.ref) ?? group.stacks.map(() => 0)
     const after = group.health.map((hp, i) => Math.max(0, hp - damage[i]))
     const before = counts(group.stacks, group.health)
+    const struck = counts(group.stacks, after)
+    // Ses soigneurs encore debout rendent de la vie à ses troupes : des tombés se relèvent.
+    const healed = healTroops(ally, struck, after)
     const left = counts(group.stacks, after)
     const health = emptyArmy()
     const lost = emptyArmy()
+    const raised = emptyArmy()
     UNIT_IDS.forEach((id, i) => {
       health[id] = after[i]
-      lost[id] = before[i] - left[i]
+      lost[id] = before[i] - struck[i]
+      raised[id] = left[i] - struck[i]
     })
     const played: BattleRound = {
       dealt: Math.round(strikes.find((s) => s.from === ally.ref)?.damage ?? 0),
@@ -2509,6 +2535,8 @@ function playRound(state: GameState, battleId: number, at: number): GameState {
       lost,
       enemyLost: kills.get(ally.ref) ?? {},
     }
+    if (Math.round(healed) > 0) played.healed = Math.round(healed)
+    if (armySize(raised) > 0) played.raised = raised
     let index = UNIT_IDS.length
     let siege = ally.siege
     if (siege) {

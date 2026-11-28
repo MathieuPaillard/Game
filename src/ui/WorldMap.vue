@@ -567,6 +567,9 @@ const battles = computed(() =>
         <text v-if="cityFight.taken > 0" :key="`city-taken-${cityFight.round}`" class="float-damage ally" y="-96">
           −{{ formatShort(cityFight.taken) }}
         </text>
+        <text v-if="cityFight.healed > 0" :key="`city-healed-${cityFight.round}`" class="float-damage heal" y="-120">
+          +{{ formatShort(cityFight.healed) }}
+        </text>
       </template>
     </g>
 
@@ -759,6 +762,9 @@ const battles = computed(() =>
         <HealthBar :ratio="army.fight.ratio" :y="-74" />
         <text v-if="army.fight.taken > 0" :key="`army-taken-${army.fight.round}`" class="float-damage ally" y="-90">
           −{{ formatShort(army.fight.taken) }}
+        </text>
+        <text v-if="army.fight.healed > 0" :key="`army-healed-${army.fight.round}`" class="float-damage heal" y="-114">
+          +{{ formatShort(army.fight.healed) }}
         </text>
       </template>
     </g>

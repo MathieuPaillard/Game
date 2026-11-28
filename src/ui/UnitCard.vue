@@ -54,6 +54,7 @@ const duration = computed(() => trainingDuration(props.state, props.unit, amount
     </p>
 
     <ul class="stats">
+      <li v-if="unit.heal">Soigne <strong>{{ unit.heal }}</strong> par manche</li>
       <li>Attaque <strong>{{ unit.attack }}</strong></li>
       <li>Vie <strong>{{ unit.health }}</strong></li>
       <li>Mange <strong>{{ unit.upkeepPerHour }}</strong> <span aria-hidden="true">🌾</span>/h</li>

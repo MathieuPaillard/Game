@@ -370,6 +370,9 @@ function lairText(id: string): string {
       <text v-if="siege.city.taken > 0" :key="`siege-taken-${siege.city.round}`" class="float-damage ally" x="-36" y="-92">
         −{{ formatShort(siege.city.taken) }}
       </text>
+      <text v-if="siege.city.healed > 0" :key="`siege-healed-${siege.city.round}`" class="float-damage heal" x="-36" y="-116">
+        +{{ formatShort(siege.city.healed) }}
+      </text>
       <text v-if="siege.foe.taken > 0" :key="`siege-dealt-${siege.city.round}`" class="float-damage foe" x="36" y="-92">
         −{{ formatShort(siege.foe.taken) }}
       </text>

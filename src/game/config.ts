@@ -544,12 +544,34 @@ export const TECHS: TechDef[] = [
 
 /** Les quatre familles de troupes, chacune avec ses forces et ses faiblesses. */
 export type Family = 'warrior' | 'archer' | 'rider' | 'mage'
-/** Les troupes : une par famille, plus une troupe propre à chaque race. */
-export type UnitId = Family | 'paladin' | 'crossbowman' | 'wolfRider' | 'druid'
+/** Les troupes : une par famille, plus, pour chaque race, une troupe de combat et des soigneurs qui lui sont propres. */
+export type UnitId =
+  | Family
+  | 'paladin'
+  | 'crossbowman'
+  | 'wolfRider'
+  | 'druid'
+  | 'arcanist'
+  | 'priest'
+  | 'orcShaman'
+  | 'runist'
 /** Un nombre de troupes pour chaque type de troupe. */
 export type Army = Record<UnitId, number>
 
-export const UNIT_IDS: UnitId[] = ['warrior', 'archer', 'rider', 'mage', 'paladin', 'crossbowman', 'wolfRider', 'druid']
+export const UNIT_IDS: UnitId[] = [
+  'warrior',
+  'archer',
+  'rider',
+  'mage',
+  'paladin',
+  'crossbowman',
+  'wolfRider',
+  'druid',
+  'arcanist',
+  'priest',
+  'orcShaman',
+  'runist',
+]
 
 export interface UnitDef {
   id: UnitId
@@ -574,10 +596,32 @@ export interface UnitDef {
   upkeepPerHour: number
   /** Ressources qu'une troupe peut porter : le butin et la récolte rapportés à la cité. */
   load: number
+  /**
+   * Un soigneur : la vie qu'il rend à son armée à chaque manche, avant les Armures, le héros et les
+   * sorts (qui la grandissent comme la vie des troupes). Il se bat à peine.
+   */
+  heal?: number
 }
 
 // Les forces et faiblesses forment un cycle :
 // Guerriers > Cavaliers > Archers > Mages > Guerriers.
+/**
+ * Les soigneurs de chaque race (Prêtres, Chamans, Druides, Runistes) ont les mêmes chiffres : ils se
+ * battent à peine, mais rendent de la vie à leur armée à chaque manche (voir UnitDef.heal).
+ */
+const HEALER: Omit<UnitDef, 'id' | 'name' | 'icon' | 'description' | 'race'> = {
+  family: 'mage',
+  attack: 4,
+  health: 40,
+  strongAgainst: 'warrior',
+  cost: { food: 40, gold: 20, mana: 25 },
+  trainingSeconds: 7,
+  barracksLevel: 3,
+  upkeepPerHour: 6,
+  load: 10,
+  heal: 3,
+}
+
 export const UNITS: UnitDef[] = [
   {
     id: 'warrior',
@@ -692,7 +736,15 @@ export const UNITS: UnitDef[] = [
     id: 'druid',
     name: 'Druides',
     icon: '🌿',
-    description: 'Les gardiens de la forêt elfique : leurs ronces et leur foudre brisent les rangs des guerriers.',
+    description: 'Les gardiens de la forêt elfique : pendant les batailles, leur sève et leurs chants referment les plaies de ton armée.',
+    ...HEALER,
+    race: 'elves',
+  },
+  {
+    id: 'arcanist',
+    name: 'Arcanistes',
+    icon: '💫',
+    description: 'Des mages elfes qui tissent la lumière en traits brûlants : ils brisent les rangs des guerriers.',
     family: 'mage',
     race: 'elves',
     attack: 36,
@@ -703,6 +755,30 @@ export const UNITS: UnitDef[] = [
     barracksLevel: 4,
     upkeepPerHour: 8,
     load: 10,
+  },
+  {
+    id: 'priest',
+    name: 'Prêtres',
+    icon: '🕯️',
+    description: 'Leurs prières referment les plaies de ton armée pendant les batailles.',
+    ...HEALER,
+    race: 'humans',
+  },
+  {
+    id: 'orcShaman',
+    name: 'Chamans',
+    icon: '🪶',
+    description: 'Leurs chants et leurs os sacrés remettent les orcs debout au cœur de la bataille.',
+    ...HEALER,
+    race: 'orcs',
+  },
+  {
+    id: 'runist',
+    name: 'Runistes',
+    icon: '💠',
+    description: 'Ils gravent des runes de guérison sur les armures et les boucliers de ton armée.',
+    ...HEALER,
+    race: 'dwarves',
   },
 ]
 

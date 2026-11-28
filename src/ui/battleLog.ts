@@ -126,6 +126,18 @@ export function describeBattle(report: BattleReport): BattleStory {
       guards -= guardsLost
       ownLosses.push(`🧱 gardes des Remparts −${guardsLost} (reste ${guards})`)
     }
+    // Les soigneurs : la vie rendue, et les tombés relevés.
+    const back = units
+      .filter((id) => (round.raised?.[id] ?? 0) > 0)
+      .map((id) => {
+        const count = round.raised?.[id] ?? 0
+        army[id] += count
+        const unit = getUnit(id)
+        return `${unit.icon} ${unit.name} +${count} (reste ${army[id]})`
+      })
+    const healing = round.healed
+      ? ` Tes soigneurs rendent ${formatAmount(round.healed)} points de vie${back.length ? ` et relèvent : ${back.join(', ')}` : ''}.`
+      : ''
     const dealt = foeLosses.length ? ` : ${foeLosses.join(', ')}` : ', sans abattre personne'
     const taken = ownLosses.length ? ` : ${ownLosses.join(', ')}` : ', sans abattre personne'
     const side = siege ? 'Tes défenseurs infligent' : 'Ton armée inflige'
@@ -145,7 +157,7 @@ export function describeBattle(report: BattleReport): BattleStory {
       title: `Manche ${i + 1}`,
       text:
         `${side} ${formatAmount(round.dealt)} dégâts${flank}${dealt}. ` +
-        `${strikers} infligent ${formatAmount(round.taken)} dégâts${taken}.${encircled}${dragonFell}`,
+        `${strikers} infligent ${formatAmount(round.taken)} dégâts${taken}.${healing}${encircled}${dragonFell}`,
     }
   })
 

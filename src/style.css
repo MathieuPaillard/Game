@@ -13,6 +13,8 @@
   --gilt: #e0ac45;
   --gilt-deep: #23190a;
   --ember: #f08b70;
+  /* Les soins : la vie rendue par les soigneurs. */
+  --heal: #8fd99b;
 
   --font-display: 'Grenze Gotisch', 'Palatino Linotype', Palatino, Georgia, serif;
   --font-body: 'Alegreya Sans', 'Segoe UI', system-ui, sans-serif;
@@ -568,6 +570,11 @@ button:focus-visible {
 
 .float-damage.foe {
   fill: var(--parchment);
+}
+
+/* La vie que tes soigneurs viennent de rendre. */
+.float-damage.heal {
+  fill: var(--heal);
 }
 
 @keyframes float-up {

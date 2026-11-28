@@ -55,20 +55,24 @@ export function incomingRaids(state: GameState): { band: Band; arrival: number |
 
 /**
  * Ce qu'il faut pour animer un combattant d'une mêlée sur la carte : la vie qui lui reste (de 0 à 1),
- * le numéro de la dernière manche jouée, et les dégâts qu'il vient de recevoir.
+ * le numéro de la dernière manche jouée, les dégâts qu'il vient de recevoir, et la vie que ses
+ * soigneurs viennent de lui rendre.
  */
 export interface FightFx {
   round: number
   ratio: number
   taken: number
+  healed: number
 }
 
 export function fightFx(battle: Battle, fighter: AllyFighter | FoeFighter): FightFx {
   const health = fighterHealth(fighter)
+  const last = 'rounds' in fighter ? fighter.rounds[fighter.rounds.length - 1] : undefined
   return {
     round: battle.round,
     ratio: health.start > 0 ? health.now / health.start : 0,
     taken: battle.round > 0 ? fighter.taken : 0,
+    healed: battle.round > 0 ? (last?.healed ?? 0) : 0,
   }
 }
 

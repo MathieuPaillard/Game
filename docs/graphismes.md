@@ -70,7 +70,11 @@ Pour chaque image : le nom du fichier à utiliser, puis ce qu'il faut écrire ap
 | `troupe-paladins.png` | Personnage en pied : un chevalier humain en armure dorée, grand bouclier frappé d'un soleil, épée levée. |
 | `troupe-arbaletriers.png` | Personnage en pied : un nain trapu en armure de fer, une lourde arbalète à manivelle à l'épaule. |
 | `troupe-chevaucheurs.png` | Personnage en pied : un orc en armure de cuir, monté sur un grand loup gris aux crocs découverts. |
-| `troupe-druides.png` | Personnage en pied : une druide elfe en robe vert forêt, bâton noueux couvert de feuilles et d'étincelles. |
+| `troupe-druides.png` | Personnage en pied : une druide elfe en robe vert forêt, penchée sur un blessé, les mains baignées d'une lueur verte, son bâton noueux couvert de feuilles. |
+| `troupe-arcanistes.png` | Personnage en pied : un mage elfe en robe argent et bleu nuit, qui tisse entre ses mains un trait de lumière blanche. |
+| `troupe-pretres.png` | Personnage en pied : un prêtre humain en robe blanche à liseré doré, une lanterne à la main, qui bénit un soldat agenouillé. |
+| `troupe-chamans.png` | Personnage en pied : un chaman orc couvert de plumes et d'os peints, un bâton à grelots levé, entouré de fumée d'herbes. |
+| `troupe-runistes.png` | Personnage en pied : un nain à la barbe tressée, un burin à la main, gravant une rune qui s'illumine sur un bouclier. |
 
 ### Héros
 
