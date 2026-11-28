@@ -265,7 +265,7 @@ export const LEVEL_OFFSET = 4
 /** Les coûts, et la place des réserves qui doit les contenir. */
 export const COST_POWER = 3.3
 /** Les durées des chantiers et des recherches : niveau ^ DURATION_POWER fois celle du niveau 1. */
-export const DURATION_POWER = 3.5
+export const DURATION_POWER = 3.4
 /** La production des bâtiments, et les lits de l'hôpital (qui suivent le nombre de troupes). */
 export const PRODUCTION_POWER = 2
 
@@ -289,6 +289,30 @@ export const HEAL_COST_SHARE = 0.3
 export const HEAL_TIME_SHARE = 0.3
 /** Un seul chantier à la fois au début : un second s'ouvre à ce niveau du Château. */
 export const SECOND_CONSTRUCTION_CASTLE_LEVEL = 5
+
+// --- Les paliers ---
+// Tous les 10 niveaux, une évolution majeure marque la différence. Les troupes gagnent un rang (de I à
+// V), qui s'ouvre par une grande recherche de l'Académie, puis s'entraîne à la Caserne ; un nouveau
+// cercle de recherches s'ouvre à l'Académie ; et les monstres grandissent. Le Château ne passe pas un
+// palier (les niveaux 11, 21, 31 et 41) sans la grande recherche de son rang.
+
+/** Le nombre de rangs de chaque troupe, et de cercles de recherches. */
+export const MAX_RANK = 5
+/** Un rang (et un cercle) tous les 10 niveaux : le rang II s'ouvre au niveau 10, le III au 20… */
+export const RANK_STEP = 10
+/** Les chiffres romains des rangs et des cercles. */
+export const RANK_NUMERALS = ['I', 'II', 'III', 'IV', 'V']
+/** Chaque rang au-dessus du premier multiplie l'attaque, la vie et les soins d'une troupe… */
+export const RANK_STRENGTH = 2
+/** … son coût et sa durée d'entraînement (un peu moins que sa force : un rang plus haut rapporte plus)… */
+export const RANK_COST = 1.8
+/** … et son entretien et sa charge. */
+export const RANK_UPKEEP = 1.5
+/**
+ * Dans les cercles suivants, chaque niveau d'une recherche demande deux niveaux d'Académie de plus
+ * (Forge II : Académie 10, 12, 14, 16 puis 18), et coûte et dure comme ce niveau d'Académie.
+ */
+export const CIRCLE_LEVEL_STEP = 2
 
 // --- Sorts ---
 // La Tour des mages lance des sorts : contre du mana, un bienfait pour toute la cité, ou pour
@@ -412,6 +436,9 @@ export const SPELLS: SpellDef[] = [
 
 // --- Recherches ---
 
+/** Les domaines du premier cercle qui reviennent, plus puissants, dans chacun des cercles suivants. */
+export type CircleDomain = 'agriculture' | 'tools' | 'alchemy' | 'forge' | 'armor' | 'stewardship'
+
 export type TechId =
   | 'agriculture'
   | 'tools'
@@ -422,6 +449,19 @@ export type TechId =
   | 'masonry'
   | 'forcedMarch'
   | 'stewardship'
+  // Les cercles suivants : les mêmes domaines (Forge II, `forge2`…), et quelques recherches nouvelles.
+  | `${CircleDomain}${2 | 3 | 4 | 5}`
+  | 'masonry2'
+  | 'medicine'
+  | 'drill'
+  | 'logistics'
+  | 'prospecting'
+  | 'herbalism'
+  | 'fortification'
+  | 'vaults'
+  | 'command2'
+  // Les grandes recherches qui ouvrent un rang de troupes (`rank2` : le rang II).
+  | `rank${2 | 3 | 4 | 5}`
 
 /** Ce que rapporte chaque niveau d'une recherche. */
 export type TechEffect =
@@ -433,6 +473,22 @@ export type TechEffect =
   | { kind: 'constructionSpeed'; perLevel: number }
   /** Place en plus dans les réserves (voir STORAGE_BASE). */
   | { kind: 'storage'; perLevel: number }
+  /** Lits en plus à l'hôpital. */
+  | { kind: 'beds'; perLevel: number }
+  /** Entraînement (et soins) plus rapides. */
+  | { kind: 'training'; perLevel: number }
+  /** Charge en plus pour chaque troupe : le butin et la récolte. */
+  | { kind: 'load'; perLevel: number }
+  /** Récolte plus rapide sur les gisements. */
+  | { kind: 'gather'; perLevel: number }
+  /** Soins en plus pour les soigneurs, à chaque manche. */
+  | { kind: 'heal'; perLevel: number }
+  /** Gardes en plus sur les Remparts. */
+  | { kind: 'guards'; perLevel: number }
+  /** Réserves en plus à l'abri des pillards (voir PROTECTED_BASE). */
+  | { kind: 'protected'; perLevel: number }
+  /** Une grande recherche : elle ouvre ce rang de troupes, et le palier du Château qui va avec. */
+  | { kind: 'rank'; rank: number }
 
 export interface TechDef {
   id: TechId
@@ -442,16 +498,20 @@ export interface TechDef {
   description: string
   effect: TechEffect
   maxLevel: number
+  /** Son cercle, de 1 à MAX_RANK : le premier, puis un nouveau tous les RANK_STEP niveaux d'Académie. */
+  circle: number
   /** Niveau d'Académie nécessaire pour commencer cette recherche. */
   unlockedAtAcademyLevel: number
+  /** Une grande recherche demande aussi la Caserne à ce niveau. */
+  barracksLevel?: number
   /** Coût du niveau 1 (voir levelScale et COST_POWER pour les suivants). */
   baseCost: Partial<Resources>
   /** Durée du niveau 1, en secondes. Le niveau L dure L ^ DURATION_POWER fois plus. */
   baseDurationSeconds: number
 }
 
-// Une recherche ne peut pas dépasser le niveau de l'Académie.
-export const TECHS: TechDef[] = [
+// Le premier cercle : une recherche ne peut pas dépasser le niveau de l'Académie.
+const FIRST_CIRCLE: Omit<TechDef, 'circle'>[] = [
   {
     id: 'agriculture',
     name: 'Agriculture',
@@ -553,12 +613,178 @@ export const TECHS: TechDef[] = [
   },
 ]
 
+// Les cercles suivants s'ouvrent tous les RANK_STEP niveaux d'Académie. Chaque niveau y demande
+// CIRCLE_LEVEL_STEP niveaux d'Académie de plus, et coûte et dure comme ce niveau-là : des heures au
+// deuxième cercle, des semaines au cinquième. Faire le tour de tous les cercles prend des années.
+
+/** La durée d'un niveau 1 dans les cercles suivants, en secondes (avant la croissance des durées). */
+const CIRCLE_DURATION_SECONDS = 3
+
+/** Ce que rapporte un niveau de chaque domaine du premier cercle, du deuxième cercle au cinquième. */
+const CIRCLE_POWER: Record<CircleDomain, number[]> = {
+  agriculture: [0.12, 0.14, 0.16, 0.18],
+  tools: [0.12, 0.14, 0.16, 0.18],
+  alchemy: [0.12, 0.14, 0.16, 0.18],
+  forge: [0.06, 0.07, 0.08, 0.09],
+  armor: [0.06, 0.07, 0.08, 0.09],
+  stewardship: [0.12, 0.14, 0.16, 0.18],
+}
+
+/** Le niveau d'Académie où s'ouvre ce cercle (le premier s'ouvre avec l'Académie). */
+function circleStart(circle: number): number {
+  return Math.max(1, RANK_STEP * (circle - 1))
+}
+
+/** Une recherche d'un cercle suivant, de la même famille qu'une autre : seuls son effet et ses durées changent. */
+function circleTech(base: Omit<TechDef, 'circle'>, circle: number, id: TechId, perLevel: number): TechDef {
+  const percent = `${Math.round(perLevel * 100)} %`
+  return {
+    ...base,
+    id,
+    name: `${base.name} ${RANK_NUMERALS[circle - 1]}`,
+    description: base.description.replace(/\d+ %/, percent),
+    effect: { ...base.effect, perLevel } as TechEffect,
+    circle,
+    unlockedAtAcademyLevel: circleStart(circle),
+    baseDurationSeconds: CIRCLE_DURATION_SECONDS,
+  }
+}
+
+function firstCircle(id: TechId): Omit<TechDef, 'circle'> {
+  const tech = FIRST_CIRCLE.find((t) => t.id === id)
+  if (!tech) throw new Error(`Recherche inconnue : ${id}`)
+  return tech
+}
+
+/** Les six domaines qui reviennent, à ce cercle. */
+function domains(circle: number): TechDef[] {
+  return (Object.keys(CIRCLE_POWER) as CircleDomain[]).map((domain) =>
+    circleTech(firstCircle(domain), circle, `${domain}${circle}` as TechId, CIRCLE_POWER[domain][circle - 2]),
+  )
+}
+
+/** Une recherche nouvelle d'un cercle suivant. */
+function newTech(circle: number, tech: Omit<TechDef, 'circle' | 'unlockedAtAcademyLevel' | 'baseDurationSeconds'>): TechDef {
+  return { ...tech, circle, unlockedAtAcademyLevel: circleStart(circle), baseDurationSeconds: CIRCLE_DURATION_SECONDS }
+}
+
+/**
+ * La grande recherche d'un rang : elle demande l'Académie et la Caserne au niveau du palier, ouvre
+ * ce rang pour toutes les troupes, et laisse le Château passer le palier.
+ */
+function rankTech(rank: number, name: string): TechDef {
+  const level = RANK_STEP * (rank - 1)
+  return {
+    id: `rank${rank}` as TechId,
+    name,
+    icon: '🎖️',
+    description: `Ouvre le rang ${RANK_NUMERALS[rank - 1]} de toutes tes troupes, deux fois plus fortes, à la Caserne niveau ${level}. Sans elle, le Château ne dépasse pas le niveau ${level}`,
+    effect: { kind: 'rank', rank },
+    maxLevel: 1,
+    circle: rank,
+    unlockedAtAcademyLevel: level,
+    barracksLevel: level,
+    baseCost: { food: 300, wood: 250, stone: 250, gold: 150, mana: 100 },
+    baseDurationSeconds: 10,
+  }
+}
+
+export const TECHS: TechDef[] = [
+  ...FIRST_CIRCLE.map((tech) => ({ ...tech, circle: 1 })),
+  // Le deuxième cercle (Académie 10).
+  rankTech(2, 'Rang II : les vétérans'),
+  ...domains(2),
+  circleTech(firstCircle('masonry'), 2, 'masonry2', 0.03),
+  newTech(2, {
+    id: 'medicine',
+    name: 'Médecine',
+    icon: '🩺',
+    description: '+10 % de lits à l’Hôpital, par niveau',
+    effect: { kind: 'beds', perLevel: 0.1 },
+    maxLevel: 5,
+    baseCost: { food: 200, gold: 100, mana: 50 },
+  }),
+  newTech(2, {
+    id: 'drill',
+    name: 'Instruction',
+    icon: '🎯',
+    description: '−5 % de durée d’entraînement et de soins, par niveau',
+    effect: { kind: 'training', perLevel: 0.05 },
+    maxLevel: 5,
+    baseCost: { food: 250, wood: 150, gold: 80 },
+  }),
+  // Le troisième cercle (Académie 20).
+  rankTech(3, 'Rang III : les maîtres d’armes'),
+  ...domains(3),
+  newTech(3, {
+    id: 'logistics',
+    name: 'Logistique',
+    icon: '🎒',
+    description: '+10 % de charge pour toutes les troupes, par niveau',
+    effect: { kind: 'load', perLevel: 0.1 },
+    maxLevel: 5,
+    baseCost: { food: 200, wood: 200, gold: 80 },
+  }),
+  newTech(3, {
+    id: 'prospecting',
+    name: 'Prospection',
+    icon: '⛏️',
+    description: '+10 % de vitesse de récolte sur les gisements, par niveau',
+    effect: { kind: 'gather', perLevel: 0.1 },
+    maxLevel: 5,
+    baseCost: { wood: 200, stone: 200, gold: 80 },
+  }),
+  // Le quatrième cercle (Académie 30).
+  rankTech(4, 'Rang IV : les champions'),
+  ...domains(4),
+  newTech(4, {
+    id: 'herbalism',
+    name: 'Herboristerie',
+    icon: '🌼',
+    description: '+10 % de soins pour les soigneurs, par niveau',
+    effect: { kind: 'heal', perLevel: 0.1 },
+    maxLevel: 5,
+    baseCost: { food: 200, gold: 100, mana: 80 },
+  }),
+  newTech(4, {
+    id: 'fortification',
+    name: 'Fortification',
+    icon: '🏯',
+    description: '+10 % de gardes sur les Remparts, par niveau',
+    effect: { kind: 'guards', perLevel: 0.1 },
+    maxLevel: 5,
+    baseCost: { wood: 200, stone: 300, gold: 80 },
+  }),
+  // Le cinquième cercle (Académie 40).
+  rankTech(5, 'Rang V : les légendes'),
+  ...domains(5),
+  newTech(5, {
+    id: 'vaults',
+    name: 'Coffres-forts',
+    icon: '🔐',
+    description: '+10 % de réserves à l’abri des pillards, par niveau',
+    effect: { kind: 'protected', perLevel: 0.1 },
+    maxLevel: 5,
+    baseCost: { stone: 300, gold: 150 },
+  }),
+  newTech(5, {
+    ...firstCircle('command'),
+    id: 'command2',
+    name: 'Commandement II',
+    maxLevel: 1,
+  }),
+]
+
 // --- Troupes ---
 
 /** Les quatre familles de troupes, chacune avec ses forces et ses faiblesses. */
 export type Family = 'warrior' | 'archer' | 'rider' | 'mage'
-/** Les troupes : une par famille, plus, pour chaque race, une troupe de combat et des soigneurs qui lui sont propres. */
-export type UnitId =
+/**
+ * Les troupes de base : une par famille, plus, pour chaque race, une troupe de combat et des soigneurs
+ * qui lui sont propres. Chacune a MAX_RANK rangs : `warrior` est le rang I des Guerriers, `warrior2`
+ * leur rang II (les Porte-boucliers)… jusqu'à `warrior5`.
+ */
+export type LineId =
   | Family
   | 'paladin'
   | 'crossbowman'
@@ -568,29 +794,19 @@ export type UnitId =
   | 'priest'
   | 'orcShaman'
   | 'runist'
+/** Une troupe : une troupe de base (son rang I), ou l'un de ses rangs suivants. */
+export type UnitId = LineId | `${LineId}${2 | 3 | 4 | 5}`
 /** Un nombre de troupes pour chaque type de troupe. */
 export type Army = Record<UnitId, number>
-
-export const UNIT_IDS: UnitId[] = [
-  'warrior',
-  'archer',
-  'rider',
-  'mage',
-  'paladin',
-  'crossbowman',
-  'wolfRider',
-  'druid',
-  'arcanist',
-  'priest',
-  'orcShaman',
-  'runist',
-]
 
 export interface UnitDef {
   id: UnitId
   name: string
   icon: string
   description: string
+  /** La troupe de base dont elle est un rang, et ce rang (de 1 à MAX_RANK). */
+  line: LineId
+  rank: number
   /** La famille dont elle a les forces et les faiblesses. */
   family: Family
   /** Une troupe propre à une race : elle seule peut l'entraîner. */
@@ -603,7 +819,7 @@ export interface UnitDef {
   cost: Partial<Resources>
   /** Durée d'entraînement d'une seule troupe, en secondes. */
   trainingSeconds: number
-  /** Niveau de Caserne nécessaire pour l'entraîner. */
+  /** Niveau de Caserne nécessaire pour l'entraîner (un rang suivant demande aussi sa grande recherche). */
   barracksLevel: number
   /** Entretien : nourriture mangée par heure par une troupe, dans la cité comme sur la carte. */
   upkeepPerHour: number
@@ -616,13 +832,16 @@ export interface UnitDef {
   heal?: number
 }
 
+/** Une troupe de base : son rang I, et les noms de ses rangs II à V. */
+type LineDef = Omit<UnitDef, 'id' | 'line' | 'rank'> & { id: LineId; rankNames: [string, string, string, string] }
+
 // Les forces et faiblesses forment un cycle :
 // Guerriers > Cavaliers > Archers > Mages > Guerriers.
 /**
  * Les soigneurs de chaque race (Prêtres, Chamans, Druides, Runistes) ont les mêmes chiffres : ils se
  * battent à peine, mais rendent de la vie à leur armée à chaque manche (voir UnitDef.heal).
  */
-const HEALER: Omit<UnitDef, 'id' | 'name' | 'icon' | 'description' | 'race'> = {
+const HEALER: Omit<LineDef, 'id' | 'name' | 'rankNames' | 'icon' | 'description' | 'race'> = {
   family: 'mage',
   attack: 4,
   health: 40,
@@ -635,10 +854,11 @@ const HEALER: Omit<UnitDef, 'id' | 'name' | 'icon' | 'description' | 'race'> = {
   heal: 3,
 }
 
-export const UNITS: UnitDef[] = [
+const LINES: LineDef[] = [
   {
     id: 'warrior',
     name: 'Guerriers',
+    rankNames: ['Porte-boucliers', 'Lances de fer', 'Gardes d’acier', 'Remparts vivants'],
     icon: '🛡️',
     description: 'Solides et bon marché. Leurs lances brisent les charges.',
     family: 'warrior',
@@ -654,6 +874,7 @@ export const UNITS: UnitDef[] = [
   {
     id: 'archer',
     name: 'Archers',
+    rankNames: ['Arcs-longs', 'Flèches noires', 'Yeux-de-faucon', 'Archers de l’aube'],
     icon: '🏹',
     description: 'Ils tirent de loin et abattent les mages avant qu’ils n’incantent.',
     family: 'archer',
@@ -669,6 +890,7 @@ export const UNITS: UnitDef[] = [
   {
     id: 'rider',
     name: 'Cavaliers',
+    rankNames: ['Coursiers', 'Lances d’argent', 'Cuirassiers', 'Cavaliers du tonnerre'],
     icon: '🐎',
     description: 'Rapides et puissants, ils balaient les lignes d’archers.',
     family: 'rider',
@@ -684,6 +906,7 @@ export const UNITS: UnitDef[] = [
   {
     id: 'mage',
     name: 'Mages',
+    rankNames: ['Invocateurs', 'Sorciers des braises', 'Mages de guerre', 'Maîtres des arcanes'],
     icon: '🧙',
     description: 'Fragiles, mais leurs sorts traversent les armures.',
     family: 'mage',
@@ -700,6 +923,7 @@ export const UNITS: UnitDef[] = [
   {
     id: 'paladin',
     name: 'Paladins',
+    rankNames: ['Paladins du serment', 'Lames bénies', 'Gardiens sacrés', 'Champions de lumière'],
     icon: '⚜️',
     description: 'Les chevaliers sacrés des Humains : lourdement armés, ils tiennent la ligne comme personne.',
     family: 'warrior',
@@ -716,6 +940,7 @@ export const UNITS: UnitDef[] = [
   {
     id: 'crossbowman',
     name: 'Arbalétriers nains',
+    rankNames: ['Arbalètes de forge', 'Tireurs runiques', 'Balistiers', 'Foudres de la montagne'],
     icon: '⚙️',
     description: 'Leurs arbalètes à manivelle percent les armures et abattent les mages de très loin.',
     family: 'archer',
@@ -732,6 +957,7 @@ export const UNITS: UnitDef[] = [
   {
     id: 'wolfRider',
     name: 'Chevaucheurs de loups',
+    rankNames: ['Chevaucheurs sauvages', 'Hurleurs', 'Fléaux des plaines', 'Rois-loups'],
     icon: '🐾',
     description: 'Des orcs juchés sur des loups géants : ils fondent sur les archers avant qu’ils ne tirent.',
     family: 'rider',
@@ -748,6 +974,7 @@ export const UNITS: UnitDef[] = [
   {
     id: 'druid',
     name: 'Druides',
+    rankNames: ['Druides des sources', 'Gardiens des bosquets', 'Chantres de la sève', 'Druides anciens'],
     icon: '🌿',
     description: 'Les gardiens de la forêt elfique : pendant les batailles, leur sève et leurs chants referment les plaies de ton armée.',
     ...HEALER,
@@ -756,6 +983,7 @@ export const UNITS: UnitDef[] = [
   {
     id: 'arcanist',
     name: 'Arcanistes',
+    rankNames: ['Tisseurs de lumière', 'Mages astraux', 'Veilleurs des étoiles', 'Lumières anciennes'],
     icon: '💫',
     description: 'Des mages elfes qui tissent la lumière en traits brûlants : ils brisent les rangs des guerriers.',
     family: 'mage',
@@ -772,6 +1000,7 @@ export const UNITS: UnitDef[] = [
   {
     id: 'priest',
     name: 'Prêtres',
+    rankNames: ['Chapelains', 'Prieurs', 'Hauts-prêtres', 'Saints guérisseurs'],
     icon: '🕯️',
     description: 'Leurs prières referment les plaies de ton armée pendant les batailles.',
     ...HEALER,
@@ -780,6 +1009,7 @@ export const UNITS: UnitDef[] = [
   {
     id: 'orcShaman',
     name: 'Chamans',
+    rankNames: ['Diseurs d’os', 'Voix des ancêtres', 'Chamans du sang', 'Grands chamans'],
     icon: '🪶',
     description: 'Leurs chants et leurs os sacrés remettent les orcs debout au cœur de la bataille.',
     ...HEALER,
@@ -788,12 +1018,52 @@ export const UNITS: UnitDef[] = [
   {
     id: 'runist',
     name: 'Runistes',
+    rankNames: ['Graveurs de runes', 'Maîtres des runes', 'Sages des profondeurs', 'Anciens des runes'],
     icon: '💠',
     description: 'Ils gravent des runes de guérison sur les armures et les boucliers de ton armée.',
     ...HEALER,
     race: 'dwarves',
   },
 ]
+
+
+/**
+ * Un rang d'une troupe de base. Chaque rang au-dessus du premier multiplie son attaque, sa vie et ses
+ * soins par RANK_STRENGTH, son coût et sa durée d'entraînement par RANK_COST, son entretien et sa
+ * charge par RANK_UPKEEP. Il s'entraîne à partir de la Caserne niveau RANK_STEP × (rang − 1).
+ */
+function rankOf(line: LineDef, rank: number): UnitDef {
+  const { rankNames, ...base } = line
+  if (rank === 1) return { ...base, line: line.id, rank }
+  const grown = (value: number, factor: number) => value * factor ** (rank - 1)
+  const cost: Partial<Resources> = {}
+  for (const id of RESOURCE_IDS) {
+    const each = line.cost[id]
+    if (each) cost[id] = Math.round(grown(each, RANK_COST))
+  }
+  return {
+    ...base,
+    id: `${line.id}${rank}` as UnitId,
+    name: rankNames[rank - 2],
+    line: line.id,
+    rank,
+    attack: grown(line.attack, RANK_STRENGTH),
+    health: grown(line.health, RANK_STRENGTH),
+    ...(line.heal === undefined ? {} : { heal: grown(line.heal, RANK_STRENGTH) }),
+    cost,
+    trainingSeconds: Math.round(grown(line.trainingSeconds, RANK_COST) * 10) / 10,
+    barracksLevel: RANK_STEP * (rank - 1),
+    upkeepPerHour: Math.round(grown(line.upkeepPerHour, RANK_UPKEEP)),
+    load: Math.round(grown(line.load, RANK_UPKEEP)),
+  }
+}
+
+/** Toutes les troupes : les rangs de chaque troupe de base, à la suite (Guerriers, Porte-boucliers… puis Archers…). */
+export const UNITS: UnitDef[] = LINES.flatMap((line) =>
+  Array.from({ length: MAX_RANK }, (_, i) => rankOf(line, i + 1)),
+)
+
+export const UNIT_IDS: UnitId[] = UNITS.map((unit) => unit.id)
 
 /** Une troupe inflige 1,5 fois plus de dégâts à la famille qu'elle domine. */
 export const COUNTER_BONUS = 1.5

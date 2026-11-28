@@ -1,7 +1,9 @@
 // Le rythme de la progression sur des années : un bâtisseur virtuel, sans armée, passe dans sa cité
 // cinq fois par jour (à 8 h, 12 h, 16 h, 20 h et minuit) et lance ce qu'il peut : le Château d'abord,
-// l'Entrepôt quand les réserves ne gardent plus assez, puis le bâtiment le plus en retard. Il ne vit
-// que de sa production (ni butin, ni récolte) : un joueur qui se bat ira plus vite.
+// l'Entrepôt quand les réserves ne gardent plus assez, puis le bâtiment le plus en retard. À chaque
+// palier (Château 10, 20, 30, 40), il monte l'Académie et la Caserne au niveau du palier et mène la
+// grande recherche du rang suivant, sans laquelle le Château ne passe pas. Il ne fait pas d'autre
+// recherche, et ne vit que de sa production (ni butin, ni récolte) : un joueur qui se bat ira plus vite.
 //
 //   npm run pacing          (4 ans de jeu, humains)
 //   npm run pacing -- 6 orcs
@@ -9,8 +11,20 @@
 // Il dit au bout de combien de jours le Château atteint chaque niveau, et où en sont les autres
 // bâtiments. À relancer après avoir changé les coûts, les durées ou la production dans config.ts.
 
-import { BUILDINGS, MAX_LEVEL, RACES, type BuildingId, type RaceId } from '../src/game/config.ts'
-import { advance, checkUpgrade, maxConstructions, maxLevelOf, newGame, startUpgrade, type GameState } from '../src/game/rules.ts'
+import { BUILDINGS, MAX_LEVEL, MAX_RANK, RACES, RANK_STEP, type BuildingId, type RaceId } from '../src/game/config.ts'
+import {
+  advance,
+  checkResearch,
+  checkUpgrade,
+  maxConstructions,
+  maxLevelOf,
+  newGame,
+  rankOpen,
+  rankTech,
+  startResearch,
+  startUpgrade,
+  type GameState,
+} from '../src/game/rules.ts'
 
 const HOUR = 3600_000
 const DAY = 24 * HOUR
@@ -29,9 +43,24 @@ function upgrade(state: GameState, id: BuildingId, now: number): GameState | nul
   return checkUpgrade(state, id).ok ? startUpgrade(state, id, now) : null
 }
 
+/** Le prochain rang à ouvrir (null quand ils le sont tous), et le niveau de son palier. */
+function nextRank(state: GameState): { rank: number; level: number } | null {
+  for (let rank = 2; rank <= MAX_RANK; rank++) {
+    if (!rankOpen(state, rank)) return { rank, level: RANK_STEP * (rank - 1) }
+  }
+  return null
+}
+
+/** Lance la grande recherche du prochain rang, dès qu'elle est possible. */
+function researchRank(state: GameState, now: number): GameState {
+  const next = nextRank(state)
+  const tech = next ? rankTech(next.rank) : null
+  return tech && checkResearch(state, tech.id).ok ? startResearch(state, tech.id, now) : state
+}
+
 /** Ce que le bâtisseur lance à son passage, tant qu'il a un chantier libre et de quoi payer. */
 function visit(state: GameState, now: number): GameState {
-  let g = state
+  let g = researchRank(state, now)
   while (g.constructions.length < maxConstructions(g)) {
     const castle = checkUpgrade(g, 'castle')
     // Le Château d'abord ; trop cher pour les réserves, il faut d'abord l'Entrepôt.
@@ -41,15 +70,25 @@ function visit(state: GameState, now: number): GameState {
       g = next
       continue
     }
+    // Puis il prépare le prochain palier : l'Académie et la Caserne à son niveau, pour sa grande recherche.
+    const palier = nextRank(g)
+    const ready = (['academy', 'barracks'] as BuildingId[])
+      .filter((id) => palier && g.levels[id] < palier.level)
+      .map((id) => upgrade(g, id, now))
+      .find((s) => s !== null)
+    if (ready) {
+      g = ready
+      continue
+    }
     // Sinon, le bâtiment le plus en retard (à égalité, dans l'ordre de la liste).
     const lagging = [...OTHERS]
       .filter((id) => g.levels[id] < maxLevelOf(BUILDINGS.find((b) => b.id === id)!))
       .sort((a, b) => g.levels[a] - g.levels[b])
     const other = lagging.map((id) => upgrade(g, id, now)).find((s) => s !== null)
-    if (!other) return g
+    if (!other) return researchRank(g, now)
     g = other
   }
-  return g
+  return researchRank(g, now)
 }
 
 const start = newGame(race, T0, 1)

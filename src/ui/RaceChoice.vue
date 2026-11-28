@@ -6,9 +6,9 @@ import NoticeBar from './NoticeBar.vue'
 defineProps<{ busy: boolean; notice: string | null; offline: boolean; player: string | null }>()
 const emit = defineEmits<{ choose: [race: RaceId]; logout: []; goOnline: []; dismissNotice: [] }>()
 
-/** La troupe propre à une race. */
+/** La troupe de combat propre à une race (son rang I ; ses soigneurs, eux, ne se battent pas). */
 function raceUnit(race: RaceId) {
-  return UNITS.find((unit) => unit.race === race)
+  return UNITS.find((unit) => unit.race === race && unit.rank === 1 && !unit.heal)
 }
 </script>
 

@@ -54,7 +54,7 @@ describe('restoreState', () => {
     const marched = startMarch(elves, { type: 'camp', camp: 'wolfDen' }, { ...emptyArmy(), druid: 2 }, T0)
     const training = { unit: 'druid', count: 4, startedAt: T0, endsAt: T0 + 1000 }
     // Une partie de ce temps-là ne comptait pas encore d'Arcanistes.
-    const text = JSON.stringify({ ...marched, trainings: [training] }).replaceAll('"arcanist":0,', '')
+    const text = JSON.stringify({ ...marched, trainings: [training] }).replace(/"arcanist\d?":0,/g, '')
     expect(text).not.toContain('arcanist')
     const restored = restoreState(JSON.parse(text))!
     expect(restored.troops).toEqual({ ...emptyArmy(), arcanist: 10, warrior: 3 })
@@ -62,6 +62,17 @@ describe('restoreState', () => {
     expect(restored.trainings[0].unit).toBe('arcanist')
     // Une partie d'aujourd'hui garde ses Druides : ce sont des soigneurs.
     expect(restoreState(JSON.parse(JSON.stringify(elves)))!.troops.druid).toBe(12)
+  })
+
+  it('une partie d’avant les rangs garde ses troupes : les rangs suivants et les nouvelles recherches comptent zéro', () => {
+    const game = { ...newGame('humans', T0), troops: { ...emptyArmy(), warrior: 7, paladin: 2 } }
+    // Une partie de ce temps-là ne comptait que les troupes de base, et le premier cercle de recherches.
+    const text = JSON.stringify(game).replace(/"[a-zA-Z]+[2-5]":0,?/g, '').replace(/,}/g, '}')
+    expect(text).not.toContain('warrior2')
+    expect(text).not.toContain('rank2')
+    const restored = restoreState(JSON.parse(text))!
+    expect(restored.troops).toEqual({ ...emptyArmy(), warrior: 7, paladin: 2 })
+    expect(restored.techs).toEqual(emptyTechs())
   })
 
   it('un dragon né avant les natures en reçoit une, toujours la même ; un œuf n’en a pas encore', () => {

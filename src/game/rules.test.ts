@@ -13,6 +13,8 @@ import {
   BAND_SPOTS,
   BATTLE_DAMAGE_SCALE,
   BATTLE_ROUND_SECONDS,
+  CIRCLE_LEVEL_STEP,
+  COST_POWER,
   COUNTER_BONUS,
   DRAGON_FAMILY,
   DRAGON_HATCH_COST,
@@ -26,6 +28,7 @@ import {
   MAX_BANDS,
   MAX_LEVEL,
   MAX_NODES,
+  MAX_RANK,
   MIN_BATTLE_ROUNDS,
   NODE_SPAWN_SECONDS,
   NODE_SPOTS,
@@ -41,6 +44,9 @@ import {
   RAID_PLUNDER_SHARE,
   RAID_RESPITE_SECONDS,
   RAID_SPEED,
+  RANK_COST,
+  RANK_STEP,
+  RANK_STRENGTH,
   RESOURCE_IDS,
   SECOND_CONSTRUCTION_CASTLE_LEVEL,
   HEAL_COST_SHARE,
@@ -68,6 +74,7 @@ import {
   type QuestDef,
   type ResourceId,
   type TechId,
+  type UnitDef,
   CAMP_RESPAWN_SECONDS,
   TRIAL_BOOST,
   ENCAMPMENT,
@@ -170,7 +177,12 @@ import {
   raidLoot,
   raidMonsters,
   recruitHero,
+  levelDuration,
+  levelScale,
+  rankTech,
+  researchAcademyLevel,
   researchCost,
+  researchDuration,
   routeBetween,
   canChase,
   sightRadius,
@@ -600,7 +612,7 @@ describe('la limite des réserves', () => {
     expect(storageCapacity(game, 3)).toBe(storageCapacity(cramped({}, 3)))
     const studied = { ...game, techs: { ...game.techs, stewardship: 2 } }
     const effect = getTech('stewardship').effect
-    expect(effect.kind).toBe('storage')
+    if (effect.kind !== 'storage') throw new Error('L’Intendance agrandit les réserves')
     expect(storageCapacity(studied) / storageCapacity(game)).toBeCloseTo(1 + 2 * effect.perLevel, 2)
   })
 
@@ -666,8 +678,11 @@ describe('la limite des réserves', () => {
         const top = building.id === 'castle' ? Math.min(castle + 1, MAX_LEVEL) : Math.min(castle, maxLevelOf(building))
         for (let level = 1; level <= top; level++) costs.push(upgradeCost(building, level))
       }
+      // Chaque niveau de recherche que permet une Académie au niveau du Château.
       for (const tech of TECHS) {
-        for (let level = 1; level <= Math.min(tech.maxLevel, castle); level++) costs.push(researchCost(tech, level))
+        for (let level = 1; level <= tech.maxLevel && researchAcademyLevel(tech, level) <= castle; level++) {
+          costs.push(researchCost(tech, level))
+        }
       }
       costs.push(...SPELLS.filter((spell) => spell.towerLevel <= castle).map((spell) => spell.cost))
       costs.push(...HEROES.filter((hero) => hero.castleLevel <= castle).map((hero) => hero.cost))
@@ -830,8 +845,8 @@ describe('entraînement', () => {
 
   it('chaque race a sa propre troupe, que les autres races ne peuvent pas entraîner', () => {
     for (const race of RACES) {
-      // Une troupe de combat, et des soigneurs.
-      const own = UNITS.filter((unit) => unit.race === race.id)
+      // Une troupe de combat, et des soigneurs (chacun avec ses rangs).
+      const own = UNITS.filter((unit) => unit.race === race.id && unit.rank === 1)
       expect(own.filter((unit) => !unit.heal)).toHaveLength(1)
       expect(own.filter((unit) => unit.heal)).toHaveLength(1)
     }
@@ -1166,7 +1181,7 @@ describe('les batailles', () => {
     expect(report.rounds.length).toBeGreaterThan(0)
     // Les pertes de chaque manche s'additionnent pour donner les pertes totales.
     for (const id of UNIT_IDS) {
-      expect(report.rounds.reduce((sum, r) => sum + r.lost[id], 0)).toBe(report.lost[id])
+      expect(report.rounds.reduce((sum, r) => sum + (r.lost[id] ?? 0), 0)).toBe(report.lost[id])
     }
     for (const [id, lost] of Object.entries(report.enemyLost)) {
       expect(report.rounds.reduce((sum, r) => sum + (r.enemyLost[id as keyof typeof r.enemyLost] ?? 0), 0)).toBe(lost)
@@ -2196,6 +2211,149 @@ describe('recherches', () => {
   })
 })
 
+describe('les paliers : les rangs des troupes et les cercles de recherches', () => {
+  /** Une cité arrivée à un palier : son Château, son Académie et sa Caserne à ce niveau. */
+  const tier = (level: number) => richGame({ castle: level, academy: level, barracks: level })
+  const rankName = (rank: number) => rankTech(rank)!.name
+  /** Ce que rapporte un niveau d'une recherche. */
+  const perLevel = (id: TechId) => {
+    const effect = getTech(id).effect
+    if (effect.kind === 'rank') throw new Error('Une grande recherche ne donne pas de bonus')
+    return effect.perLevel
+  }
+
+  it('chaque troupe a cinq rangs, chacun plus fort et plus cher que le précédent', () => {
+    const lines = UNITS.filter((unit) => unit.rank === 1)
+    expect(UNITS).toHaveLength(lines.length * MAX_RANK)
+    expect(new Set(UNITS.map((unit) => unit.name)).size).toBe(UNITS.length)
+    for (const line of lines) {
+      const ranks = UNITS.filter((unit) => unit.line === line.id)
+      expect(ranks.map((unit) => unit.rank)).toEqual([1, 2, 3, 4, 5])
+      for (const unit of ranks.slice(1)) {
+        const below = ranks[unit.rank - 2]
+        // Les mêmes forces et faiblesses, la même race.
+        expect(unit).toMatchObject({ family: line.family, strongAgainst: line.strongAgainst })
+        expect(unit.race).toBe(line.race)
+        expect(unit.attack).toBe(below.attack * RANK_STRENGTH)
+        expect(unit.health).toBe(below.health * RANK_STRENGTH)
+        if (line.heal) expect(unit.heal).toBe(below.heal! * RANK_STRENGTH)
+        for (const id of RESOURCE_IDS) {
+          expect(Math.abs((unit.cost[id] ?? 0) - (line.cost[id] ?? 0) * RANK_COST ** (unit.rank - 1))).toBeLessThanOrEqual(0.5)
+        }
+        expect(unit.barracksLevel).toBe(RANK_STEP * (unit.rank - 1))
+        expect(unit.upkeepPerHour).toBeGreaterThanOrEqual(below.upkeepPerHour)
+      }
+    }
+  })
+
+  it('un rang s’entraîne après sa grande recherche, à partir de la Caserne de son palier', () => {
+    const game = tier(RANK_STEP)
+    expect(checkTraining(game, 'warrior2', 1)).toEqual({ ok: false, reason: `Nécessite la grande recherche « ${rankName(2)} »` })
+    const studied = withTechs(game, { rank2: 1 })
+    expect(checkTraining(studied, 'warrior2', 1).ok).toBe(true)
+    expect(checkTraining({ ...studied, levels: { ...studied.levels, barracks: RANK_STEP - 1 } }, 'warrior2', 1)).toEqual({
+      ok: false,
+      reason: `Nécessite la Caserne niveau ${RANK_STEP}`,
+    })
+    // Le rang suivant attend sa Caserne, et sa propre recherche.
+    expect(checkTraining(studied, 'warrior3', 1).ok).toBe(false)
+    expect(checkTraining(withTechs(tier(2 * RANK_STEP), { rank2: 1 }), 'warrior3', 1)).toEqual({
+      ok: false,
+      reason: `Nécessite la grande recherche « ${rankName(3)} »`,
+    })
+  })
+
+  it('une troupe s’entraîne un rang à la fois, chaque troupe de son côté', () => {
+    const game = withTechs(tier(RANK_STEP), { rank2: 1 })
+    const started = startTraining(game, 'warrior', 10, T0)
+    expect(checkTraining(started, 'warrior2', 10)).toEqual({ ok: false, reason: 'Des Guerriers sont déjà à l’entraînement' })
+    const both = startTraining(started, 'archer2', 10, T0)
+    const done = advance(both, Math.max(...both.trainings.map((t) => t.endsAt)))
+    // Les troupes d'un rang rejoignent la garnison, à côté des autres.
+    expect(done.troops).toEqual(army({ warrior: 10, archer2: 10 }))
+  })
+
+  it('dix troupes du rang II frappent comme vingt du rang I', () => {
+    const firstDealt = (troops: Partial<Army>) => {
+      const { game, id } = withBand(richGame({}, troops), nearCity(300), { goblin: 1000 })
+      const start = startMarch(game, toBand(id), army(troops), T0)
+      return allyIn(runUntil(start, (s) => (allyIn(s)?.rounds.length ?? 0) > 0))!.rounds[0].dealt
+    }
+    expect(firstDealt({ warrior2: 10 })).toBe(firstDealt({ warrior: 10 * RANK_STRENGTH }))
+  })
+
+  it('la grande recherche d’un rang demande l’Académie et la Caserne de son palier', () => {
+    expect(checkResearch(richGame({ castle: RANK_STEP, academy: RANK_STEP - 1, barracks: RANK_STEP }), 'rank2')).toEqual({
+      ok: false,
+      reason: `Nécessite l’Académie niveau ${RANK_STEP}`,
+    })
+    expect(checkResearch(richGame({ castle: RANK_STEP, academy: RANK_STEP, barracks: RANK_STEP - 1 }), 'rank2')).toEqual({
+      ok: false,
+      reason: `Nécessite la Caserne niveau ${RANK_STEP}`,
+    })
+    expect(checkResearch(tier(RANK_STEP), 'rank2').ok).toBe(true)
+    expect(checkResearch(withTechs(tier(RANK_STEP), { rank2: 1 }), 'rank2')).toEqual({ ok: false, reason: 'Niveau maximum atteint' })
+  })
+
+  it('le Château ne passe pas un palier sans la grande recherche de son rang', () => {
+    expect(checkUpgrade(tier(RANK_STEP - 1), 'castle').ok).toBe(true)
+    const gate = tier(RANK_STEP)
+    expect(checkUpgrade(gate, 'castle')).toEqual({ ok: false, reason: `Nécessite la grande recherche « ${rankName(2)} »` })
+    expect(checkUpgrade(withTechs(gate, { rank2: 1 }), 'castle').ok).toBe(true)
+    // Au palier suivant, il faut la recherche suivante.
+    const next = withTechs(tier(2 * RANK_STEP), { rank2: 1 })
+    expect(checkUpgrade(next, 'castle')).toEqual({ ok: false, reason: `Nécessite la grande recherche « ${rankName(3)} »` })
+    expect(checkUpgrade(withTechs(next, { rank3: 1 }), 'castle').ok).toBe(true)
+    // Les autres bâtiments n'en demandent pas.
+    expect(checkUpgrade(gate, 'farm').ok).toBe(true)
+  })
+
+  it('un cercle s’ouvre tous les 10 niveaux d’Académie, et chaque niveau y demande deux niveaux de plus', () => {
+    const forge2 = getTech('forge2')
+    expect(forge2).toMatchObject({ circle: 2, unlockedAtAcademyLevel: RANK_STEP })
+    expect(checkResearch(richGame({ castle: RANK_STEP, academy: RANK_STEP - 1 }), 'forge2')).toEqual({
+      ok: false,
+      reason: `Nécessite l’Académie niveau ${RANK_STEP}`,
+    })
+    expect(checkResearch(richGame({ castle: RANK_STEP, academy: RANK_STEP }), 'forge2').ok).toBe(true)
+    const next = RANK_STEP + CIRCLE_LEVEL_STEP
+    expect(checkResearch(withTechs(richGame({ castle: next, academy: next - 1 }), { forge2: 1 }), 'forge2')).toEqual({
+      ok: false,
+      reason: `Nécessite l’Académie niveau ${next}`,
+    })
+    // Chaque niveau coûte et dure comme le niveau d'Académie qu'il demande.
+    for (const id of RESOURCE_IDS) {
+      const base = forge2.baseCost[id]
+      if (base) expect(researchCost(forge2, 2)[id]).toBe(Math.round(base * levelScale(next, COST_POWER)))
+    }
+    expect(researchDuration(forge2, 2) / researchDuration(forge2, 1)).toBeCloseTo(levelDuration(next) / levelDuration(RANK_STEP))
+    // Les domaines du premier cercle reviennent à chaque cercle, plus puissants.
+    for (let circle = 2; circle <= MAX_RANK; circle++) {
+      for (const domain of ['agriculture', 'forge', 'armor', 'stewardship']) {
+        const tech = getTech(`${domain}${circle}` as TechId)
+        expect(tech).toMatchObject({ circle, unlockedAtAcademyLevel: RANK_STEP * (circle - 1) })
+        const below = (circle === 2 ? domain : `${domain}${circle - 1}`) as TechId
+        if (domain !== 'agriculture' || circle > 2) expect(perLevel(tech.id)).toBeGreaterThan(perLevel(below))
+      }
+      expect(rankTech(circle)).toMatchObject({ circle, maxLevel: 1, barracksLevel: RANK_STEP * (circle - 1) })
+    }
+  })
+
+  it('les recherches nouvelles : lits, entraînement, charge, récolte, gardes, réserves à l’abri et armées', () => {
+    const troops = army({ warrior: 100 })
+    const game = withHospital(richGame({ castle: 30, walls: 10, barracks: 5 }, troops), 5)
+    const ratio = (id: TechId, levels: number, measure: (g: GameState) => number) =>
+      measure(withTechs(game, { [id]: levels })) / measure(game)
+    expect(ratio('medicine', 2, hospitalBeds)).toBeCloseTo(1 + 2 * perLevel('medicine'), 2)
+    expect(ratio('drill', 2, (g) => trainingDuration(g, getUnit('warrior'), 100))).toBeCloseTo(1 - 2 * perLevel('drill'), 2)
+    expect(ratio('logistics', 3, (g) => carryCapacity(g, troops))).toBeCloseTo(1 + 3 * perLevel('logistics'))
+    expect(ratio('prospecting', 3, (g) => gatherRate(g, troops, 'gold'))).toBeCloseTo(1 + 3 * perLevel('prospecting'))
+    expect(ratio('fortification', 2, wallGuards)).toBeCloseTo(1 + 2 * perLevel('fortification'), 1)
+    expect(ratio('vaults', 2, protectedAmount)).toBeCloseTo(1 + 2 * perLevel('vaults'), 2)
+    expect(maxArmies(withTechs(game, { command: 2, command2: 1 }))).toBe(maxArmies(game) + 3)
+  })
+})
+
 describe('les poursuites', () => {
   /** Une bande de niveau 1 près de la cité, et une armée qui s'éloigne vers le nord, à sa vue. */
   function fleeing(): { game: GameState; id: number; home: Point } {
@@ -2275,8 +2433,8 @@ describe('les poursuites', () => {
 
 describe('les soigneurs', () => {
   /** Une armée face à une bande de trolls, jusqu'à sa première manche : son combattant dans la mêlée. */
-  function firstRound(troops: Partial<Army>, monsters: Monsters = { troll: 40 }) {
-    const { game, id } = withBand(richGame({}, troops), nearCity(300), monsters, 2, 'trolls')
+  function firstRound(troops: Partial<Army>, monsters: Monsters = { troll: 40 }, techs: Partial<Record<TechId, number>> = {}) {
+    const { game, id } = withBand(withTechs(richGame({}, troops), techs), nearCity(300), monsters, 2, 'trolls')
     const start = startMarch(game, toBand(id), army(troops), T0)
     return allyIn(runUntil(start, (s) => (allyIn(s)?.rounds.length ?? 0) > 0))!
   }
@@ -2292,11 +2450,21 @@ describe('les soigneurs', () => {
   it('chaque race a les siens : ils se battent à peine, et les autres races ne peuvent pas les entraîner', () => {
     const healers = UNITS.filter((unit) => unit.heal)
     expect(new Set(healers.map((unit) => unit.race)).size).toBe(RACES.length)
-    for (const healer of healers) expect(healer.attack).toBeLessThan(getUnit(healer.family).attack)
+    // Au même rang, ils frappent moins fort que les troupes de leur famille.
+    const fighter = (healer: UnitDef) => UNITS.find((unit) => unit.line === healer.family && unit.rank === healer.rank)!
+    for (const healer of healers) expect(healer.attack).toBeLessThan(fighter(healer).attack)
     const priest = getUnit('priest')
     const humans = richGame({ castle: 5, barracks: priest.barracksLevel })
     expect(checkTraining(humans, 'priest', 1).ok).toBe(true)
     expect(checkTraining({ ...humans, race: 'orcs' }, 'priest', 1)).toEqual({ ok: false, reason: 'Réservés aux Humains' })
+  })
+
+  it('l’Herboristerie les fait soigner davantage', () => {
+    const herbs = getTech('herbalism').effect
+    if (herbs.kind !== 'heal') throw new Error('L’Herboristerie renforce les soins')
+    const plain = firstRound({ warrior: 50, priest: 10 }).rounds[0]
+    const studied = firstRound({ warrior: 50, priest: 10 }, { troll: 40 }, { herbalism: 3 }).rounds[0]
+    expect(studied.healed! / plain.healed!).toBeCloseTo(1 + 3 * herbs.perLevel, 1)
   })
 
   it('à chaque manche, ils rendent de la vie à leur armée, sans dépasser ce qu’elle a perdu', () => {

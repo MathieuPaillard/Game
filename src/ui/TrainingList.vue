@@ -8,7 +8,7 @@ import UnitCard from './UnitCard.vue'
 const props = defineProps<{ state: GameState; now: number }>()
 const emit = defineEmits<{ train: [unit: UnitId, count: number] }>()
 
-const units = computed(() => UNITS.filter((unit) => !unit.race || unit.race === props.state.race))
+const units = computed(() => UNITS.filter((unit) => unit.rank === 1 && (!unit.race || unit.race === props.state.race)))
 const counterPercent = Math.round((COUNTER_BONUS - 1) * 100)
 </script>
 

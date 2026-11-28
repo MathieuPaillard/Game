@@ -9,6 +9,7 @@ import {
   BAND_AGGRO_RADIUS,
   BAND_SIGHT_FACTOR,
   CAMP_RESPAWN_SECONDS,
+  CIRCLE_LEVEL_STEP,
   ENCIRCLED_ATTACK_MALUS,
   ENCIRCLED_SIDES,
   MAX_ATTACKERS,
@@ -68,6 +69,7 @@ import {
   MAX_BATTLE_ROUNDS,
   MAX_LEVEL,
   MAX_NODES,
+  MAX_RANK,
   MAX_REPORTS,
   MONSTERS,
   NODE_GROWTH,
@@ -90,6 +92,8 @@ import {
   RAID_RESPITE_SECONDS,
   RAID_SIZE,
   RAID_SPEED,
+  RANK_NUMERALS,
+  RANK_STEP,
   RESOURCES,
   RESOURCE_IDS,
   SECOND_CONSTRUCTION_CASTLE_LEVEL,
@@ -126,6 +130,7 @@ import {
   type Family,
   type HeroDef,
   type HeroId,
+  type LineId,
   type MonsterDef,
   type MonsterId,
   type Point,
@@ -336,8 +341,8 @@ export interface BattleRound {
   /** Dégâts infligés par ta troupe à sa cible, puis par tous les monstres qui la frappaient. */
   dealt: number
   taken: number
-  /** Pertes de la manche : les tiennes, puis les monstres abattus par ta troupe. */
-  lost: Army
+  /** Pertes de la manche : les tiennes (seulement les troupes qui en ont eu), puis les monstres abattus par ta troupe. */
+  lost: Partial<Army>
   enemyLost: Monsters
   /** Pendant un siège : les gardes des Remparts tombés dans la manche. */
   guardsLost?: number
@@ -353,7 +358,7 @@ export interface BattleRound {
   breath?: { foes: number; damage: number }
   /** La vie que ses soigneurs ont rendue à ses troupes pendant la manche, et les tombés qu'ils ont relevés. */
   healed?: number
-  raised?: Army
+  raised?: Partial<Army>
 }
 
 /** Le dragon dans une bataille : son attaque, sa vie au début de la bataille et ce qu'il en reste. */
@@ -864,6 +869,11 @@ export function checkUpgrade(state: GameState, buildingId: BuildingId): Check {
   if (buildingId !== 'castle' && level + 1 > castleLevel) {
     return { ok: false, reason: `Nécessite le Château niveau ${level + 1}` }
   }
+  // Un palier du Château (les niveaux 11, 21, 31 et 41) demande la grande recherche de son rang.
+  const rank = rankOfLevel(level + 1)
+  if (buildingId === 'castle' && !rankOpen(state, rank)) {
+    return { ok: false, reason: `Nécessite la grande recherche « ${rankTech(rank)?.name} »` }
+  }
   if (constructionOf(state, buildingId)) return { ok: false, reason: 'Ce bâtiment est déjà en chantier' }
   const slots = maxConstructions(state)
   if (state.constructions.length >= slots) {
@@ -900,20 +910,35 @@ export function techBonus(state: GameState, kind: TechEffect['kind'], resource?:
   let total = 0
   for (const tech of TECHS) {
     const effect = tech.effect
-    if (effect.kind !== kind) continue
+    if (effect.kind !== kind || effect.kind === 'rank') continue
     if (effect.kind === 'production' && (!resource || !effect.resources.includes(resource))) continue
     total += effect.perLevel * state.techs[tech.id]
   }
   return total
 }
 
+/**
+ * Le niveau d'Académie qu'il faut pour le niveau `level` d'une recherche. Au premier cercle, une
+ * recherche ne dépasse pas le niveau de l'Académie ; dans les suivants, chaque niveau demande
+ * CIRCLE_LEVEL_STEP niveaux d'Académie de plus (Forge II : 10, 12, 14, 16 puis 18).
+ */
+export function researchAcademyLevel(tech: TechDef, level: number): number {
+  if (tech.circle === 1) return Math.max(tech.unlockedAtAcademyLevel, level)
+  return tech.unlockedAtAcademyLevel + CIRCLE_LEVEL_STEP * (level - 1)
+}
+
+/** Le niveau dont une recherche prend le coût et la durée : le sien au premier cercle, puis celui de l'Académie qu'elle demande. */
+function researchStep(tech: TechDef, level: number): number {
+  return tech.circle === 1 ? level : researchAcademyLevel(tech, level)
+}
+
 export function researchCost(tech: TechDef, level: number): Partial<Resources> {
-  return levelCost(tech.baseCost, level)
+  return levelCost(tech.baseCost, researchStep(tech, level))
 }
 
 /** Durée (en millisecondes) d'une recherche pour atteindre le niveau `level`. */
 export function researchDuration(tech: TechDef, level: number): number {
-  return Math.round(tech.baseDurationSeconds * levelDuration(level) * SECOND)
+  return Math.round(tech.baseDurationSeconds * levelDuration(researchStep(tech, level)) * SECOND)
 }
 
 export function checkResearch(state: GameState, techId: TechId): Check {
@@ -925,9 +950,40 @@ export function checkResearch(state: GameState, techId: TechId): Check {
     return { ok: false, reason: `Nécessite l’Académie niveau ${tech.unlockedAtAcademyLevel}` }
   }
   if (level >= tech.maxLevel) return { ok: false, reason: 'Niveau maximum atteint' }
-  if (level + 1 > academy) return { ok: false, reason: `Nécessite l’Académie niveau ${level + 1}` }
+  const needed = researchAcademyLevel(tech, level + 1)
+  if (academy < needed) return { ok: false, reason: `Nécessite l’Académie niveau ${needed}` }
+  if (tech.barracksLevel && state.levels.barracks < tech.barracksLevel) {
+    return { ok: false, reason: `Nécessite la Caserne niveau ${tech.barracksLevel}` }
+  }
   if (state.research) return { ok: false, reason: 'Une recherche est déjà en cours' }
   return checkPay(state, researchCost(tech, level + 1))
+}
+
+// --- Les rangs des troupes ---
+
+/** La grande recherche qui ouvre ce rang de troupes (le rang I n'en demande pas). */
+export function rankTech(rank: number): TechDef | null {
+  return TECHS.find((tech) => tech.effect.kind === 'rank' && tech.effect.rank === rank) ?? null
+}
+
+/** Ce rang de troupes est-il ouvert ? Le rang I l'est toujours ; les suivants, après leur grande recherche. */
+export function rankOpen(state: GameState, rank: number): boolean {
+  const tech = rankTech(rank)
+  return rank <= 1 || (tech !== null && state.techs[tech.id] > 0)
+}
+
+/**
+ * Le rang dont un niveau du Château demande la grande recherche : le rang II pour les niveaux 11 à 20,
+ * le III pour les niveaux 21 à 30… (le rang I pour les dix premiers niveaux, sans recherche). C'est
+ * aussi le palier des monstres que la cité attire à ce niveau.
+ */
+export function rankOfLevel(level: number): number {
+  return Math.min(MAX_RANK, Math.max(1, Math.floor((level - 1) / RANK_STEP) + 1))
+}
+
+/** Le chiffre romain d'un rang : « II ». */
+export function rankNumeral(rank: number): string {
+  return RANK_NUMERALS[rank - 1] ?? String(rank)
 }
 
 /** Lance une recherche : retire son coût, le nouveau niveau s'applique à la fin. */
@@ -961,11 +1017,16 @@ export function trainingCost(unit: UnitDef, count: number): Partial<Resources> {
   return cost
 }
 
-/** Durée (en millisecondes) pour entraîner `count` troupes, bonus de race et de Caserne compris. */
+/** Durée (en millisecondes) pour entraîner `count` troupes, bonus de race, de Caserne et d'Instruction compris. */
 export function trainingDuration(state: GameState, unit: UnitDef, count: number): number {
   const barracksSpeedUp = 1 / (1 + BARRACKS_SPEED_PER_LEVEL * Math.max(0, state.levels.barracks - 1))
-  const raceSpeedUp = 1 - getRace(state.race).trainingSpeedBonus
-  return Math.round(unit.trainingSeconds * count * barracksSpeedUp * raceSpeedUp * SECOND)
+  const speedUp = 1 - getRace(state.race).trainingSpeedBonus - techBonus(state, 'training')
+  return Math.round(unit.trainingSeconds * count * barracksSpeedUp * speedUp * SECOND)
+}
+
+/** L'entraînement en cours pour cette troupe de base, quel que soit son rang. */
+export function lineTraining(state: GameState, line: LineId): Training | undefined {
+  return state.trainings.find((training) => getUnit(training.unit).line === line)
 }
 
 export function checkTraining(state: GameState, unitId: UnitId, count: number): Check {
@@ -976,14 +1037,14 @@ export function checkTraining(state: GameState, unitId: UnitId, count: number): 
   if (barracks < unit.barracksLevel) {
     return { ok: false, reason: `Nécessite la Caserne niveau ${unit.barracksLevel}` }
   }
+  if (!rankOpen(state, unit.rank)) return { ok: false, reason: `Nécessite la grande recherche « ${rankTech(unit.rank)?.name} »` }
   if (!Number.isInteger(count) || count < 1) return { ok: false, reason: 'Choisis combien de troupes entraîner' }
   if (count > maxTrainingBatch(state)) {
     return { ok: false, reason: `${maxTrainingBatch(state)} troupes au maximum à la fois` }
   }
-  // Chaque type de troupe s'entraîne de son côté : un seul entraînement à la fois par type.
-  if (state.trainings.some((t) => t.unit === unitId)) {
-    return { ok: false, reason: `Des ${unit.name} sont déjà à l’entraînement` }
-  }
+  // Chaque troupe de base s'entraîne de son côté, un rang à la fois : un seul entraînement à la fois par troupe.
+  const busy = lineTraining(state, unit.line)
+  if (busy) return { ok: false, reason: `Des ${getUnit(busy.unit).name} sont déjà à l’entraînement` }
   return checkCost(state.resources, trainingCost(unit, count))
 }
 
@@ -1016,7 +1077,7 @@ function addArmies(a: Army, b: Army): Army {
 /** Les lits de l'hôpital : aucun sans hôpital, puis autant de plus que grandit la production. */
 export function hospitalBeds(state: GameState): number {
   const level = state.levels.hospital
-  return level > 0 ? Math.floor(HOSPITAL_BEDS_BASE * levelScale(level, PRODUCTION_POWER)) : 0
+  return level > 0 ? Math.floor(HOSPITAL_BEDS_BASE * levelScale(level, PRODUCTION_POWER) * (1 + techBonus(state, 'beds'))) : 0
 }
 
 /** Les lits encore libres : sans blessé qui attend, ni blessé en soins. */
@@ -1557,12 +1618,12 @@ function springTrap(state: GameState, army: FieldArmy, to: Point, at: number): {
 /** Ce qu'une armée peut porter : le butin et la récolte. Son héros peut l'augmenter. */
 export function carryCapacity(state: GameState, troops: Army, hero: HeroId | null = null): number {
   const base = UNIT_IDS.reduce((sum, id) => sum + troops[id] * getUnit(id).load, 0)
-  return base * (1 + heroBonus(state, hero, 'load'))
+  return base * (1 + heroBonus(state, hero, 'load') + techBonus(state, 'load'))
 }
 
 /** Ce qu'une armée récolte par seconde sur un gisement de cette ressource. */
 export function gatherRate(state: GameState, troops: Army, resource: ResourceId, hero: HeroId | null = null): number {
-  return armySize(troops) * NODE_KINDS[resource].gatherRate * (1 + heroBonus(state, hero, 'gatherSpeed'))
+  return armySize(troops) * NODE_KINDS[resource].gatherRate * (1 + heroBonus(state, hero, 'gatherSpeed') + techBonus(state, 'gather'))
 }
 
 /** Ce qu'une armée porte déjà. */
@@ -2499,8 +2560,8 @@ function allyStacks(state: GameState, ally: AllyFighter): { stacks: Stack[]; hea
  * dépasser sa vie du début. Ceux qui étaient tombés peuvent se relever. Change `health` (la vie de
  * chaque groupe après les coups), et renvoie la vie rendue.
  */
-function healTroops(ally: AllyFighter, standing: number[], health: number[]): number {
-  const power = UNIT_IDS.reduce((sum, id, i) => sum + standing[i] * (getUnit(id).heal ?? 0), 0) * ally.healthFactor
+function healTroops(ally: AllyFighter, standing: number[], health: number[], boost: number): number {
+  const power = UNIT_IDS.reduce((sum, id, i) => sum + standing[i] * (getUnit(id).heal ?? 0), 0) * ally.healthFactor * boost
   if (power <= 0) return 0
   const missing = UNIT_IDS.map((id, i) => Math.max(0, ally.sent[id] * getUnit(id).health * ally.healthFactor - health[i]))
   const wanted = total(missing)
@@ -2661,15 +2722,15 @@ function playRound(state: GameState, battleId: number, at: number): GameState {
     const before = counts(group.stacks, group.health)
     const struck = counts(group.stacks, after)
     // Ses soigneurs encore debout rendent de la vie à ses troupes : des tombés se relèvent.
-    const healed = healTroops(ally, struck, after)
+    const healed = healTroops(ally, struck, after, 1 + techBonus(state, 'heal'))
     const left = counts(group.stacks, after)
     const health = emptyArmy()
-    const lost = emptyArmy()
-    const raised = emptyArmy()
+    const lost: Partial<Army> = {}
+    const raised: Partial<Army> = {}
     UNIT_IDS.forEach((id, i) => {
       health[id] = after[i]
-      lost[id] = before[i] - struck[i]
-      raised[id] = left[i] - struck[i]
+      if (before[i] > struck[i]) lost[id] = before[i] - struck[i]
+      if (left[i] > struck[i]) raised[id] = left[i] - struck[i]
     })
     const played: BattleRound = {
       dealt: Math.round(strikes.find((s) => s.from === ally.ref)?.damage ?? 0),
@@ -2680,7 +2741,7 @@ function playRound(state: GameState, battleId: number, at: number): GameState {
     const breath = breaths.get(ally.ref)
     if (breath) played.breath = { foes: breath.foes.length, damage: Math.round(breath.damage) }
     if (Math.round(healed) > 0) played.healed = Math.round(healed)
-    if (armySize(raised) > 0) played.raised = raised
+    if (Object.keys(raised).length > 0) played.raised = raised
     let index = UNIT_IDS.length
     let siege = ally.siege
     if (siege) {
@@ -3306,7 +3367,7 @@ export function raidLoot(kind: BandKindId, level: number): Partial<Resources> {
 
 /** Les gardes qui veillent sur les Remparts : ils se battent à chaque siège, toujours au complet. */
 export function wallGuards(state: GameState): number {
-  return WALL_GUARDS_PER_LEVEL * state.levels.walls
+  return Math.floor(WALL_GUARDS_PER_LEVEL * state.levels.walls * (1 + techBonus(state, 'guards')))
 }
 
 /**
@@ -3319,7 +3380,8 @@ export function wallHealthBonus(level: number): number {
 
 /** Ce que le Château met à l'abri des pillards, pour chaque ressource. */
 export function protectedAmount(state: GameState): number {
-  return state.levels.castle > 0 ? Math.floor(PROTECTED_BASE * levelScale(state.levels.castle, COST_POWER)) : 0
+  const amount = PROTECTED_BASE * levelScale(state.levels.castle, COST_POWER) * (1 + techBonus(state, 'protected'))
+  return state.levels.castle > 0 ? Math.floor(amount) : 0
 }
 
 /** Le siège en cours, s'il y en a un : un raid se bat aux portes de la cité. */

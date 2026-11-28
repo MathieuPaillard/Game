@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { RESOURCES, RESOURCE_IDS, type TechDef } from '../game/config'
-import { checkResearch, researchCost, researchDuration, type GameState } from '../game/rules'
+import { checkResearch, rankNumeral, researchCost, researchDuration, type GameState } from '../game/rules'
 import { formatAmount, formatDuration } from './format'
 
 const props = defineProps<{ tech: TechDef; state: GameState; now: number }>()
@@ -27,13 +27,15 @@ const cost = computed(() => {
 })
 const duration = computed(() => researchDuration(props.tech, target.value))
 
-/** L'effet cumulé des niveaux déjà atteints : « +20 % », « −10 % » ou « +1 armée ». */
+/** L'effet cumulé des niveaux déjà atteints : « +20 % », « −10 % », « +1 armée » ou « rang II ouvert ». */
 const effectNow = computed(() => {
   const effect = props.tech.effect
+  if (effect.kind === 'rank') return `rang ${rankNumeral(effect.rank)} ouvert`
   const total = effect.perLevel * level.value
   if (effect.kind === 'armies') return `+${total} armée${total > 1 ? 's' : ''} dehors`
   const percent = Math.round(total * 100)
-  return effect.kind === 'marchSpeed' || effect.kind === 'constructionSpeed' ? `−${percent} %` : `+${percent} %`
+  const faster = effect.kind === 'marchSpeed' || effect.kind === 'constructionSpeed' || effect.kind === 'training'
+  return faster ? `−${percent} %` : `+${percent} %`
 })
 </script>
 

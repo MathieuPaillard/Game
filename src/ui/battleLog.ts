@@ -115,11 +115,12 @@ export function describeBattle(report: BattleReport): BattleStory {
         return `${monster.icon} ${monster.name} −${lost}${alone ? ` (reste ${foes[id]})` : ''}`
       })
     const ownLosses = units
-      .filter((id) => round.lost[id] > 0)
+      .filter((id) => (round.lost[id] ?? 0) > 0)
       .map((id) => {
-        army[id] -= round.lost[id]
+        const lost = round.lost[id] ?? 0
+        army[id] -= lost
         const unit = getUnit(id)
-        return `${unit.icon} ${unit.name} −${round.lost[id]} (reste ${army[id]})`
+        return `${unit.icon} ${unit.name} −${lost} (reste ${army[id]})`
       })
     const guardsLost = round.guardsLost ?? 0
     if (guardsLost > 0) {

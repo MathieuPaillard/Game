@@ -53,6 +53,11 @@ describe('parseAction', () => {
       { type: 'upgrade', building: 'farm' },
       { type: 'research', tech: 'forge' },
       { type: 'train', unit: 'archer', count: 12 },
+      // Les rangs des troupes, et les grandes recherches qui les ouvrent.
+      { type: 'train', unit: 'warrior3', count: 4 },
+      { type: 'research', tech: 'rank2' },
+      { type: 'research', tech: 'forge4' },
+      { type: 'march', target: { type: 'camp', camp: 'wolfDen' }, troops: army({ warrior: 5, paladin5: 1 }) },
       { type: 'march', target: { type: 'camp', camp: 'wolfDen' }, troops: army({ warrior: 5 }) },
       { type: 'march', target: { type: 'band', band: 3 }, troops: army({ archer: 2 }) },
       { type: 'march', target: { type: 'node', node: 4 }, troops: army({ rider: 6 }) },
