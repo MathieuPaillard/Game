@@ -37,18 +37,27 @@ export function formatAgo(ms: number): string {
   return `il y a ${Math.floor(hours / 24)} j`
 }
 
-/** Un compte à rebours court, pour les petites étiquettes : 75 000 ms → « 1:15 », 2 heures → « 2 h 00 ». */
+/** « 3 j 4 h » : une durée d'au moins un jour, en jours et en heures. */
+function days(total: number): string {
+  const count = Math.floor(total / 86400)
+  const hours = Math.floor((total % 86400) / 3600)
+  return hours ? `${count} j ${hours} h` : `${count} j`
+}
+
+/** Un compte à rebours court, pour les petites étiquettes : 75 000 ms → « 1:15 », 2 heures → « 2 h 00 », 3 jours → « 3 j ». */
 export function formatClock(ms: number): string {
   const total = Math.max(0, Math.ceil(ms / 1000))
+  if (total >= 86400) return days(total)
   const hours = Math.floor(total / 3600)
   const minutes = Math.floor((total % 3600) / 60)
   if (hours > 0) return `${hours} h ${String(minutes).padStart(2, '0')}`
   return `${minutes}:${String(total % 60).padStart(2, '0')}`
 }
 
-/** 75 000 ms → « 1 min 15 s » */
+/** 75 000 ms → « 1 min 15 s » ; les longues durées en jours et en heures : « 9 j 3 h ». */
 export function formatDuration(ms: number): string {
   const total = Math.max(0, Math.ceil(ms / 1000))
+  if (total >= 86400) return days(total)
   const hours = Math.floor(total / 3600)
   const minutes = Math.floor((total % 3600) / 60)
   const seconds = total % 60

@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { MAX_LEVEL, RESOURCES, RESOURCE_IDS, type BuildingDef } from '../game/config'
+import { RESOURCES, RESOURCE_IDS, type BuildingDef } from '../game/config'
 import {
   buildingOutput,
   checkUpgrade,
   constructionOf,
+  maxLevelOf,
   storageCapacity,
   upgradeCost,
   upgradeDuration,
@@ -17,7 +18,7 @@ const emit = defineEmits<{ upgrade: [] }>()
 
 const level = computed(() => props.state.levels[props.building.id])
 const target = computed(() => level.value + 1)
-const maxed = computed(() => level.value >= MAX_LEVEL)
+const maxed = computed(() => level.value >= maxLevelOf(props.building))
 
 const works = computed(() => constructionOf(props.state, props.building.id) ?? null)
 const remaining = computed(() => (works.value ? works.value.endsAt - props.now : 0))

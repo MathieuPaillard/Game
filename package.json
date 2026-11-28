@@ -15,7 +15,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "simulation": "node --disable-warning=ExperimentalWarning scripts/simulation.ts"
+    "simulation": "node --disable-warning=ExperimentalWarning scripts/simulation.ts",
+    "pacing": "node --disable-warning=ExperimentalWarning scripts/pacing.ts"
   },
   "dependencies": {
     "@hono/node-server": "2.1.5",

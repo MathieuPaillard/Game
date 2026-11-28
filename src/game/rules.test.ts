@@ -56,7 +56,6 @@ import {
   UNITS,
   UNIT_IDS,
   WALL_GUARDS_PER_LEVEL,
-  WALL_HEALTH_PER_LEVEL,
   WORLD,
   type Army,
   type BandKindId,
@@ -94,6 +93,7 @@ import {
   bandMonsters,
   bandPosition,
   bandsNearPath,
+  buildingOutput,
   campEmptyUntil,
   fighterHealth,
   carryCapacity,
@@ -187,6 +187,8 @@ import {
   upgradeDuration,
   upkeepPerHour,
   wallGuards,
+  wallHealthBonus,
+  maxLevelOf,
   xpToNextLevel,
   type Band,
   type GameState,
@@ -205,7 +207,7 @@ const CITY_TARGET: Target = { type: 'city' }
  * pour tester les règles sans dépendre de l'équilibrage ni du hasard.
  */
 /** Un Entrepôt démesuré : des réserves sans limite, pour les tests qui ne portent pas sur elle. */
-const ROOMY = 100
+const ROOMY = 1000
 
 function roomy(game: GameState): GameState {
   return { ...game, levels: { ...game.levels, warehouse: ROOMY } }
@@ -650,8 +652,8 @@ describe('la limite des réserves', () => {
     expect(checkCost(emptyResources(), { stone: 300 }, 400)).toEqual({ ok: false, reason: 'Il manque 300 de pierre' })
     // Des réserves qui débordent (un butin) paient quand même un coût plus grand que leur place.
     expect(checkCost({ ...emptyResources(), stone: 600 }, { stone: 500 }, 400)).toEqual({ ok: true })
-    const roost = { ...cramped({}), levels: { ...cramped({}).levels, castle: MAX_LEVEL, dragonRoost: MAX_LEVEL - 1 } }
-    expect(checkUpgrade(roost, 'dragonRoost')).toMatchObject({ ok: false, reason: expect.stringMatching(/agrandis l’Entrepôt$/) })
+    const academy = { ...cramped({}), levels: { ...cramped({}).levels, castle: MAX_LEVEL, academy: MAX_LEVEL - 1 } }
+    expect(checkUpgrade(academy, 'academy')).toMatchObject({ ok: false, reason: expect.stringMatching(/agrandis l’Entrepôt$/) })
   })
 
   it('chaque coût tient dans les réserves qu’on peut avoir à ce moment-là : la partie ne peut pas se bloquer', () => {
@@ -661,7 +663,7 @@ describe('la limite des réserves', () => {
       const costs: Partial<Resources>[] = []
       for (const building of BUILDINGS) {
         if (building.unlockedAtCastleLevel > castle) continue
-        const top = building.id === 'castle' ? Math.min(castle + 1, MAX_LEVEL) : castle
+        const top = building.id === 'castle' ? Math.min(castle + 1, MAX_LEVEL) : Math.min(castle, maxLevelOf(building))
         for (let level = 1; level <= top; level++) costs.push(upgradeCost(building, level))
       }
       for (const tech of TECHS) {
@@ -672,6 +674,43 @@ describe('la limite des réserves', () => {
       if (castle >= getBuilding('dragonRoost').unlockedAtCastleLevel) costs.push(DRAGON_HATCH_COST)
       for (const cost of costs) for (const id of RESOURCE_IDS) expect(cost[id] ?? 0).toBeLessThanOrEqual(room)
     }
+  })
+})
+
+describe('cinquante niveaux', () => {
+  it('chaque bâtiment s’arrête à son niveau maximum : 50, ou moins quand les suivants ne changeraient rien', () => {
+    expect(maxLevelOf(getBuilding('castle'))).toBe(MAX_LEVEL)
+    expect(maxLevelOf(getBuilding('dragonRoost'))).toBe(DRAGON_MAX_LEVEL)
+    expect(maxLevelOf(getBuilding('mageTower'))).toBe(Math.max(...SPELLS.map((spell) => spell.towerLevel)))
+    const roost = richGame({ castle: MAX_LEVEL, dragonRoost: DRAGON_MAX_LEVEL })
+    expect(checkUpgrade(roost, 'dragonRoost')).toEqual({ ok: false, reason: 'Niveau maximum atteint' })
+    expect(checkUpgrade(richGame({ castle: MAX_LEVEL, farm: MAX_LEVEL - 1 }), 'farm').ok).toBe(true)
+    expect(checkUpgrade(richGame({ castle: MAX_LEVEL }), 'castle')).toEqual({ ok: false, reason: 'Niveau maximum atteint' })
+  })
+
+  it('les durées, les coûts et la production grandissent à chaque niveau, sans s’emballer', () => {
+    const castle = getBuilding('castle')
+    const farm = getBuilding('farm')
+    const game = richGame({ farm: 1 })
+    const year = 365 * 24 * HOUR
+    for (let level = 2; level <= MAX_LEVEL; level++) {
+      expect(upgradeDuration(game, castle, level)).toBeGreaterThan(upgradeDuration(game, castle, level - 1))
+      expect(upgradeCost(castle, level).wood!).toBeGreaterThan(upgradeCost(castle, level - 1).wood!)
+      expect(buildingOutput(game, farm, level)).toBeGreaterThan(buildingOutput(game, farm, level - 1))
+    }
+    // Des semaines, pas des siècles ; des centaines de milliers, pas des milliards.
+    expect(upgradeDuration(game, castle, MAX_LEVEL)).toBeLessThan(year)
+    expect(upgradeCost(castle, MAX_LEVEL).wood!).toBeLessThan(1e8)
+    expect(hospitalBeds(withHospital(game, MAX_LEVEL))).toBeLessThan(1e6)
+  })
+
+  it('la Caserne accélère l’entraînement de moins en moins vite', () => {
+    const warrior = getUnit('warrior')
+    const at = (barracks: number) => trainingDuration(richGame({ barracks }), warrior, 100)
+    for (let level = 2; level <= MAX_LEVEL; level++) expect(at(level)).toBeLessThan(at(level - 1))
+    expect(at(MAX_LEVEL)).toBeGreaterThan(at(1) / 10)
+    // Le bonus de vie des Remparts, lui aussi, ne dépasse jamais son maximum.
+    for (let level = 1; level <= MAX_LEVEL; level++) expect(wallHealthBonus(level)).toBeLessThan(1)
   })
 })
 
@@ -1450,7 +1489,7 @@ describe('les raids et la défense de la cité', () => {
     expect(bare.siege).toEqual({ guards: 0, guardHealth: 0 })
     expect(walled.siege?.guards).toBe(4 * WALL_GUARDS_PER_LEVEL)
     expect(wallGuards(richGame({ walls: 4 }))).toBe(4 * WALL_GUARDS_PER_LEVEL)
-    expect(walled.healthFactor).toBeCloseTo(bare.healthFactor + 4 * WALL_HEALTH_PER_LEVEL)
+    expect(walled.healthFactor).toBeCloseTo(bare.healthFactor + wallHealthBonus(4))
   })
 
   it('les gardes se battent même quand la garnison est vide, et sont au complet à chaque siège', () => {

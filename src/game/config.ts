@@ -107,10 +107,12 @@ export interface BuildingDef {
   baseProductionPerHour?: number
   /** Niveau du Château à atteindre avant de pouvoir construire ce bâtiment. */
   unlockedAtCastleLevel: number
-  /** Coût du niveau 1. Chaque niveau suivant coûte COST_GROWTH fois plus que le précédent. */
+  /** Coût du niveau 1 (voir levelScale et COST_POWER pour les suivants). */
   baseCost: Partial<Resources>
-  /** Durée du niveau 1, en secondes. Chaque niveau suivant dure DURATION_GROWTH fois plus. */
+  /** Durée du niveau 1, en secondes. Le niveau L dure L ^ DURATION_POWER fois plus. */
   baseDurationSeconds: number
+  /** Un niveau maximum plus bas que MAX_LEVEL, quand les niveaux suivants ne changeraient plus rien. */
+  maxLevel?: number
 }
 
 export const BUILDINGS: BuildingDef[] = [
@@ -121,7 +123,7 @@ export const BUILDINGS: BuildingDef[] = [
     description: 'Le cœur de ta cité. Aucun bâtiment ne peut dépasser son niveau.',
     unlockedAtCastleLevel: 0,
     baseCost: { food: 150, wood: 200, stone: 150, gold: 60, mana: 30 },
-    baseDurationSeconds: 20,
+    baseDurationSeconds: 10,
   },
   {
     id: 'farm',
@@ -132,7 +134,7 @@ export const BUILDINGS: BuildingDef[] = [
     baseProductionPerHour: 1800,
     unlockedAtCastleLevel: 1,
     baseCost: { wood: 50, stone: 30 },
-    baseDurationSeconds: 6,
+    baseDurationSeconds: 3,
   },
   {
     id: 'sawmill',
@@ -143,7 +145,7 @@ export const BUILDINGS: BuildingDef[] = [
     baseProductionPerHour: 1800,
     unlockedAtCastleLevel: 1,
     baseCost: { food: 50, stone: 30 },
-    baseDurationSeconds: 6,
+    baseDurationSeconds: 3,
   },
   {
     id: 'quarry',
@@ -154,7 +156,7 @@ export const BUILDINGS: BuildingDef[] = [
     baseProductionPerHour: 1500,
     unlockedAtCastleLevel: 1,
     baseCost: { food: 50, wood: 40 },
-    baseDurationSeconds: 6,
+    baseDurationSeconds: 3,
   },
   {
     id: 'goldMine',
@@ -165,7 +167,7 @@ export const BUILDINGS: BuildingDef[] = [
     baseProductionPerHour: 900,
     unlockedAtCastleLevel: 1,
     baseCost: { food: 60, wood: 80, stone: 40 },
-    baseDurationSeconds: 8,
+    baseDurationSeconds: 4,
   },
   {
     id: 'manaWell',
@@ -176,7 +178,7 @@ export const BUILDINGS: BuildingDef[] = [
     baseProductionPerHour: 600,
     unlockedAtCastleLevel: 2,
     baseCost: { wood: 100, stone: 100, gold: 40 },
-    baseDurationSeconds: 10,
+    baseDurationSeconds: 5,
   },
   {
     id: 'barracks',
@@ -185,7 +187,7 @@ export const BUILDINGS: BuildingDef[] = [
     description: 'Entraîne tes troupes. Chaque niveau débloque des troupes et accélère l’entraînement.',
     unlockedAtCastleLevel: 2,
     baseCost: { food: 120, wood: 160, stone: 100 },
-    baseDurationSeconds: 12,
+    baseDurationSeconds: 6,
   },
   {
     id: 'academy',
@@ -194,7 +196,7 @@ export const BUILDINGS: BuildingDef[] = [
     description: 'Tes savants y mènent les recherches. Chaque niveau en débloque de nouvelles.',
     unlockedAtCastleLevel: 3,
     baseCost: { food: 250, wood: 300, stone: 250, gold: 120, mana: 40 },
-    baseDurationSeconds: 25,
+    baseDurationSeconds: 12,
   },
   {
     id: 'mageTower',
@@ -204,7 +206,9 @@ export const BUILDINGS: BuildingDef[] = [
       'Tes mages y lancent des sorts : contre du mana, un bienfait de plusieurs dizaines de minutes, ou une défense pour toute une nuit d’absence. Chaque niveau en débloque un nouveau.',
     unlockedAtCastleLevel: 4,
     baseCost: { wood: 300, stone: 400, gold: 200, mana: 150 },
-    baseDurationSeconds: 30,
+    baseDurationSeconds: 15,
+    // Son dernier sort se débloque au niveau 7 : au-delà, rien ne changerait.
+    maxLevel: 7,
   },
   {
     id: 'walls',
@@ -213,7 +217,7 @@ export const BUILDINGS: BuildingDef[] = [
     description: 'Ils défendent la cité contre les raids : des gardes y veillent, et tes troupes s’y battent mieux.',
     unlockedAtCastleLevel: 3,
     baseCost: { wood: 200, stone: 350, gold: 60 },
-    baseDurationSeconds: 20,
+    baseDurationSeconds: 10,
   },
   {
     id: 'dragonRoost',
@@ -222,7 +226,9 @@ export const BUILDINGS: BuildingDef[] = [
     description: 'Un œuf de dragon y éclôt, et le dragon y vit. Le dragon ne dépasse jamais le niveau de son aire.',
     unlockedAtCastleLevel: 6,
     baseCost: { wood: 900, stone: 1200, gold: 500, mana: 300 },
-    baseDurationSeconds: 60,
+    baseDurationSeconds: 30,
+    // Le dragon ne dépasse pas le niveau 10 (DRAGON_MAX_LEVEL) : l'aire non plus.
+    maxLevel: 10,
   },
   {
     id: 'warehouse',
@@ -232,7 +238,7 @@ export const BUILDINGS: BuildingDef[] = [
       'Il garde tes réserves. Quand une réserve est pleine, la production de cette ressource s’arrête : chaque niveau garde davantage.',
     unlockedAtCastleLevel: 1,
     baseCost: { wood: 120, stone: 100 },
-    baseDurationSeconds: 8,
+    baseDurationSeconds: 4,
   },
   {
     id: 'hospital',
@@ -242,40 +248,47 @@ export const BUILDINGS: BuildingDef[] = [
       'Une part des troupes qui tombent au combat n’est que blessée : elle y attend qu’on la soigne, s’il reste un lit. Chaque niveau ajoute des lits.',
     unlockedAtCastleLevel: 3,
     baseCost: { food: 150, wood: 200, stone: 150, gold: 50 },
-    baseDurationSeconds: 15,
+    baseDurationSeconds: 8,
   },
 ]
 
-/** Niveau maximum des bâtiments, pour l'instant. */
-export const MAX_LEVEL = 10
+// La progression se compte en mois, puis en années : cinquante niveaux. Les coûts, la production et
+// la place des réserves grandissent comme ((niveau + LEVEL_OFFSET) / (1 + LEVEL_OFFSET)) ^ puissance :
+// doucement au début, puis sans s'emballer (une croissance exponentielle exploserait sur 50 niveaux).
+// Les durées, elles, grandissent comme niveau ^ DURATION_POWER : quelques secondes au début, des
+// semaines vers la fin.
+
+/** Niveau maximum des bâtiments. */
+export const MAX_LEVEL = 50
+/** Le décalage qui adoucit les premiers niveaux (voir levelScale). */
+export const LEVEL_OFFSET = 4
+/** Les coûts, et la place des réserves qui doit les contenir. */
+export const COST_POWER = 3.3
+/** Les durées des chantiers et des recherches : niveau ^ DURATION_POWER fois celle du niveau 1. */
+export const DURATION_POWER = 3.5
+/** La production des bâtiments, et les lits de l'hôpital (qui suivent le nombre de troupes). */
+export const PRODUCTION_POWER = 2
 
 // Les réserves ont une limite : ce que garde l'Entrepôt, la même pour chaque ressource. Au-delà, la
 // production s'arrête ; ce que rapportent les armées, les objectifs et les sièges entre quand même.
 /** Ce que les réserves gardent de chaque ressource, sans Entrepôt. */
 export const STORAGE_BASE = 1000
-/** Chaque niveau d'Entrepôt garde 1,6 fois plus que le précédent : autant que grandissent les coûts. */
-export const STORAGE_GROWTH = 1.6
+// Chaque niveau d'Entrepôt garde autant de plus que grandissent les coûts : la place des réserves au
+// niveau L est STORAGE_BASE × levelScale(L + 1, COST_POWER).
 
 // L'hôpital : une part des troupes qui tombent au combat (dehors, pendant un siège ou dans un piège)
 // n'est que blessée. Elle va à l'hôpital s'il y reste un lit ; les autres meurent. On l'y soigne contre
 // des ressources et du temps, comme un entraînement, mais moins cher et plus vite.
 /** La part des troupes tombées qui n'est que blessée (arrondie au-dessus). */
 export const WOUNDED_SHARE = 0.5
-/** Les lits de l'hôpital au niveau 1 ; chaque niveau en a HOSPITAL_BEDS_GROWTH fois plus. */
+/** Les lits de l'hôpital au niveau 1 ; ils grandissent comme la production (levelScale, PRODUCTION_POWER). */
 export const HOSPITAL_BEDS_BASE = 50
-export const HOSPITAL_BEDS_GROWTH = 1.5
 /** Soigner une troupe coûte cette part de son entraînement… */
 export const HEAL_COST_SHARE = 0.3
 /** …et dure cette part de son temps d'entraînement. */
 export const HEAL_TIME_SHARE = 0.3
 /** Un seul chantier à la fois au début : un second s'ouvre à ce niveau du Château. */
 export const SECOND_CONSTRUCTION_CASTLE_LEVEL = 5
-/** Chaque niveau coûte 1,6 fois plus que le précédent. */
-export const COST_GROWTH = 1.6
-/** Chaque niveau dure 1,6 fois plus longtemps que le précédent. */
-export const DURATION_GROWTH = 1.6
-/** Chaque niveau produit 1,35 fois plus que le précédent. */
-export const PRODUCTION_GROWTH = 1.35
 
 // --- Sorts ---
 // La Tour des mages lance des sorts : contre du mana, un bienfait pour toute la cité, ou pour
@@ -431,9 +444,9 @@ export interface TechDef {
   maxLevel: number
   /** Niveau d'Académie nécessaire pour commencer cette recherche. */
   unlockedAtAcademyLevel: number
-  /** Coût du niveau 1. Chaque niveau suivant coûte COST_GROWTH fois plus que le précédent. */
+  /** Coût du niveau 1 (voir levelScale et COST_POWER pour les suivants). */
   baseCost: Partial<Resources>
-  /** Durée du niveau 1, en secondes. Chaque niveau suivant dure DURATION_GROWTH fois plus. */
+  /** Durée du niveau 1, en secondes. Le niveau L dure L ^ DURATION_POWER fois plus. */
   baseDurationSeconds: number
 }
 
@@ -819,7 +832,10 @@ export const ENCIRCLED_SIDES = 3
 export const ENCIRCLED_ATTACK_MALUS = 0.25
 /** Troupes maximum par entraînement, pour chaque niveau de Caserne. */
 export const TRAINING_BATCH_PER_LEVEL = 20
-/** Chaque niveau de Caserne au-delà du premier réduit de 10 % la durée d'entraînement. */
+/**
+ * Chaque niveau de Caserne au-delà du premier accélère l'entraînement : il dure 1 / (1 + 0,1 × (niveau − 1))
+ * de son temps (deux fois plus vite au niveau 11, six fois au niveau 51).
+ */
 export const BARRACKS_SPEED_PER_LEVEL = 0.1
 
 // --- Héros ---
@@ -1614,15 +1630,19 @@ export const WALL_GUARD: { attack: number; health: number; family: Family } = {
   health: 45,
   family: 'archer',
 }
-/** Chaque niveau de Remparts donne ce bonus de vie aux troupes qui défendent la cité (0.05 = +5 %). */
-export const WALL_HEALTH_PER_LEVEL = 0.05
+/**
+ * Le bonus de vie des troupes qui défendent la cité : WALL_HEALTH_MAX × niveau / (niveau +
+ * WALL_HEALTH_HALF_LEVEL). Il grandit de moins en moins vite : la moitié du maximum au niveau 15.
+ */
+export const WALL_HEALTH_MAX = 1
+export const WALL_HEALTH_HALF_LEVEL = 15
 /** Un seul siège à la fois : un raid qui arrive pendant un siège attend ce temps aux portes (en secondes). */
 export const SIEGE_WAIT_SECONDS = 10
 
 /** Un raid victorieux emporte cette part des réserves… */
 export const RAID_PLUNDER_SHARE = 0.2
-/** … sauf ce que le Château met à l'abri : autant de chaque ressource, par niveau du Château. */
-export const PROTECTED_PER_CASTLE_LEVEL = 300
+/** … sauf ce que le Château met à l'abri : autant de chaque ressource au niveau 1, puis comme les coûts. */
+export const PROTECTED_BASE = 300
 /** Et chaque monstre encore debout ne peut emporter que cette quantité. */
 export const RAID_LOAD_PER_MONSTER = 40
 

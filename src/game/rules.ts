@@ -37,7 +37,7 @@ import {
   BATTLE_ROUND_SECONDS,
   BUILDINGS,
   CAMPS,
-  COST_GROWTH,
+  COST_POWER,
   DRAGON_ATTACK,
   DRAGON_BREATH_EVERY,
   DRAGON_BREATH_POWER,
@@ -53,7 +53,7 @@ import {
   DRAGON_REST_SECONDS,
   DRAGON_UPKEEP_PER_LEVEL,
   DRAGON_XP_GROWTH,
-  DURATION_GROWTH,
+  DURATION_POWER,
   HEAL_COST_SHARE,
   HEAL_TIME_SHARE,
   HEROES,
@@ -61,7 +61,6 @@ import {
   HERO_MAX_LEVEL,
   HERO_XP_GROWTH,
   HOSPITAL_BEDS_BASE,
-  HOSPITAL_BEDS_GROWTH,
   MARCH_SPEED,
   MOUNTAINS,
   MAX_BAND_LEVEL,
@@ -77,8 +76,9 @@ import {
   NODE_SPOTS,
   PATROL_RADIUS,
   PATROL_SPEED,
-  PRODUCTION_GROWTH,
-  PROTECTED_PER_CASTLE_LEVEL,
+  LEVEL_OFFSET,
+  PRODUCTION_POWER,
+  PROTECTED_BASE,
   QUESTS,
   RACES,
   RAID_CASTLE_LEVEL,
@@ -102,7 +102,6 @@ import {
   START_RESOURCES,
   STARVATION_ATTACK_MALUS,
   STORAGE_BASE,
-  STORAGE_GROWTH,
   TRIAL_BOOST,
   TECHS,
   TRAINING_BATCH_PER_LEVEL,
@@ -110,7 +109,8 @@ import {
   UNIT_IDS,
   WALL_GUARD,
   WALL_GUARDS_PER_LEVEL,
-  WALL_HEALTH_PER_LEVEL,
+  WALL_HEALTH_HALF_LEVEL,
+  WALL_HEALTH_MAX,
   WORLD,
   WORLD_TICK_SECONDS,
   WOUNDED_SHARE,
@@ -722,7 +722,7 @@ export function checkCost(resources: Resources, cost: Partial<Resources>, capaci
  * production s'arrête (voir accrue) ; le butin, les récoltes et les récompenses entrent quand même.
  */
 export function storageCapacity(state: GameState, warehouseLevel = state.levels.warehouse): number {
-  return Math.floor(STORAGE_BASE * STORAGE_GROWTH ** warehouseLevel * (1 + techBonus(state, 'storage')))
+  return Math.floor(STORAGE_BASE * levelScale(warehouseLevel + 1, COST_POWER) * (1 + techBonus(state, 'storage')))
 }
 
 /** Peut-on payer ce coût ? Avec la place des réserves : un coût qui la dépasse demande un plus grand Entrepôt. */
@@ -743,7 +743,7 @@ export function buildingOutput(state: GameState, building: BuildingDef, level: n
   const raceBonus = getRace(state.race).productionBonus[building.produces] ?? 0
   const researchBonus = techBonus(state, 'production', building.produces)
   const magic = spellBonus(state, 'production', building.produces)
-  return building.baseProductionPerHour * PRODUCTION_GROWTH ** (level - 1) * (1 + raceBonus + researchBonus + magic)
+  return building.baseProductionPerHour * levelScale(level, PRODUCTION_POWER) * (1 + raceBonus + researchBonus + magic)
 }
 
 /** Production totale de la cité, par heure et par ressource. */
@@ -801,12 +801,31 @@ export function isStarving(state: GameState): boolean {
 
 // --- Constructions ---
 
-/** Coût d'un niveau : le coût de base, multiplié par COST_GROWTH à chaque niveau. */
+/**
+ * Ce qu'un niveau vaut par rapport au niveau 1, pour une croissance de cette puissance :
+ * ((niveau + LEVEL_OFFSET) / (1 + LEVEL_OFFSET)) ^ puissance. Douce au début, elle ne s'emballe pas sur
+ * cinquante niveaux, comme le ferait une croissance exponentielle.
+ */
+export function levelScale(level: number, power: number): number {
+  return ((level + LEVEL_OFFSET) / (1 + LEVEL_OFFSET)) ** power
+}
+
+/** Combien de fois plus que le niveau 1 dure le niveau `level` : level ^ DURATION_POWER. */
+export function levelDuration(level: number): number {
+  return Math.max(1, level) ** DURATION_POWER
+}
+
+/** Le niveau le plus haut d'un bâtiment : MAX_LEVEL, ou moins quand les suivants ne changeraient rien. */
+export function maxLevelOf(building: BuildingDef): number {
+  return building.maxLevel ?? MAX_LEVEL
+}
+
+/** Coût d'un niveau : le coût de base, grandi par levelScale (COST_POWER). */
 function levelCost(baseCost: Partial<Resources>, level: number): Partial<Resources> {
   const cost: Partial<Resources> = {}
   for (const id of RESOURCE_IDS) {
     const base = baseCost[id]
-    if (base) cost[id] = Math.round(base * COST_GROWTH ** (level - 1))
+    if (base) cost[id] = Math.round(base * levelScale(level, COST_POWER))
   }
   return cost
 }
@@ -818,7 +837,7 @@ export function upgradeCost(building: BuildingDef, level: number): Partial<Resou
 
 /** Durée (en millisecondes) pour amener un bâtiment au niveau `level`, bonus de race et Maçonnerie compris. */
 export function upgradeDuration(state: GameState, building: BuildingDef, level: number): number {
-  const seconds = building.baseDurationSeconds * DURATION_GROWTH ** (level - 1)
+  const seconds = building.baseDurationSeconds * levelDuration(level)
   const speedUp = getRace(state.race).constructionSpeedBonus + techBonus(state, 'constructionSpeed')
   return Math.round(seconds * (1 - speedUp) * SECOND)
 }
@@ -838,7 +857,7 @@ export function checkUpgrade(state: GameState, buildingId: BuildingId): Check {
   const level = state.levels[buildingId]
   const castleLevel = state.levels.castle
 
-  if (level >= MAX_LEVEL) return { ok: false, reason: 'Niveau maximum atteint' }
+  if (level >= maxLevelOf(building)) return { ok: false, reason: 'Niveau maximum atteint' }
   if (level === 0 && castleLevel < building.unlockedAtCastleLevel) {
     return { ok: false, reason: `Se débloque au Château niveau ${building.unlockedAtCastleLevel}` }
   }
@@ -894,7 +913,7 @@ export function researchCost(tech: TechDef, level: number): Partial<Resources> {
 
 /** Durée (en millisecondes) d'une recherche pour atteindre le niveau `level`. */
 export function researchDuration(tech: TechDef, level: number): number {
-  return Math.round(tech.baseDurationSeconds * DURATION_GROWTH ** (level - 1) * SECOND)
+  return Math.round(tech.baseDurationSeconds * levelDuration(level) * SECOND)
 }
 
 export function checkResearch(state: GameState, techId: TechId): Check {
@@ -944,7 +963,7 @@ export function trainingCost(unit: UnitDef, count: number): Partial<Resources> {
 
 /** Durée (en millisecondes) pour entraîner `count` troupes, bonus de race et de Caserne compris. */
 export function trainingDuration(state: GameState, unit: UnitDef, count: number): number {
-  const barracksSpeedUp = (1 - BARRACKS_SPEED_PER_LEVEL) ** Math.max(0, state.levels.barracks - 1)
+  const barracksSpeedUp = 1 / (1 + BARRACKS_SPEED_PER_LEVEL * Math.max(0, state.levels.barracks - 1))
   const raceSpeedUp = 1 - getRace(state.race).trainingSpeedBonus
   return Math.round(unit.trainingSeconds * count * barracksSpeedUp * raceSpeedUp * SECOND)
 }
@@ -994,10 +1013,10 @@ function addArmies(a: Army, b: Army): Army {
   return sum
 }
 
-/** Les lits de l'hôpital : aucun sans hôpital, puis HOSPITAL_BEDS_GROWTH fois plus à chaque niveau. */
+/** Les lits de l'hôpital : aucun sans hôpital, puis autant de plus que grandit la production. */
 export function hospitalBeds(state: GameState): number {
   const level = state.levels.hospital
-  return level > 0 ? Math.floor(HOSPITAL_BEDS_BASE * HOSPITAL_BEDS_GROWTH ** (level - 1)) : 0
+  return level > 0 ? Math.floor(HOSPITAL_BEDS_BASE * levelScale(level, PRODUCTION_POWER)) : 0
 }
 
 /** Les lits encore libres : sans blessé qui attend, ni blessé en soins. */
@@ -2277,7 +2296,7 @@ function cityFighter(state: GameState, at: number): AllyFighter {
       techBonus(state, 'health') +
       spellBonus(state, 'health') +
       spellBonus(state, 'siegeHealth') +
-      WALL_HEALTH_PER_LEVEL * state.levels.walls) *
+      wallHealthBonus(state.levels.walls)) *
     trialBoost(state)
   const health = emptyArmy()
   for (const id of UNIT_IDS) health[id] = state.troops[id] * getUnit(id).health * healthFactor
@@ -3290,9 +3309,17 @@ export function wallGuards(state: GameState): number {
   return WALL_GUARDS_PER_LEVEL * state.levels.walls
 }
 
+/**
+ * Le bonus de vie des troupes qui défendent la cité, à ce niveau des Remparts : il grandit de moins
+ * en moins vite, vers WALL_HEALTH_MAX (la moitié au niveau WALL_HEALTH_HALF_LEVEL).
+ */
+export function wallHealthBonus(level: number): number {
+  return level > 0 ? (WALL_HEALTH_MAX * level) / (level + WALL_HEALTH_HALF_LEVEL) : 0
+}
+
 /** Ce que le Château met à l'abri des pillards, pour chaque ressource. */
 export function protectedAmount(state: GameState): number {
-  return PROTECTED_PER_CASTLE_LEVEL * state.levels.castle
+  return state.levels.castle > 0 ? Math.floor(PROTECTED_BASE * levelScale(state.levels.castle, COST_POWER)) : 0
 }
 
 /** Le siège en cours, s'il y en a un : un raid se bat aux portes de la cité. */

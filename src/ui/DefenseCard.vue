@@ -4,7 +4,6 @@ import {
   RAID_CASTLE_LEVEL,
   RAID_PLUNDER_SHARE,
   WALL_GUARDS_PER_LEVEL,
-  WALL_HEALTH_PER_LEVEL,
   WOUNDED_SHARE,
   type MonsterId,
 } from '../game/config'
@@ -18,6 +17,7 @@ import {
   siegeOf,
   spellBonus,
   wallGuards,
+  wallHealthBonus,
   type GameState,
   type Monsters,
 } from '../game/rules'
@@ -32,7 +32,7 @@ const emit = defineEmits<{ showRaid: [band: number] }>()
 
 const level = computed(() => props.state.levels.walls)
 const guards = computed(() => wallGuards(props.state))
-const healthBonus = computed(() => Math.round(WALL_HEALTH_PER_LEVEL * level.value * 100))
+const healthBonus = computed(() => Math.round(wallHealthBonus(level.value) * 100))
 const defenders = computed(() => armySize(props.state.troops))
 const safe = computed(() => protectedAmount(props.state))
 const plunderPercent = Math.round(RAID_PLUNDER_SHARE * 100)
