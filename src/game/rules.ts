@@ -50,10 +50,14 @@ import {
   DRAGON_UPKEEP_PER_LEVEL,
   DRAGON_XP_GROWTH,
   DURATION_GROWTH,
+  HEAL_COST_SHARE,
+  HEAL_TIME_SHARE,
   HEROES,
   HERO_BASE_XP,
   HERO_MAX_LEVEL,
   HERO_XP_GROWTH,
+  HOSPITAL_BEDS_BASE,
+  HOSPITAL_BEDS_GROWTH,
   MARCH_SPEED,
   MOUNTAINS,
   MAX_BAND_LEVEL,
@@ -85,7 +89,6 @@ import {
   RESOURCES,
   RESOURCE_IDS,
   SECOND_CONSTRUCTION_CASTLE_LEVEL,
-  SIEGE_HEALED_SHARE,
   SIEGE_WAIT_SECONDS,
   SKILL_MAX_LEVEL,
   SPELLS,
@@ -106,6 +109,7 @@ import {
   WALL_HEALTH_PER_LEVEL,
   WORLD,
   WORLD_TICK_SECONDS,
+  WOUNDED_SHARE,
   type Army,
   type BandKindDef,
   type BandKindId,
@@ -149,6 +153,13 @@ export interface Construction {
 export interface Training {
   unit: UnitId
   count: number
+  startedAt: number
+  endsAt: number
+}
+
+/** Des blessés en soins à l'hôpital : ils rejoignent la garnison à `endsAt`. */
+export interface Healing {
+  troops: Army
   startedAt: number
   endsAt: number
 }
@@ -425,7 +436,10 @@ export interface SiegeReport {
   /** Les gardes des Remparts au début du siège, et ceux qui sont tombés (ils sont remplacés ensuite). */
   guards: number
   guardsLost: number
-  /** Les troupes tombées pendant le siège puis soignées dans la cité : elles ne sont pas perdues. */
+  /**
+   * Les troupes tombées pendant le siège qui se relevaient aussitôt, avant l'hôpital (les vieux rapports) ;
+   * vide depuis : les blessés vont à l'hôpital (BattleReport.wounded).
+   */
   healed: Army
   /** Ce que les monstres ont emporté, si la cité est tombée. */
   plunder: Partial<Resources>
@@ -443,7 +457,9 @@ export interface BattleReport {
   ambush: boolean
   outcome: Outcome
   sent: Army
+  /** Les troupes tombées, et parmi elles celles qui ne sont que blessées : elles sont allées à l'hôpital. */
   lost: Army
+  wounded: Army
   /** Les monstres présents au début de la bataille. */
   enemies: Monsters
   enemyLost: Monsters
@@ -490,6 +506,10 @@ export interface GameState {
   spellsReadyAt: Partial<Record<SpellId, number>>
   /** Troupes présentes dans la cité. Celles qui sont sorties sont dans `armies`. */
   troops: Army
+  /** Les blessés qui attendent à l'hôpital qu'on les soigne : ils ne mangent pas et ne se battent pas. */
+  wounded: Army
+  /** Les blessés en soins, un seul groupe à la fois ; null si personne n'est soigné. */
+  healing: Healing | null
   /** Entraînements en cours à la Caserne : au plus un par type de troupe. */
   trainings: Training[]
   /** Les héros recrutés, dans l'ordre de leur arrivée. */
@@ -552,6 +572,8 @@ export function newGame(race: RaceId, now: number, seed = now): GameState {
     spells: [],
     spellsReadyAt: {},
     troops: emptyArmy(),
+    wounded: emptyArmy(),
+    healing: null,
     trainings: [],
     heroes: [],
     dragon: null,
@@ -943,6 +965,85 @@ export function startTraining(state: GameState, unitId: UnitId, count: number, n
       ...current.trainings,
       { unit: unitId, count, startedAt: now, endsAt: now + trainingDuration(current, unit, count) },
     ],
+  }
+}
+
+// --- L'hôpital ---
+
+/** Deux groupes de troupes réunis. */
+function addArmies(a: Army, b: Army): Army {
+  const sum = emptyArmy()
+  for (const id of UNIT_IDS) sum[id] = a[id] + b[id]
+  return sum
+}
+
+/** Les lits de l'hôpital : aucun sans hôpital, puis HOSPITAL_BEDS_GROWTH fois plus à chaque niveau. */
+export function hospitalBeds(state: GameState): number {
+  const level = state.levels.hospital
+  return level > 0 ? Math.floor(HOSPITAL_BEDS_BASE * HOSPITAL_BEDS_GROWTH ** (level - 1)) : 0
+}
+
+/** Les lits encore libres : sans blessé qui attend, ni blessé en soins. */
+export function freeBeds(state: GameState): number {
+  const occupied = armySize(state.wounded) + (state.healing ? armySize(state.healing.troops) : 0)
+  return Math.max(0, hospitalBeds(state) - occupied)
+}
+
+/**
+ * Des troupes sont tombées : une part n'est que blessée (WOUNDED_SHARE, arrondie au-dessus) et va à
+ * l'hôpital, dans la limite de ses lits libres ; les autres meurent. Quand les lits manquent, chaque
+ * sorte de troupe en reçoit selon son nombre de blessés. Renvoie la partie, et les blessés.
+ */
+function woundFallen(state: GameState, fallen: Army): { state: GameState; wounded: Army } {
+  const hurt = emptyArmy()
+  for (const id of UNIT_IDS) hurt[id] = Math.max(0, Math.ceil(fallen[id] * WOUNDED_SHARE - 1e-9))
+  const free = freeBeds(state)
+  const wounded = emptyArmy()
+  if (armySize(hurt) <= free) Object.assign(wounded, hurt)
+  else apportion(free, UNIT_IDS.map((id) => hurt[id])).forEach((count, i) => (wounded[UNIT_IDS[i]] = count))
+  if (armySize(wounded) === 0) return { state, wounded }
+  return { state: { ...state, wounded: addArmies(state.wounded, wounded) }, wounded }
+}
+
+/** Ce que coûte la guérison de ces blessés : une part de leur entraînement (HEAL_COST_SHARE), arrondie au-dessus. */
+export function healingCost(troops: Army): Partial<Resources> {
+  const cost: Partial<Resources> = {}
+  for (const id of RESOURCE_IDS) {
+    const training = UNIT_IDS.reduce((sum, unit) => sum + troops[unit] * (getUnit(unit).cost[id] ?? 0), 0)
+    if (training > 0) cost[id] = Math.ceil(training * HEAL_COST_SHARE - 1e-9)
+  }
+  return cost
+}
+
+/** Combien de temps (en millisecondes) dure leur guérison : une part de leur entraînement (HEAL_TIME_SHARE). */
+export function healingDuration(state: GameState, troops: Army): number {
+  const training = UNIT_IDS.reduce((sum, id) => sum + trainingDuration(state, getUnit(id), troops[id]), 0)
+  return Math.round(training * HEAL_TIME_SHARE)
+}
+
+export function checkHealing(state: GameState, troops: Army): Check {
+  if (state.levels.hospital === 0) return { ok: false, reason: 'Construis d’abord l’Hôpital' }
+  if (state.healing) return { ok: false, reason: 'Des blessés sont déjà en soins' }
+  if (UNIT_IDS.some((id) => !Number.isInteger(troops[id]) || troops[id] < 0)) {
+    return { ok: false, reason: 'Nombre de blessés invalide' }
+  }
+  if (armySize(troops) === 0) return { ok: false, reason: 'Choisis les blessés à soigner' }
+  if (UNIT_IDS.some((id) => troops[id] > state.wounded[id])) return { ok: false, reason: 'Tu n’as pas autant de blessés' }
+  return checkCost(state.resources, healingCost(troops))
+}
+
+/** Soigne des blessés : leur guérison coûte une part de leur entraînement, et ils rejoignent la garnison à la fin. */
+export function startHealing(state: GameState, troops: Army, now: number): GameState {
+  const current = advance(state, now)
+  const check = checkHealing(current, troops)
+  if (!check.ok) throw new Error(check.reason)
+  const wounded = { ...current.wounded }
+  for (const id of UNIT_IDS) wounded[id] -= troops[id]
+  return {
+    ...current,
+    resources: addResources(current.resources, healingCost(troops), -1),
+    wounded,
+    healing: { troops: { ...troops }, startedAt: now, endsAt: now + healingDuration(current, troops) },
   }
 }
 
@@ -1364,6 +1465,7 @@ function springTrap(state: GameState, army: FieldArmy, to: Point, at: number): {
     troops[id] -= lost[id]
   }
   const wiped = armySize(troops) === 0
+  const hurt = woundFallen(state, lost)
   // Resté seul, le dragon regagne son aire pour s'y reposer : il ne se bat jamais sans escorte.
   const dragonRests = wiped && army.dragon && state.dragon !== null
   const report: BattleReport = {
@@ -1376,6 +1478,7 @@ function springTrap(state: GameState, army: FieldArmy, to: Point, at: number): {
     outcome: 'defeat',
     sent: { ...army.troops },
     lost,
+    wounded: hurt.wounded,
     enemies: {},
     enemyLost: {},
     loot: {},
@@ -1386,7 +1489,7 @@ function springTrap(state: GameState, army: FieldArmy, to: Point, at: number): {
     dragon: dragonRests ? { xp: 0, level: dragonLevel(state), levelsGained: 0, wounded: true } : null,
   }
   let next: GameState = {
-    ...state,
+    ...hurt.state,
     encampment: { ...state.encampment, sprung: [...sprung, trap] },
     reports: [report, ...state.reports].slice(0, MAX_REPORTS),
   }
@@ -2528,6 +2631,9 @@ function leave(state: GameState, battleId: number, ref: string, at: number, outc
   const { troops: survivors } = allySurvivors(ally)
   const lost = emptyArmy()
   for (const id of UNIT_IDS) lost[id] = ally.sent[id] - survivors[id]
+  // Une part des tombés n'est que blessée : elle va à l'hôpital, s'il y reste des lits.
+  const hurt = woundFallen(next, lost)
+  next = hurt.state
   const enemyLost = addMonsters(ally.rounds.map((round) => round.enemyLost))
   const xp = battleXp(enemyLost)
   const withDragon = dragonAfterBattle(next, ally, xp, at, outcome)
@@ -2542,7 +2648,8 @@ function leave(state: GameState, battleId: number, ref: string, at: number, outc
   }
   const room = army ? carryCapacity(next, survivors, army.hero) - loadSize(army.load) : 0
   const loot = outcome === 'defeat' ? {} : fitLoad(ally.loot, room)
-  next = { ...next, reports: [allyReport(ally, at, outcome, lost, enemyLost, loot, heroGain, withDragon.gain, null), ...next.reports].slice(0, MAX_REPORTS) }
+  const report = allyReport(ally, at, outcome, lost, hurt.wounded, enemyLost, loot, heroGain, withDragon.gain, null)
+  next = { ...next, reports: [report, ...next.reports].slice(0, MAX_REPORTS) }
   if (!army) return next
   if (armySize(survivors) === 0) {
     // Personne pour porter la clef : elle retourne à son gardien.
@@ -2565,6 +2672,7 @@ function allyReport(
   at: number,
   outcome: Outcome,
   lost: Army,
+  wounded: Army,
   enemyLost: Monsters,
   loot: Partial<Resources>,
   hero: HeroGain | null,
@@ -2582,6 +2690,7 @@ function allyReport(
     outcome,
     sent: { ...ally.sent },
     lost,
+    wounded,
     enemies: addMonsters(ally.met.map((m) => m.monsters)),
     enemyLost,
     loot,
@@ -3131,29 +3240,29 @@ export function plunderOf(state: GameState, monsters: Monsters): Partial<Resourc
 /**
  * La cité quitte la mêlée : le siège se termine. Repoussés, les raids ont laissé leur butin, qui
  * rejoint les réserves ; vainqueurs, ils pillent la cité (tous ensemble), puis les monstres la laissent
- * tranquille un moment. Une part des troupes tombées est soignée : elle retrouve la garnison. Les
- * raids encore debout s'en vont, et les armées venues aider la cité repartent, sans vainqueur.
+ * tranquille un moment. Une part des défenseurs tombés n'est que blessée : elle va à l'hôpital, s'il
+ * y reste des lits. Les raids encore debout s'en vont, et les armées venues aider la cité repartent,
+ * sans vainqueur.
  */
 function leaveCity(state: GameState, battle: Battle, ally: AllyFighter, at: number, outcome: Outcome): GameState {
   const { troops: survivors, guards: guardsLeft } = allySurvivors(ally)
   const lost = emptyArmy()
-  const healed = emptyArmy()
   const troops = { ...state.troops }
   for (const id of UNIT_IDS) {
-    const fallen = ally.sent[id] - survivors[id]
-    healed[id] = Math.ceil(fallen * SIEGE_HEALED_SHARE)
-    lost[id] = fallen - healed[id]
+    lost[id] = ally.sent[id] - survivors[id]
     troops[id] = Math.max(0, troops[id] - lost[id])
   }
+  const hurt = woundFallen(state, lost)
   const enemyLost = addMonsters(ally.rounds.map((round) => round.enemyLost))
   const plunder = outcome === 'defeat' ? plunderOf(state, addMonsters(battle.foes.map(foeSurvivors))) : {}
   const withDragon = dragonAfterBattle(state, ally, battleXp(enemyLost), at, outcome)
   const guards = ally.siege?.guards ?? 0
-  const siege: SiegeReport = { guards, guardsLost: guards - guardsLeft, healed, plunder }
-  const report = allyReport(ally, at, outcome, lost, enemyLost, ally.loot, null, withDragon.gain, siege)
+  const siege: SiegeReport = { guards, guardsLost: guards - guardsLeft, healed: emptyArmy(), plunder }
+  const report = allyReport(ally, at, outcome, lost, hurt.wounded, enemyLost, ally.loot, null, withDragon.gain, siege)
   let next: GameState = {
     ...withDragon.state,
     troops,
+    wounded: hurt.state.wounded,
     resources: addResources(addResources(state.resources, ally.loot), plunder, -1),
     reports: [report, ...state.reports].slice(0, MAX_REPORTS),
     // Après un pillage, les monstres sont repus : le prochain raid attendra.
@@ -3287,6 +3396,10 @@ function nextEvent(state: GameState): PendingEvent | null {
         trainings: s.trainings.filter((t) => t.unit !== training.unit),
       }),
     })
+  }
+  const healing = state.healing
+  if (healing) {
+    events.push({ at: healing.endsAt, apply: (s) => ({ ...s, troops: addArmies(s.troops, healing.troops), healing: null }) })
   }
   if (nextBandAt !== null) events.push({ at: nextBandAt, apply: (s) => spawnBand(s, nextBandAt) })
   if (nextNodeAt !== null) events.push({ at: nextNodeAt, apply: (s) => spawnNode(s, nextNodeAt) })

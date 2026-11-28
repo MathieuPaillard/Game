@@ -126,6 +126,9 @@ export function restoreState(saved: unknown): GameState | null {
       // Avant les sorts qui se rechargent, chaque sort pouvait être relancé dès sa fin.
       spellsReadyAt: state.spellsReadyAt ?? {},
       troops,
+      // Avant l'hôpital, personne n'était blessé : les troupes tombées mouraient.
+      wounded: { ...emptyArmy(), ...state.wounded },
+      healing: state.healing ? { ...state.healing, troops: { ...emptyArmy(), ...state.healing.troops } } : null,
       trainings: state.trainings ?? (state.training ? [state.training] : []),
       heroes: state.heroes ?? [],
       // Avant les créatures légendaires, personne n'avait de dragon.
@@ -185,12 +188,19 @@ export function restoreState(saved: unknown): GameState | null {
  * reprendre que bloquer le joueur, ou le serveur.
  */
 function isSound(state: GameState): boolean {
-  const works = [...state.constructions, ...state.trainings, ...state.spells, ...(state.research ? [state.research] : [])]
+  const works = [
+    ...state.constructions,
+    ...state.trainings,
+    ...state.spells,
+    ...(state.research ? [state.research] : []),
+    ...(state.healing ? [state.healing] : []),
+  ]
   const dragon = state.dragon
   return (
     [state.updatedAt, state.tickedAt, state.seed, state.nextId].every(finite) &&
     [state.nextBandAt, state.nextNodeAt, state.nextRaidAt].every(finiteOrNull) &&
-    [state.resources, state.levels, state.techs, state.troops, state.campsCleared, state.spellsReadyAt].every(isCounts) &&
+    [state.resources, state.levels, state.techs, state.troops, state.wounded, state.campsCleared, state.spellsReadyAt].every(isCounts) &&
+    (state.healing === null || (isCounts(state.healing.troops) && finite(state.healing.startedAt))) &&
     typeof state.trial === 'boolean' &&
     isObject(state.encampment) &&
     finiteOrNull(state.encampment.resetAt) &&
@@ -403,6 +413,8 @@ function upgradeReport(report: SavedReport): BattleReport {
     ...rest,
     sent,
     lost,
+    // Avant l'hôpital, aucune troupe tombée n'était seulement blessée.
+    wounded: { ...emptyArmy(), ...report.wounded },
     startedAt: report.startedAt ?? report.at ?? 0,
     // null : le rapport d'un siège. Les très vieux rapports, eux, ne disaient pas quelle armée s'était battue.
     army: report.army === undefined ? 0 : report.army,

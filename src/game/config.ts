@@ -94,6 +94,7 @@ export type BuildingId =
   | 'walls'
   | 'dragonRoost'
   | 'warehouse'
+  | 'hospital'
 
 export interface BuildingDef {
   id: BuildingId
@@ -233,6 +234,16 @@ export const BUILDINGS: BuildingDef[] = [
     baseCost: { wood: 120, stone: 100 },
     baseDurationSeconds: 8,
   },
+  {
+    id: 'hospital',
+    name: 'Hôpital',
+    icon: '🏥',
+    description:
+      'Une part des troupes qui tombent au combat n’est que blessée : elle y attend qu’on la soigne, s’il reste un lit. Chaque niveau ajoute des lits.',
+    unlockedAtCastleLevel: 3,
+    baseCost: { food: 150, wood: 200, stone: 150, gold: 50 },
+    baseDurationSeconds: 15,
+  },
 ]
 
 /** Niveau maximum des bâtiments, pour l'instant. */
@@ -244,6 +255,19 @@ export const MAX_LEVEL = 10
 export const STORAGE_BASE = 1000
 /** Chaque niveau d'Entrepôt garde 1,6 fois plus que le précédent : autant que grandissent les coûts. */
 export const STORAGE_GROWTH = 1.6
+
+// L'hôpital : une part des troupes qui tombent au combat (dehors, pendant un siège ou dans un piège)
+// n'est que blessée. Elle va à l'hôpital s'il y reste un lit ; les autres meurent. On l'y soigne contre
+// des ressources et du temps, comme un entraînement, mais moins cher et plus vite.
+/** La part des troupes tombées qui n'est que blessée (arrondie au-dessus). */
+export const WOUNDED_SHARE = 0.5
+/** Les lits de l'hôpital au niveau 1 ; chaque niveau en a HOSPITAL_BEDS_GROWTH fois plus. */
+export const HOSPITAL_BEDS_BASE = 50
+export const HOSPITAL_BEDS_GROWTH = 1.5
+/** Soigner une troupe coûte cette part de son entraînement… */
+export const HEAL_COST_SHARE = 0.3
+/** …et dure cette part de son temps d'entraînement. */
+export const HEAL_TIME_SHARE = 0.3
 /** Un seul chantier à la fois au début : un second s'ouvre à ce niveau du Château. */
 export const SECOND_CONSTRUCTION_CASTLE_LEVEL = 5
 /** Chaque niveau coûte 1,6 fois plus que le précédent. */
@@ -1441,8 +1465,6 @@ export const WALL_GUARD: { attack: number; health: number; family: Family } = {
 }
 /** Chaque niveau de Remparts donne ce bonus de vie aux troupes qui défendent la cité (0.05 = +5 %). */
 export const WALL_HEALTH_PER_LEVEL = 0.05
-/** On soigne les défenseurs dans la cité : cette part des troupes tombées pendant un siège se relève ensuite. */
-export const SIEGE_HEALED_SHARE = 0.5
 /** Un seul siège à la fois : un raid qui arrive pendant un siège attend ce temps aux portes (en secondes). */
 export const SIEGE_WAIT_SECONDS = 10
 
@@ -1637,6 +1659,13 @@ export const QUESTS: QuestDef[] = [
     reward: { wood: 300, stone: 300 },
   },
   {
+    id: 'hospital',
+    name: 'Un hôpital pour tes blessés',
+    description: 'Construis l’Hôpital : une part des troupes qui tombent au combat n’y sera que blessée.',
+    goal: { kind: 'building', building: 'hospital', level: 1 },
+    reward: { food: 300, wood: 200 },
+  },
+  {
     id: 'academy',
     name: 'La maison des savants',
     description: 'Construis l’Académie.',
@@ -1763,4 +1792,5 @@ export const START_LEVELS: Record<BuildingId, number> = {
   walls: 0,
   dragonRoost: 0,
   warehouse: 0,
+  hospital: 0,
 }

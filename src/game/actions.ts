@@ -24,6 +24,7 @@ import {
   checkClaim,
   checkDismiss,
   checkHatch,
+  checkHealing,
   checkMarch,
   checkOrder,
   checkRecruit,
@@ -41,6 +42,7 @@ import {
   recruitHero,
   setTrial,
   startMarch,
+  startHealing,
   startResearch,
   startTraining,
   startUpgrade,
@@ -54,6 +56,8 @@ export type Action =
   | { type: 'research'; tech: TechId }
   | { type: 'train'; unit: UnitId; count: number }
   | { type: 'dismiss'; troops: Army }
+  /** Soigner des blessés à l'hôpital. */
+  | { type: 'heal'; troops: Army }
   /** Recruter un héros. */
   | { type: 'recruit'; hero: HeroId }
   /** Placer un point de compétence d'un héros. */
@@ -94,6 +98,8 @@ export function checkAction(state: GameState, action: Action): Check {
       return checkTraining(state, action.unit, action.count)
     case 'dismiss':
       return checkDismiss(state, action.troops)
+    case 'heal':
+      return checkHealing(state, action.troops)
     case 'recruit':
       return checkRecruit(state, action.hero)
     case 'skill':
@@ -131,6 +137,8 @@ function run(state: GameState, action: Action, now: number): GameState {
       return startTraining(state, action.unit, action.count, now)
     case 'dismiss':
       return dismissTroops(state, action.troops, now)
+    case 'heal':
+      return startHealing(state, action.troops, now)
     case 'recruit':
       return recruitHero(state, action.hero, now)
     case 'skill':
@@ -181,6 +189,10 @@ export function parseAction(input: unknown): Action | null {
     case 'dismiss': {
       const troops = parseArmy(input.troops)
       return troops ? { type: 'dismiss', troops } : null
+    }
+    case 'heal': {
+      const troops = parseArmy(input.troops)
+      return troops ? { type: 'heal', troops } : null
     }
     case 'recruit':
       return isOneOf(input.hero, HERO_IDS) ? { type: 'recruit', hero: input.hero } : null

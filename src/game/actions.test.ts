@@ -61,6 +61,7 @@ describe('parseAction', () => {
       { type: 'order', army: 7, target: { type: 'city' } },
       { type: 'order', army: 7, target: { type: 'band', band: 2 } },
       { type: 'dismiss', troops: army({ mage: 2 }) },
+      { type: 'heal', troops: army({ warrior: 3, archer: 1 }) },
     ]
     // Comme s'ils arrivaient du réseau : transformés en texte, puis relus.
     for (const action of actions) expect(parseAction(JSON.parse(JSON.stringify(action)))).toEqual(action)

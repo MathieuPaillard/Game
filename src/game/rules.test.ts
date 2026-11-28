@@ -40,7 +40,9 @@ import {
   RAID_SPEED,
   RESOURCE_IDS,
   SECOND_CONSTRUCTION_CASTLE_LEVEL,
-  SIEGE_HEALED_SHARE,
+  HEAL_COST_SHARE,
+  HEAL_TIME_SHARE,
+  WOUNDED_SHARE,
   SIEGE_WAIT_SECONDS,
   SKILL_MAX_LEVEL,
   SPELLS,
@@ -97,6 +99,7 @@ import {
   checkDismiss,
   checkDragon,
   checkHatch,
+  checkHealing,
   checkMarch,
   checkMarchSlot,
   checkOrder,
@@ -117,6 +120,9 @@ import {
   emptyArmy,
   emptyResources,
   emptyTechs,
+  freeBeds,
+  hospitalBeds,
+  startHealing,
   netPerHour,
   storageCapacity,
   gainXp,
@@ -476,6 +482,99 @@ describe('constructions', () => {
     const expected =
       productionPerHour(start).food * ((endsAt - T0) / HOUR) + productionPerHour(after).food
     expect(after.resources.food - start.resources.food).toBeCloseTo(expected)
+  })
+})
+
+/** Une cité avec un hôpital de ce niveau (0 : sans hôpital). */
+function withHospital(game: GameState, level: number): GameState {
+  return { ...game, levels: { ...game.levels, hospital: level } }
+}
+
+describe('l’hôpital', () => {
+  it('ses lits grandissent avec son niveau, et comptent les blessés qui attendent comme ceux en soins', () => {
+    const game = { ...withHospital(richGame(), 2), wounded: army({ warrior: 10 }) }
+    expect(hospitalBeds(withHospital(game, 0))).toBe(0)
+    expect(hospitalBeds(withHospital(game, 3))).toBeGreaterThan(hospitalBeds(game))
+    expect(freeBeds(game)).toBe(hospitalBeds(game) - 10)
+    const healing = startHealing(game, army({ warrior: 4 }), T0)
+    expect(freeBeds(healing)).toBe(hospitalBeds(game) - 10)
+  })
+
+  it('dehors aussi, une part des tombés d’une armée n’est que blessée : elle va à l’hôpital', () => {
+    const { game, id } = withBand(withHospital(richGame({}, { warrior: 10 }), 1), nearCity(300), { troll: 200 }, 4, 'trolls')
+    const lost = runUntil(startMarch(game, toBand(id), army({ warrior: 10 }), T0), (s) => s.reports.length > 0)
+    const hurt = Math.ceil(10 * WOUNDED_SHARE)
+    expect(lost.reports[0]).toMatchObject({ outcome: 'defeat', lost: army({ warrior: 10 }), wounded: army({ warrior: hurt }) })
+    expect(lost.armies).toEqual([])
+    expect(lost.wounded).toEqual(army({ warrior: hurt }))
+  })
+
+  it('quand les lits manquent, les blessés se partagent ceux qui restent : les autres meurent', () => {
+    const base = withHospital(richGame({}, { warrior: 9, archer: 9 }), 1)
+    const beds = hospitalBeds(base)
+    const { game } = withRaid({ ...base, wounded: army({ rider: beds - 2 }) }, { troll: 500 }, RAID_SPEED, 4, 'trolls')
+    const lost = runUntil(game, (s) => s.reports.length > 0)
+    expect(lost.reports[0].lost).toEqual(army({ warrior: 9, archer: 9 }))
+    expect(lost.reports[0].wounded).toEqual(army({ warrior: 1, archer: 1 }))
+    expect(lost.wounded).toEqual(army({ rider: beds - 2, warrior: 1, archer: 1 }))
+    expect(freeBeds(lost)).toBe(0)
+  })
+
+  it('soigner coûte une part de l’entraînement, prend une part de son temps, puis rend les troupes à la garnison', () => {
+    expect(HEAL_COST_SHARE).toBeGreaterThan(0)
+    expect(HEAL_COST_SHARE).toBeLessThan(1)
+    expect(HEAL_TIME_SHARE).toBeGreaterThan(0)
+    expect(HEAL_TIME_SHARE).toBeLessThan(1)
+    const game = { ...withHospital(richGame({ barracks: 1 }, { warrior: 2 }), 1), wounded: army({ warrior: 10, archer: 4 }) }
+    const troops = army({ warrior: 6, archer: 4 })
+    expect(checkHealing(game, troops)).toEqual({ ok: true })
+    const started = startHealing(game, troops, T0)
+    const warrior = getUnit('warrior')
+    const archer = getUnit('archer')
+    for (const id of RESOURCE_IDS) {
+      const training = 6 * (warrior.cost[id] ?? 0) + 4 * (archer.cost[id] ?? 0)
+      expect(game.resources[id] - started.resources[id]).toBe(training > 0 ? Math.ceil(training * HEAL_COST_SHARE - 1e-9) : 0)
+    }
+    expect(started.wounded).toEqual(army({ warrior: 4 }))
+    const duration = (trainingDuration(game, warrior, 6) + trainingDuration(game, archer, 4)) * HEAL_TIME_SHARE
+    const endsAt = started.healing!.endsAt
+    expect(endsAt - T0).toBe(Math.round(duration))
+    expect(advance(started, endsAt - 1).troops).toEqual(army({ warrior: 2 }))
+    const healed = advance(started, endsAt)
+    expect(healed.healing).toBeNull()
+    expect(healed.troops).toEqual(army({ warrior: 8, archer: 4 }))
+  })
+
+  it('on ne soigne que les blessés qu’on a, un groupe à la fois, et il faut l’hôpital', () => {
+    const game = { ...richGame(), wounded: army({ warrior: 3 }) }
+    expect(checkHealing(game, army({ warrior: 1 }))).toEqual({ ok: false, reason: 'Construis d’abord l’Hôpital' })
+    const built = withHospital(game, 1)
+    expect(checkHealing(built, army({}))).toEqual({ ok: false, reason: 'Choisis les blessés à soigner' })
+    expect(checkHealing(built, army({ warrior: 4 }))).toEqual({ ok: false, reason: 'Tu n’as pas autant de blessés' })
+    expect(checkHealing(built, army({ warrior: -1 }))).toEqual({ ok: false, reason: 'Nombre de blessés invalide' })
+    const busy = startHealing(built, army({ warrior: 1 }), T0)
+    expect(checkHealing(busy, army({ warrior: 1 }))).toEqual({ ok: false, reason: 'Des blessés sont déjà en soins' })
+  })
+
+  it('les blessés ne mangent pas : seules les troupes debout coûtent leur entretien', () => {
+    expect(upkeepPerHour({ ...richGame(), wounded: army({ warrior: 100 }) })).toBe(upkeepPerHour(richGame()))
+  })
+
+  it('d’un coup ou seconde par seconde, les blessés et leurs soins donnent le même résultat', () => {
+    const { game } = withRaid(withHospital(richGame({ barracks: 1 }, { warrior: 30 }), 1), { troll: 500 }, RAID_SPEED * 5, 4, 'trolls')
+    const end = T0 + 3 * 60_000
+    let step = game
+    for (let t = T0 + 1000; t <= end; t += 1000) step = advance(step, t)
+    const jump = advance(game, end)
+    expectSameGame(jump, step)
+    expect(armySize(jump.wounded)).toBeGreaterThan(0)
+    const healing = startHealing(jump, jump.wounded, end)
+    const later = healing.healing!.endsAt + 2000
+    let stepped = healing
+    for (let t = end + 1000; t <= later; t += 1000) stepped = advance(stepped, t)
+    stepped = advance(stepped, later)
+    expectSameGame(advance(healing, later), stepped)
+    expect(stepped.wounded).toEqual(army({}))
   })
 })
 
@@ -875,7 +974,7 @@ describe('les batailles', () => {
   it('un siège où les deux camps tombent ensemble repousse le raid', () => {
     const { game } = withRaid(richGame({ walls: 0 }, { archer: 2 }), { shaman: 3 }, RAID_SPEED, 1, 'goblins')
     const end = runUntil(advance(game, raidArrival(game.bands[0])!), (s) => s.reports.length > 0)
-    expect(end.reports[0]).toMatchObject({ outcome: 'victory', lost: { archer: 1 }, siege: { plunder: {} } })
+    expect(end.reports[0]).toMatchObject({ outcome: 'victory', lost: { archer: 2 }, siege: { plunder: {} } })
     expect(end.stats.raidsRepelled).toBe(1)
     expect(end.bands).toEqual([])
     expect(end.nextRaidAt).toBe(game.nextRaidAt)
@@ -1372,13 +1471,24 @@ describe('les raids et la défense de la cité', () => {
     expect(carried).toBeGreaterThan(3 * RAID_LOAD_PER_MONSTER - RESOURCE_IDS.length)
   })
 
-  it('une partie des troupes tombées pendant un siège est soignée dans la cité', () => {
+  it('sans hôpital, les défenseurs tombés pendant un siège meurent', () => {
     const { game } = withRaid(richGame({}, { warrior: 9 }), { troll: 500 }, RAID_SPEED, 4, 'trolls')
     const lost = runUntil(game, (s) => s.reports.length > 0)
-    const healed = Math.ceil(9 * SIEGE_HEALED_SHARE)
-    expect(lost.reports[0]).toMatchObject({ outcome: 'defeat', sent: army({ warrior: 9 }), lost: army({ warrior: 9 - healed }) })
-    expect(lost.reports[0].siege?.healed).toEqual(army({ warrior: healed }))
-    expect(lost.troops).toEqual(army({ warrior: healed }))
+    expect(lost.reports[0]).toMatchObject({ outcome: 'defeat', sent: army({ warrior: 9 }), lost: army({ warrior: 9 }), wounded: army({}) })
+    expect(lost.troops).toEqual(army({}))
+    expect(lost.wounded).toEqual(army({}))
+  })
+
+  it('avec un hôpital, une part des défenseurs tombés n’est que blessée : elle y va', () => {
+    const { game } = withRaid(withHospital(richGame({}, { warrior: 9 }), 1), { troll: 500 }, RAID_SPEED, 4, 'trolls')
+    const hurt = Math.ceil(9 * WOUNDED_SHARE)
+    expect(hospitalBeds(game)).toBeGreaterThanOrEqual(hurt)
+    const lost = runUntil(game, (s) => s.reports.length > 0)
+    expect(lost.reports[0]).toMatchObject({ outcome: 'defeat', lost: army({ warrior: 9 }), wounded: army({ warrior: hurt }) })
+    // Plus personne ne se relève aussitôt : les blessés attendent leurs soins à l'hôpital.
+    expect(lost.reports[0].siege?.healed).toEqual(army({}))
+    expect(lost.troops).toEqual(army({}))
+    expect(lost.wounded).toEqual(army({ warrior: hurt }))
   })
 
   it('pendant un siège, les troupes restent aux remparts : ni sortie, ni renvoi', () => {

@@ -16,6 +16,7 @@ import {
   advance,
   checkDragon,
   checkHatch,
+  checkHealing,
   checkMarch,
   checkRecruit,
   checkResearch,
@@ -40,6 +41,7 @@ import {
   startMarch,
   startResearch,
   startTraining,
+  startHealing,
   startUpgrade,
   storageCapacity,
   type GameState,
@@ -146,6 +148,9 @@ function play(state: GameState, now: number): GameState {
     )
     if (tech) g = startResearch(g, tech, now)
   }
+
+  // Les blessés de l'hôpital : on les soigne tous dès qu'on le peut.
+  if (checkHealing(g, g.wounded).ok) g = startHealing(g, g.wounded, now)
 
   // L'œuf de dragon : on le couve dès que l'aire est construite.
   if (checkHatch(g).ok) g = hatchEgg(g, now)

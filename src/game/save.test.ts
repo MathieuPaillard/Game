@@ -49,6 +49,17 @@ describe('restoreState', () => {
     expect(restoreState(old)).toMatchObject({ campsCleared: {}, trial: false })
   })
 
+  it('reprend les blessés et leurs soins, mais pas des soins abîmés', () => {
+    const game = newGame('humans', T0)
+    const healing = { troops: { ...emptyArmy(), warrior: 3 }, startedAt: T0, endsAt: T0 + 5000 }
+    const cared = { ...game, wounded: { ...emptyArmy(), archer: 2 }, healing }
+    expect(restoreState(JSON.parse(JSON.stringify(cared)))).toEqual(cared)
+    // Des soins d'une version sans les troupes de race : celles-ci comptent pour zéro.
+    expect(restoreState({ ...cared, healing: { ...healing, troops: { warrior: 3 } } })?.healing).toEqual(healing)
+    expect(restoreState({ ...cared, healing: { ...healing, endsAt: 'bientôt' } })).toBeNull()
+    expect(restoreState({ ...cared, wounded: { archer: Number.NaN } })).toBeNull()
+  })
+
   it('une partie d’avant les sorts qui se rechargent peut relancer chaque sort', () => {
     const { spellsReadyAt: _ready, ...old } = newGame('humans', T0)
     expect(restoreState(old)!.spellsReadyAt).toEqual({})
@@ -102,6 +113,9 @@ describe('restoreState', () => {
       constructions: [],
       research: null,
       spells: [],
+      // Avant l'hôpital, personne n'était blessé.
+      wounded: emptyArmy(),
+      healing: null,
     })
     expect(state?.reports[0]).toMatchObject({
       foe: { type: 'camp', camp: 'wolfDen' },
@@ -116,6 +130,7 @@ describe('restoreState', () => {
       hero: null,
       siege: null,
       dragon: null,
+      wounded: emptyArmy(),
     })
     // Avant les bandes et les gisements, la carte était vide : ils arrivent peu à peu.
     expect(state).toMatchObject({ bands: [], nextBandAt: T0, nodes: [], nextNodeAt: T0, nextId: 1 })

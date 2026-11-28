@@ -3,9 +3,9 @@ import { computed } from 'vue'
 import {
   RAID_CASTLE_LEVEL,
   RAID_PLUNDER_SHARE,
-  SIEGE_HEALED_SHARE,
   WALL_GUARDS_PER_LEVEL,
   WALL_HEALTH_PER_LEVEL,
+  WOUNDED_SHARE,
   type MonsterId,
 } from '../game/config'
 import {
@@ -36,7 +36,7 @@ const healthBonus = computed(() => Math.round(WALL_HEALTH_PER_LEVEL * level.valu
 const defenders = computed(() => armySize(props.state.troops))
 const safe = computed(() => protectedAmount(props.state))
 const plunderPercent = Math.round(RAID_PLUNDER_SHARE * 100)
-const healedPercent = Math.round(SIEGE_HEALED_SHARE * 100)
+const woundedPercent = Math.round(WOUNDED_SHARE * 100)
 
 /** Les monstres encore debout, en quelques mots. */
 function monstersText(monsters: Monsters): string {
@@ -162,8 +162,8 @@ const aegis = computed(() => Math.round(spellBonus(props.state, 'siegeHealth') *
     <p class="muted">
       Un raid marche droit sur la cité : arrête-le en chemin avec une armée, ou laisse tes troupes et les gardes le
       repousser aux portes. Repoussé, il laisse son butin dans tes réserves. Victorieux, il emporte
-      {{ plunderPercent }} % de ce qui n’est pas à l’abri. Après un siège, {{ healedPercent }} % des défenseurs tombés
-      sont soignés.
+      {{ plunderPercent }} % de ce qui n’est pas à l’abri. {{ woundedPercent }} % des défenseurs qui tombent ne sont
+      que blessés : ils vont à l’Hôpital, s’il y reste des lits.
     </p>
   </section>
 </template>
