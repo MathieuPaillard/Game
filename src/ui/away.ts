@@ -6,11 +6,13 @@ import {
   currentQuest,
   dragonLevel,
   emptyResources,
+  freeBeds,
   getBuilding,
   getHeroDef,
   getSpell,
   getTech,
   getUnit,
+  hospitalBeds,
   netPerHour,
   questDone,
   siegeOf,
@@ -62,6 +64,12 @@ export function makeAwayReport(before: GameState, after: GameState): AwayReport 
     const finished = !after.trainings.some((t) => t.unit === training.unit && t.startedAt === training.startedAt)
     if (finished) events.push(`Entraînement terminé : ${getUnit(training.unit).name} +${training.count}.`)
   }
+  // Les soins finis à l'hôpital.
+  const cared = before.healing
+  if (cared && after.healing?.startedAt !== cared.startedAt) {
+    const count = armySize(cared.troops)
+    events.push(`Soins terminés : ${count} blessé${count > 1 ? 's ont' : ' a'} rejoint la garnison.`)
+  }
   for (const report of after.reports.filter((r) => r.at > before.updatedAt).reverse()) {
     if (report.siege) {
       events.push(siegeText(report))
@@ -79,6 +87,14 @@ export function makeAwayReport(before: GameState, after: GameState): AwayReport 
     // Anéantie (même dans une victoire, ou par un piège), l'armée n'est pas rentrée : son rapport le dit.
     const wiped = after.reports.some((r) => r.army === army.id && armySize(r.lost) >= armySize(r.sent))
     if (!wiped) events.push('Une de tes armées est rentrée à la cité, avec ce qu’elle portait.')
+  }
+  // Les blessés de ces combats, qui attendent à l'hôpital, et ses lits.
+  const waiting = armySize(after.wounded)
+  if (waiting > armySize(before.wounded)) {
+    events.push(`${waiting} blessé${waiting > 1 ? 's attendent' : ' attend'} à l’Hôpital : soigne-les pour qu’ils reprennent du service.`)
+  }
+  if (hospitalBeds(after) > 0 && freeBeds(after) === 0) {
+    events.push('L’Hôpital est plein : les prochains blessés mourront.')
   }
   for (const hero of after.heroes) {
     const was = before.heroes.find((h) => h.id === hero.id)
@@ -122,7 +138,7 @@ function trapText(report: BattleReport): string {
   const lost = armySize(report.lost)
   const what =
     lost >= armySize(report.sent)
-      ? 'personne n’a survécu'
+      ? 'toute l’armée est tombée'
       : `${formatAmount(lost)} troupe${lost > 1 ? 's' : ''} perdue${lost > 1 ? 's' : ''}`
   return `Une de tes armées est tombée dans un piège du grand campement : ${what}.`
 }

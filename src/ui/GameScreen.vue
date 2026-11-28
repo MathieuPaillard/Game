@@ -48,6 +48,7 @@ import DefenseCard from './DefenseCard.vue'
 import DragonCard from './DragonCard.vue'
 import GarrisonCard from './GarrisonCard.vue'
 import HeroPanel from './HeroPanel.vue'
+import HospitalCard from './HospitalCard.vue'
 import NoticeBar from './NoticeBar.vue'
 import QuestBanner from './QuestBanner.vue'
 import ReportsPanel from './ReportsPanel.vue'
@@ -87,6 +88,7 @@ const emit = defineEmits<{
   march: [target: Target, troops: Army, hero: HeroId | null, dragon: boolean]
   order: [army: number, target: Target]
   dismiss: [troops: Army]
+  heal: [troops: Army]
   trial: [on: boolean]
   restart: []
   dismissAway: []
@@ -352,6 +354,17 @@ const activities = computed(() => {
       label: `Entraînement : ${unit.name} +${training.count}`,
       endsAt: training.endsAt,
       building: 'barracks',
+    })
+  }
+  // Les blessés en soins à l'hôpital.
+  if (state.healing) {
+    const count = armySize(state.healing.troops)
+    list.push({
+      key: 'healing',
+      icon: '🏥🩹',
+      label: `Soins : ${count} blessé${count > 1 ? 's' : ''}`,
+      endsAt: state.healing.endsAt,
+      building: 'hospital',
     })
   }
   // L'œuf de dragon qui éclôt.
@@ -664,6 +677,12 @@ onBeforeUnmount(() => {
             @cast="(spell) => emit('cast', spell)"
           />
           <DefenseCard v-else-if="buildingId === 'walls'" :state="state" :now="now" @show-raid="showRaid" />
+          <HospitalCard
+            v-else-if="buildingId === 'hospital' && state.levels.hospital > 0"
+            :state="state"
+            :now="now"
+            @heal="(troops) => emit('heal', troops)"
+          />
           <DragonCard
             v-else-if="buildingId === 'dragonRoost'"
             :state="state"
@@ -678,6 +697,7 @@ onBeforeUnmount(() => {
           :state="state"
           @dismiss="(troops) => emit('dismiss', troops)"
           @open-barracks="open({ kind: 'building', id: 'barracks' })"
+          @open-hospital="open({ kind: 'building', id: 'hospital' })"
         />
 
         <HeroPanel

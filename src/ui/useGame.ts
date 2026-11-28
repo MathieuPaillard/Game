@@ -302,6 +302,7 @@ export function useGame() {
       perform({ type: 'march', target, troops, ...(hero ? { hero } : {}), ...(dragon ? { dragon: true } : {}) }),
     order: (army: number, target: Target) => perform({ type: 'order', army, target }),
     dismiss: (troops: Army) => perform({ type: 'dismiss', troops }),
+    heal: (troops: Army) => perform({ type: 'heal', troops }),
     /** Le mode d'essai, pour tester seul : seulement sans compte (le serveur refuse cet ordre). */
     setTrial: (on: boolean) => {
       if (!session) perform({ type: 'trial', on })

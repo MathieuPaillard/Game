@@ -18,7 +18,7 @@ import { formatAmount, formatDuration, formatRate } from './format'
 
 // La garnison : les troupes au repos dans la cité. On y voit ce qu'elles mangent, et on peut en renvoyer.
 const props = defineProps<{ state: GameState }>()
-const emit = defineEmits<{ dismiss: [troops: Army]; openBarracks: [] }>()
+const emit = defineEmits<{ dismiss: [troops: Army]; openBarracks: []; openHospital: [] }>()
 
 const home = computed(() => UNIT_IDS.filter((id) => props.state.troops[id] > 0))
 // Les troupes dehors : toutes les troupes, moins celles de la cité.
@@ -27,6 +27,8 @@ const upkeep = computed(() => upkeepPerHour(props.state))
 const foodRate = computed(() => netPerHour(props.state).food)
 const famineIn = computed(() => timeUntilFamine(props.state))
 const malusPercent = Math.round(STARVATION_ATTACK_MALUS * 100)
+// Les blessés de l'hôpital : ceux qui attendent, et ceux en soins.
+const wounded = computed(() => armySize(props.state.wounded) + (props.state.healing ? armySize(props.state.healing.troops) : 0))
 
 // Renvoi de troupes : le formulaire est replié, et rien n'est sélectionné au départ.
 const dismissing = ref(false)
@@ -73,6 +75,10 @@ function confirmDismiss() {
       </li>
     </ul>
     <p v-else>Aucune troupe dans la cité.</p>
+    <p v-if="wounded">
+      <span aria-hidden="true">🩹</span> {{ wounded }} blessé{{ wounded > 1 ? 's' : '' }} à l’Hôpital.
+      <button class="btn-quiet" type="button" @click="emit('openHospital')">Les soigner</button>
+    </p>
 
     <p>
       Entretien : <strong><span aria-hidden="true">🌾</span> {{ formatAmount(upkeep) }}</strong> de nourriture par

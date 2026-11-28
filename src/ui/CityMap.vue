@@ -114,11 +114,12 @@ const lair = computed(() => {
 })
 
 // Ce qui s'active dans un bâtiment : un entraînement à la Caserne, une recherche à l'Académie, un sort
-// lancé depuis la Tour des mages.
+// lancé depuis la Tour des mages, des blessés en soins à l'Hôpital.
 const busy = computed<Partial<Record<string, string>>>(() => ({
   ...(props.state.trainings.length > 0 ? { barracks: '⚔️' } : {}),
   ...(props.state.research ? { academy: '✨' } : {}),
   ...(props.state.spells.length > 0 ? { mageTower: '✨' } : {}),
+  ...(props.state.healing ? { hospital: '🩹' } : {}),
 }))
 
 // L'enceinte : une palissade tant que les Remparts ne sont pas construits, puis un mur de pierre,

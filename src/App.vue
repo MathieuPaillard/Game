@@ -34,6 +34,7 @@ const {
   march,
   order,
   dismiss,
+  heal,
   setTrial,
   restart,
   dismissAwayReport,
@@ -100,6 +101,7 @@ watch(
     @march="march"
     @order="order"
     @dismiss="dismiss"
+    @heal="heal"
     @trial="setTrial"
     @restart="restart"
     @dismiss-away="dismissAwayReport"

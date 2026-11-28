@@ -55,7 +55,7 @@ function dragonText(report: BattleReport): string {
 function lootLeft(report: BattleReport): string {
   if (report.siege || loadSize(report.loot) >= loadSize(foeLoot(report.foe)) - 0.5) return ''
   const survivors = armySize(report.sent) > armySize(report.lost)
-  return survivors ? 'ton armée n’a pas pu tout emporter' : 'personne n’a survécu pour l’emporter'
+  return survivors ? 'ton armée n’a pas pu tout emporter' : 'plus personne n’était debout pour l’emporter'
 }
 
 /** Les défenseurs tombés pendant un siège : ceux qu'on a relevés ensuite, et ceux perdus pour de bon. */
@@ -99,7 +99,10 @@ function lootText(loot: Partial<Resources>): string {
           <p>Ton armée est tombée dans un piège caché du grand campement. Il est désarmé jusqu’au repeuplement.</p>
           <p>Troupes : {{ formatArmy(report.sent) }}</p>
           <p>Pertes : {{ formatArmy(report.lost) || 'aucune' }}</p>
-          <p v-if="armySize(report.lost) >= armySize(report.sent)" class="lost">Personne n’a survécu.</p>
+          <p v-if="armySize(report.wounded)" class="muted">
+            🩹 Dont blessés, partis à l’Hôpital : {{ formatArmy(report.wounded) }}
+          </p>
+          <p v-if="armySize(report.lost) >= armySize(report.sent)" class="lost">Toute l’armée est tombée.</p>
           <p v-if="report.dragon?.wounded" class="lost">
             🐉 Resté seul, le dragon regagne son aire pour s’y reposer.
           </p>
@@ -129,6 +132,9 @@ function lootText(loot: Partial<Resources>): string {
               </span>
             </p>
             <p v-else>Pertes : {{ formatArmy(report.lost) || 'aucune' }}</p>
+            <p v-if="armySize(report.wounded)" class="muted">
+              🩹 Dont blessés, partis à l’Hôpital : {{ formatArmy(report.wounded) }}
+            </p>
             <p v-if="report.siege.guardsLost">
               Gardes tombés : {{ report.siege.guardsLost }}
               <span class="muted">· d’autres les remplacent pour le prochain siège</span>
@@ -137,6 +143,9 @@ function lootText(loot: Partial<Resources>): string {
           <template v-else>
             <p>Envoyés : {{ formatArmy(report.sent) }}</p>
             <p>Pertes : {{ formatArmy(report.lost) || 'aucune' }}</p>
+            <p v-if="armySize(report.wounded)" class="muted">
+              🩹 Dont blessés, partis à l’Hôpital : {{ formatArmy(report.wounded) }}
+            </p>
           </template>
           <p>Monstres vaincus : {{ monstersText(report.enemyLost) || 'aucun' }}</p>
           <p v-if="report.outcome === 'victory'">
