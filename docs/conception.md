@@ -24,6 +24,11 @@ Boucle de jeu : récolter des ressources → construire et améliorer → entra�
 - **[Décidé]** Le royaume continue de produire, et les chantiers d'avancer, même quand le joueur est déconnecté.
 - **[Décidé]** Pas de tour par tour : les combats aussi se déroulent en temps réel. Une bataille prend du temps : elle se joue sur la carte, manche après manche, et on la voit avancer. À la fin, elle produit un rapport de bataille.
 - **[Décidé]** La progression se compte en mois, voire en années : la puissance n'a pas de limite. Faire le tour des recherches (la limite technologique) demande plusieurs mois de jeu. Les chantiers et les améliorations durent donc bien plus longtemps qu'aujourd'hui : chaque choix de ressources doit compter.
+- **[Décidé]** Cinquante niveaux : les 25 premiers en environ deux mois, pour un joueur régulier ; les suivants, jusqu'au niveau 50, sur des années. Tous les 10 niveaux, une évolution majeure des troupes et des recherches marque la différence (le 28 novembre 2026).
+- **[Décidé]** Les marches des armées et les batailles restent courtes : seuls les chantiers, les recherches, les entraînements, les soins et les sorts s'allongent (le 28 novembre 2026).
+- **[Décidé]** Plus tard, des objets d'accélération (par exemple « −60 min ») raccourciront les attentes (le 28 novembre 2026).
+- **[Décidé]** Pour tester sans attendre, le mode d'essai (parties sans compte) a un bouton « Terminer », qui achève tout de suite ce qui est en cours (le 28 novembre 2026).
+- **[Proposition]** En mode d'essai, quand quelque chose est en cours, une étiquette « ⏩ Tout terminer » s'ajoute à celles des chantiers en haut de l'écran : elle achève les chantiers, la recherche, les entraînements, les soins et l'éclosion. Les sorts, les marches et les batailles suivent leur cours. Le serveur refuse cet ordre.
 
 ## 3. Les ressources
 

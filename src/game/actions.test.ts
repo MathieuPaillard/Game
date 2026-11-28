@@ -39,6 +39,12 @@ describe('le mode d’essai', () => {
     expect(performAction(on.state, { type: 'trial', on: false }, T0 + 2000).state.trial).toBe(false)
     expect(parseAction({ type: 'trial', on: true })).toBeNull()
   })
+
+  it('son bouton « Terminer » aussi : le serveur le refuse toujours', () => {
+    expect(parseAction({ type: 'finish' })).toBeNull()
+    const trial = { ...richGame(), trial: true }
+    expect(performAction(trial, { type: 'finish' }, T0 + 1000)).toMatchObject({ ok: false, reason: 'Rien n’est en cours' })
+  })
 })
 
 describe('parseAction', () => {

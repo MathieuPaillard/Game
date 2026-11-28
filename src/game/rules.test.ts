@@ -103,6 +103,7 @@ import {
   checkCost,
   checkDismiss,
   checkDragon,
+  checkFinish,
   checkHatch,
   checkHealing,
   checkMarch,
@@ -126,6 +127,7 @@ import {
   emptyArmy,
   emptyResources,
   emptyTechs,
+  finishNow,
   freeBeds,
   hospitalBeds,
   startHealing,
@@ -1013,6 +1015,24 @@ describe('les batailles', () => {
     const arrived = runUntil(emptied, (s) => s.armies[0].status === 'idle')
     expect(arrived.battles).toEqual([])
     expect(arrived.armies[0].order).toBeNull()
+  })
+
+  it('en mode d’essai, « Terminer » achève tout de suite chantiers, recherche, entraînements, soins et éclosion', () => {
+    const base = { ...richGame({ castle: 5, barracks: 2, academy: 1, dragonRoost: 1, hospital: 1 }), wounded: army({ archer: 4 }) }
+    let game = startUpgrade(base, 'farm', T0)
+    game = startResearch(game, 'forge', T0)
+    game = startTraining(game, 'warrior', 10, T0)
+    game = startHealing(game, army({ archer: 4 }), T0)
+    game = { ...game, dragon: { stage: 'egg', hatchAt: null, xp: 0, restUntil: null, nature: null } }
+    game = hatchEgg(game, T0)
+    expect(checkFinish(game)).toEqual({ ok: false, reason: 'Seulement en mode d’essai' })
+    const done = finishNow({ ...game, trial: true }, T0 + 1000)
+    expect(done.levels.farm).toBe(base.levels.farm + 1)
+    expect(done.techs.forge).toBe(1)
+    expect(done.troops).toEqual(army({ ...base.troops, warrior: base.troops.warrior + 10, archer: base.troops.archer + 4 }))
+    expect(done).toMatchObject({ constructions: [], trainings: [], research: null, healing: null, updatedAt: T0 + 1000 })
+    expect(done.dragon?.stage).toBe('grown')
+    expect(checkFinish(done)).toEqual({ ok: false, reason: 'Rien n’est en cours' })
   })
 
   it('le mode d’essai rend les troupes du joueur bien plus fortes', () => {

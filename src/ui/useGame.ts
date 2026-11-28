@@ -307,6 +307,10 @@ export function useGame() {
     setTrial: (on: boolean) => {
       if (!session) perform({ type: 'trial', on })
     },
+    /** Le bouton « Terminer » du mode d'essai : seulement sans compte, lui aussi. */
+    finishNow: () => {
+      if (!session) perform({ type: 'finish' })
+    },
     async restart() {
       awayReport.value = null
       if (!session) {

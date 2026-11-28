@@ -1797,6 +1797,41 @@ export function setTrial(state: GameState, on: boolean, now: number): GameState 
   return { ...advance(state, now), trial: on }
 }
 
+/** Le bouton « Terminer » du mode d'essai : y a-t-il quelque chose à achever ? */
+export function checkFinish(state: GameState): Check {
+  if (!state.trial) return { ok: false, reason: 'Seulement en mode d’essai' }
+  const busy =
+    state.constructions.length > 0 ||
+    state.trainings.length > 0 ||
+    state.research !== null ||
+    state.healing !== null ||
+    state.dragon?.stage === 'hatching'
+  return busy ? { ok: true } : { ok: false, reason: 'Rien n’est en cours' }
+}
+
+/**
+ * Le mode d'essai, pour tester sans attendre : les chantiers, la recherche, les entraînements, les
+ * soins et l'éclosion en cours se terminent tout de suite, comme si leur heure était venue. Les sorts,
+ * les marches et les batailles, eux, suivent leur cours.
+ */
+export function finishNow(state: GameState, now: number): GameState {
+  const current = advance(state, now)
+  const check = checkFinish(current)
+  if (!check.ok) throw new Error(check.reason)
+  const dragon = current.dragon
+  return settle(
+    {
+      ...current,
+      constructions: current.constructions.map((works) => ({ ...works, endsAt: now })),
+      trainings: current.trainings.map((training) => ({ ...training, endsAt: now })),
+      research: current.research && { ...current.research, endsAt: now },
+      healing: current.healing && { ...current.healing, endsAt: now },
+      dragon: dragon?.stage === 'hatching' ? { ...dragon, hatchAt: now } : dragon,
+    },
+    now,
+  )
+}
+
 /** Ce qu'une armée emporte d'un butin quand elle n'a de place que pour `room` ressources : un peu de chaque. */
 export function fitLoad(loot: Partial<Resources>, room: number): Partial<Resources> {
   const size = loadSize(loot)
@@ -3567,6 +3602,11 @@ function nextTick(state: GameState): number | null {
  */
 export function advance(state: GameState, now: number): GameState {
   if (now <= state.updatedAt) return state
+  return settle(state, now)
+}
+
+/** Joue tout ce qui arrive jusqu'à l'instant `now` (lui compris), puis la production jusque-là. */
+function settle(state: GameState, now: number): GameState {
   let current = state
   let sameInstant = 0
   for (;;) {

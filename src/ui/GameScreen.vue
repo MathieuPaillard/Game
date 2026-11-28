@@ -16,6 +16,7 @@ import {
 import {
   armyBattle,
   armySize,
+  checkFinish,
   bandFighting,
   checkOrder,
   currentQuest,
@@ -90,6 +91,7 @@ const emit = defineEmits<{
   dismiss: [troops: Army]
   heal: [troops: Army]
   trial: [on: boolean]
+  finish: []
   restart: []
   dismissAway: []
   dismissNotice: []
@@ -264,6 +266,8 @@ const race = computed(() => getRace(props.state.race))
 const cityName = computed(() => `Cité des ${race.value.name}`)
 const rates = computed(() => netPerHour(props.state))
 const capacity = computed(() => storageCapacity(props.state))
+// Le mode d'essai : quelque chose à achever tout de suite ?
+const canFinish = computed(() => checkFinish(props.state).ok)
 // La famine ne s'affiche sur la carte que lorsqu'elle approche : avant, le débit rouge du registre suffit.
 const FAMINE_ALERT_MS = 2 * 60 * 60 * 1000
 const famine = computed(() => {
@@ -557,6 +561,13 @@ onBeforeUnmount(() => {
                 >
                   <span aria-hidden="true">{{ activity.icon }}</span>
                   <span class="tag">{{ formatClock(activity.endsAt - now) }}</span>
+                </button>
+              </li>
+              <!-- Le mode d'essai : achever tout de suite les chantiers, recherches, entraînements, soins et l'éclosion -->
+              <li v-if="state.trial && canFinish">
+                <button type="button" class="hud-chip trial-finish" @click="emit('finish')">
+                  <span aria-hidden="true">⏩</span>
+                  <span class="text">Tout terminer</span>
                 </button>
               </li>
             </ul>
@@ -911,6 +922,12 @@ onBeforeUnmount(() => {
   right: max(16px, env(safe-area-inset-right, 0px));
   align-items: flex-end;
   max-width: min(15rem, calc(42% - 1.5rem));
+}
+
+/* Le bouton « Tout terminer » du mode d'essai, aux couleurs de son étiquette. */
+.trial-finish {
+  border-color: var(--gilt);
+  color: var(--gilt);
 }
 
 .activities,

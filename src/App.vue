@@ -36,6 +36,7 @@ const {
   dismiss,
   heal,
   setTrial,
+  finishNow,
   restart,
   dismissAwayReport,
   dismissNotice,
@@ -103,6 +104,7 @@ watch(
     @dismiss="dismiss"
     @heal="heal"
     @trial="setTrial"
+    @finish="finishNow"
     @restart="restart"
     @dismiss-away="dismissAwayReport"
     @dismiss-notice="dismissNotice"
