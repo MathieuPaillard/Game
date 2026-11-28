@@ -146,6 +146,8 @@ const siege = computed(() => {
     foe: {
       ratio: start > 0 ? now / start : 0,
       taken: battle.round > 0 ? battle.foes.reduce((sum, foe) => sum + foe.taken, 0) : 0,
+      // Le cône du dragon de la cité vient de toucher des raids.
+      burned: battle.round > 0 && battle.foes.some((foe) => foe.burned === battle.round),
     },
   }
 })
@@ -358,6 +360,9 @@ function lairText(id: string): string {
       <g :key="`siege-hit-${siege.city.round}`" :class="{ hit: siege.city.round > 0 }">
         <text class="emoji" font-size="54" x="-28">{{ siege.icon }}</text>
       </g>
+      <text v-if="siege.foe.burned" :key="`siege-burned-${siege.city.round}`" class="emoji flame-burst" font-size="48" x="-28">
+        🔥
+      </text>
       <g :key="`siege-bump-${siege.city.round}`" class="bump">
         <text class="emoji" font-size="40" x="34" y="-6">⚔️</text>
       </g>

@@ -63,6 +63,9 @@ export interface FightFx {
   ratio: number
   taken: number
   healed: number
+  /** Le cône du dragon vient de le toucher ; et il frappera moins fort à la prochaine manche (Givre). */
+  burned: boolean
+  chilled: boolean
 }
 
 export function fightFx(battle: Battle, fighter: AllyFighter | FoeFighter): FightFx {
@@ -73,7 +76,14 @@ export function fightFx(battle: Battle, fighter: AllyFighter | FoeFighter): Figh
     ratio: health.start > 0 ? health.now / health.start : 0,
     taken: battle.round > 0 ? fighter.taken : 0,
     healed: battle.round > 0 ? (last?.healed ?? 0) : 0,
+    burned: 'foe' in fighter && battle.round > 0 && fighter.burned === battle.round,
+    chilled: 'foe' in fighter && fighter.chilled === battle.round + 1,
   }
+}
+
+/** « dragon de Braise », « dragon d’Orage » : le dragon d'une nature. */
+export function dragonOfNature(nature: { name: string }): string {
+  return /^[aeiouyéèêh]/i.test(nature.name) ? `dragon d’${nature.name}` : `dragon de ${nature.name}`
 }
 
 /** Le nom de l'adversaire qu'une de tes armées frappe en ce moment (null si elle attend une place). */

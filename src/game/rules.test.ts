@@ -3,6 +3,9 @@ import { isStrongAgainst } from './battle.ts'
 import { insideAny } from './terrain.ts'
 import {
   BUILDINGS,
+  DRAGON_BREATH_EVERY,
+  DRAGON_BREATH_TARGETS,
+  DRAGON_NATURES,
   TECHS,
   type Resources,
   BAND_KINDS,
@@ -59,6 +62,7 @@ import {
   type BandKindId,
   type BuildingId,
   type CampId,
+  type DragonNature,
   type HeroId,
   type MonsterId,
   type Point,
@@ -117,6 +121,7 @@ import {
   dragonAttack,
   dragonHealth,
   dragonLevel,
+  dragonMaxHealth,
   dragonXpForLevel,
   emptyArmy,
   emptyResources,
@@ -311,12 +316,12 @@ function withRaid(
   return { game: { ...game, bands: [...game.bands, band], nextId: game.nextId + 1 }, id: band.id }
 }
 
-/** Donne à la partie un dragon de ce niveau, et l'aire qu'il lui faut (sans dépendre de ses combats). */
-function withDragon(game: GameState, level = 1): GameState {
+/** Donne à la partie un dragon de ce niveau et de cette nature, et l'aire qu'il lui faut (sans dépendre de ses combats). */
+function withDragon(game: GameState, level = 1, nature: DragonNature = 'storm'): GameState {
   return {
     ...game,
     levels: { ...game.levels, dragonRoost: Math.max(game.levels.dragonRoost, level) },
-    dragon: { stage: 'grown', hatchAt: null, xp: dragonXpForLevel(level), restUntil: null },
+    dragon: { stage: 'grown', hatchAt: null, xp: dragonXpForLevel(level), restUntil: null, nature },
   }
 }
 
@@ -1626,7 +1631,7 @@ describe('le dragon', () => {
     // Tous les objectifs d'avant sont reçus : celui de l'œuf est l'objectif du moment.
     const before = { ...reach(richGame(), quest), quests: QUESTS.slice(0, QUESTS.indexOf(quest)).map((q) => q.id) }
     const egg = claimQuest(before, quest.id, T0)
-    expect(egg.dragon).toEqual({ stage: 'egg', hatchAt: null, xp: 0, restUntil: null })
+    expect(egg.dragon).toEqual({ stage: 'egg', hatchAt: null, xp: 0, restUntil: null, nature: null })
     expect(dragonLevel(egg)).toBe(0)
     expect(checkHatch(egg)).toEqual({ ok: false, reason: 'Construis d’abord l’Aire du dragon' })
     const roost = { ...egg, levels: { ...egg.levels, dragonRoost: 1 } }
@@ -1639,7 +1644,8 @@ describe('le dragon', () => {
     const at = T0 + DRAGON_HATCH_SECONDS * 1000
     expect(advance(hatching, at - 1).dragon?.stage).toBe('hatching')
     const born = advance(hatching, at)
-    expect(born.dragon).toEqual({ stage: 'grown', hatchAt: null, xp: 0, restUntil: null })
+    expect(born.dragon).toMatchObject({ stage: 'grown', hatchAt: null, xp: 0, restUntil: null })
+    expect(DRAGON_NATURES.map((nature) => nature.id)).toContain(born.dragon?.nature)
     expect(dragonLevel(born)).toBe(1)
     expect(checkHatch(born)).toEqual({ ok: false, reason: 'Le dragon est déjà né' })
     expect(checkHatch(richGame())).toEqual({ ok: false, reason: 'Il te faut d’abord un œuf de dragon' })
@@ -2277,6 +2283,89 @@ describe('les soigneurs', () => {
     expectSameGame(advance(start, end), step)
     const rounds = [...(allyIn(step)?.rounds ?? []), ...(step.reports[0]?.rounds ?? [])]
     expect(rounds.some((round) => (round.healed ?? 0) > 0)).toBe(true)
+  })
+})
+
+describe('le cône de flammes et les natures du dragon', () => {
+  const spot = nearCity(400)
+  const SIDES = [
+    { x: -30, y: 0 },
+    { x: 30, y: 0 },
+    { x: 0, y: -30 },
+    { x: 0, y: 30 },
+  ]
+  const natureOf = (id: DragonNature) => DRAGON_NATURES.find((nature) => nature.id === id)!
+
+  /** Une armée avec le dragon, qui attend à `spot`, et `count` bandes de gobelins tout autour d'elle. */
+  function withFlames(count: number, nature: DragonNature, goblins = 200): GameState {
+    let game = withDragon(richGame({}, { warrior: 500 }), 1, nature)
+    for (const side of SIDES.slice(0, count)) {
+      game = withBand(game, { x: spot.x + side.x, y: spot.y + side.y + PATROL_RADIUS }, { goblin: goblins }, 1, 'goblins').game
+    }
+    return placeArmy(startMarch(game, toPoint(nearCity(100)), army({ warrior: 500 }), T0, null, true), spot)
+  }
+  /** La partie quand l'armée a joué `count` manches. */
+  const after = (game: GameState, count: number) => runUntil(game, (s) => (allyIn(s)?.rounds.length ?? 0) >= count)
+  const breathRound = DRAGON_BREATH_EVERY - 1
+
+  it('toutes les 3 manches, le dragon crache un cône sur sa cible et les adversaires les plus proches', () => {
+    const rounds = allyIn(after(withFlames(4, 'ember'), DRAGON_BREATH_EVERY))!.rounds
+    expect(rounds.slice(0, breathRound).every((round) => round.breath === undefined)).toBe(true)
+    expect(rounds[breathRound].breath!.foes).toBe(1 + DRAGON_BREATH_TARGETS)
+    expect(rounds[breathRound].breath!.damage).toBeGreaterThan(0)
+    // Orage : un adversaire de plus.
+    const storm = allyIn(after(withFlames(4, 'storm'), DRAGON_BREATH_EVERY))!.rounds[breathRound]
+    expect(storm.breath!.foes).toBe(Math.min(4, 1 + DRAGON_BREATH_TARGETS + natureOf('storm').extraTargets))
+    // Face à une seule bande, il ne touche qu'elle.
+    expect(allyIn(after(withFlames(1, 'ember'), DRAGON_BREATH_EVERY))!.rounds[breathRound].breath!.foes).toBe(1)
+  })
+
+  it('le cône compte comme les coups de l’armée : les bandes brûlées lui doivent une part de leur butin', () => {
+    const burned = after(withFlames(3, 'ember'), DRAGON_BREATH_EVERY)
+    const ally = allyIn(burned)!
+    expect(burned.battles[0].foes.every((foe) => (foe.damageBy[ally.ref] ?? 0) > 0)).toBe(true)
+  })
+
+  it('Givre : les monstres touchés par le cône frappent moins fort à la manche suivante', () => {
+    const chilled = after(withFlames(3, 'frost'), DRAGON_BREATH_EVERY)
+    const battle = chilled.battles[0]
+    expect(battle.foes.every((foe) => foe.chilled === battle.round + 1)).toBe(true)
+    const thawed = { ...chilled, battles: [{ ...battle, foes: battle.foes.map(({ chilled: _chilled, ...foe }) => foe) }] }
+    const next = (game: GameState) => allyIn(after(game, DRAGON_BREATH_EVERY + 1))!.rounds[DRAGON_BREATH_EVERY]
+    expect(next(chilled).taken / next(thawed).taken).toBeCloseTo(1 - natureOf('frost').chill, 2)
+  })
+
+  it('Braise brûle plus fort ; Écaille a plus de vie, et plus encore pour défendre la cité', () => {
+    const flames = (nature: DragonNature) =>
+      allyIn(after(withFlames(1, nature), DRAGON_BREATH_EVERY))!.rounds[breathRound].breath!.damage
+    expect(flames('ember') / flames('scale')).toBeCloseTo(natureOf('ember').breath / natureOf('scale').breath, 1)
+    const start = (nature: DragonNature) => allyIn(after(withFlames(1, nature), 1))!.dragon!.start
+    expect(start('scale') / start('ember')).toBeCloseTo(natureOf('scale').health / natureOf('ember').health, 5)
+    // À la cité, pendant un siège.
+    const home = withDragon(richGame({}, { warrior: 50 }), 1, 'scale')
+    const { game } = withRaid(home, { troll: 500 }, RAID_SPEED, 2, 'trolls')
+    const city = siegeOf(runUntil(game, (s) => s.battles.length > 0))!.allies[0]
+    expect(city.dragon!.start).toBeCloseTo(dragonMaxHealth(home, true) * city.healthFactor, 5)
+    expect(dragonMaxHealth(home, true) / dragonMaxHealth(home)).toBeCloseTo(natureOf('scale').homeHealth, 5)
+  })
+
+  it('à l’éclosion, sa nature est tirée au sort : chacune peut sortir, et la même graine donne la même', () => {
+    const born = (seed: number) => {
+      const egg = { ...richGame({ dragonRoost: 1 }), seed, dragon: { stage: 'hatching' as const, hatchAt: T0 + 1000, xp: 0, restUntil: null, nature: null } }
+      return advance(egg, T0 + 1000).dragon!.nature
+    }
+    const seen = new Set(Array.from({ length: 60 }, (_, seed) => born(seed)))
+    expect(seen.size).toBe(DRAGON_NATURES.length)
+    expect(born(17)).toBe(born(17))
+  })
+
+  it('donne le même résultat d’un coup ou seconde par seconde', () => {
+    const start = withFlames(3, 'frost')
+    const end = T0 + 40_000
+    let step = start
+    for (let t = T0 + 1000; t <= end; t += 1000) step = advance(step, t)
+    expectSameGame(advance(start, end), step)
+    expect(allyIn(step)!.rounds.some((round) => round.breath)).toBe(true)
   })
 })
 

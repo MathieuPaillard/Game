@@ -1505,6 +1505,81 @@ export const DRAGON_UPKEEP_PER_LEVEL = 25
 export const DRAGON_ICON = '🐉'
 export const DRAGON_EGG_ICON = '🥚'
 
+/** Toutes les DRAGON_BREATH_EVERY manches de son combat, au lieu de mordre, le dragon crache un cône de flammes. */
+export const DRAGON_BREATH_EVERY = 3
+/** Le cône frappe chaque adversaire touché de cette part de l'attaque du dragon (1.5 = 150 %)… */
+export const DRAGON_BREATH_POWER = 1.5
+/** …et touche, en plus de la cible de son armée, jusqu'à ce nombre d'autres adversaires de la mêlée, les plus proches. */
+export const DRAGON_BREATH_TARGETS = 2
+
+/** La nature d'un dragon, tirée au sort quand l'œuf éclôt : elle lui donne des bonus et des malus. */
+export type DragonNature = 'ember' | 'frost' | 'storm' | 'scale'
+
+export interface DragonNatureDef {
+  id: DragonNature
+  name: string
+  icon: string
+  /** Ses bonus et ses malus, tels qu'ils sont affichés au joueur. */
+  description: string
+  /** Multiplie la force de son cône. */
+  breath: number
+  /** Les adversaires que son cône touche en plus. */
+  extraTargets: number
+  /** Multiplie sa vie ; `homeHealth` la multiplie encore quand il défend la cité. */
+  health: number
+  homeHealth: number
+  /** Les monstres que touche son cône perdent cette part de leur attaque à la manche suivante. */
+  chill: number
+}
+
+export const DRAGON_NATURES: DragonNatureDef[] = [
+  {
+    id: 'ember',
+    name: 'Braise',
+    icon: '🔥',
+    description: 'Son cône brûle plus fort (+30 %), mais il a moins de vie (−15 %).',
+    breath: 1.3,
+    extraTargets: 0,
+    health: 0.85,
+    homeHealth: 1,
+    chill: 0,
+  },
+  {
+    id: 'frost',
+    name: 'Givre',
+    icon: '❄️',
+    description:
+      'Les monstres que touche son cône perdent 30 % de leur attaque à la manche suivante, mais son cône est moins fort (−15 %).',
+    breath: 0.85,
+    extraTargets: 0,
+    health: 1,
+    homeHealth: 1,
+    chill: 0.3,
+  },
+  {
+    id: 'storm',
+    name: 'Orage',
+    icon: '⚡',
+    description: 'Son cône touche un adversaire de plus, mais chaque coup est un peu plus faible (−15 %).',
+    breath: 0.85,
+    extraTargets: 1,
+    health: 1,
+    homeHealth: 1,
+    chill: 0,
+  },
+  {
+    id: 'scale',
+    name: 'Écaille',
+    icon: '🦎',
+    description: 'Il a plus de vie (+30 %), et plus encore quand il défend la cité (+25 %), mais son cône est plus faible (−20 %).',
+    breath: 0.8,
+    extraTargets: 0,
+    health: 1.3,
+    homeHealth: 1.25,
+    chill: 0,
+  },
+]
+
 // --- Les raids et la défense de la cité ---
 // Quand la cité a grandi, des monstres viennent la piller : un raid part du bord de la carte et
 // marche droit sur elle. On peut l'intercepter avec une armée ; sinon, il assiège la cité, que

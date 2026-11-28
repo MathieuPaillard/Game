@@ -5,6 +5,7 @@ import {
   armySize,
   currentQuest,
   dragonLevel,
+  dragonNature,
   emptyResources,
   freeBeds,
   getBuilding,
@@ -22,6 +23,7 @@ import {
 } from '../game/rules'
 import { OUTCOME_NAMES, bandLabel, foeName, foesName } from './battleLog'
 import { formatAmount } from './format'
+import { dragonOfNature } from './world'
 
 // En dessous d'une minute d'absence, pas de résumé.
 const AWAY_REPORT_MIN_MS = 60 * 1000
@@ -104,7 +106,8 @@ export function makeAwayReport(before: GameState, after: GameState): AwayReport 
   }
   // Le dragon : il est né, ou il a grandi.
   if (before.dragon?.stage !== 'grown' && after.dragon?.stage === 'grown') {
-    events.push('Ton dragon est né ! Il t’attend dans son aire.')
+    const nature = dragonNature(after)
+    events.push(`Ton dragon est né${nature ? ` : un ${dragonOfNature(nature)} ${nature.icon}` : ''} ! Il t’attend dans son aire.`)
   } else if (dragonLevel(after) > dragonLevel(before)) {
     events.push(`Ton dragon atteint le niveau ${dragonLevel(after)}.`)
   }

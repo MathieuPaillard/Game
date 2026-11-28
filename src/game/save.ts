@@ -2,6 +2,7 @@
 // version plus ancienne du jeu qui l'a enregistrée.
 
 import {
+  DRAGON_NATURES,
   QUESTS,
   RACES,
   RAID_CASTLE_LEVEL,
@@ -32,6 +33,7 @@ import {
   type BattleReport,
   type BattleRound,
   type Construction,
+  type Dragon,
   type FoeFighter,
   type Foe,
   type GameState,
@@ -93,6 +95,16 @@ type SavedState = Partial<Omit<GameState, 'reports' | 'bands' | 'battles'>> & {
 }
 
 const TICK = WORLD_TICK_SECONDS * 1000
+
+/**
+ * Avant les natures, un dragon né n'en avait pas : il en reçoit une, toujours la même pour une même
+ * partie (d'après sa graine du hasard). Un œuf n'en a pas encore, et une nature inconnue est remplacée.
+ */
+function withNature(dragon: Dragon, seed: number): Dragon {
+  if (dragon.stage !== 'grown') return { ...dragon, nature: null }
+  if (DRAGON_NATURES.some((nature) => nature.id === dragon.nature)) return dragon
+  return { ...dragon, nature: DRAGON_NATURES[Math.abs(Math.floor(seed)) % DRAGON_NATURES.length].id }
+}
 
 /** Les Druides de ces troupes deviennent des Arcanistes (voir druidsBecomeArcanists). */
 function arcanists<T>(army: T): T {
@@ -188,7 +200,7 @@ export function restoreState(saved: unknown): GameState | null {
       trainings: state.trainings ?? (state.training ? [state.training] : []),
       heroes: state.heroes ?? [],
       // Avant les créatures légendaires, personne n'avait de dragon.
-      dragon: state.dragon ?? null,
+      dragon: state.dragon ? withNature(state.dragon, state.seed ?? state.updatedAt | 0) : null,
       // Avant les héros, les armées partaient sans héros. Et avant les troupes propres à chaque race,
       // une armée ne comptait que quatre types de troupes : les autres valent zéro.
       armies: (state.armies ?? []).map((army) => ({

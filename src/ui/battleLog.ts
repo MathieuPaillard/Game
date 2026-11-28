@@ -153,10 +153,13 @@ export function describeBattle(report: BattleReport): BattleStory {
       ? ` Encerclée, ton armée frappe moins fort (−${Math.round(ENCIRCLED_ATTACK_MALUS * 100)} %).`
       : ''
     const dragonFell = round.dragonFell ? ' Blessé, le dragon quitte le combat.' : ''
+    const breath = round.breath
+      ? ` 🔥 Le dragon crache un cône de flammes : ${round.breath.foes} adversaire${round.breath.foes > 1 ? 's' : ''} touché${round.breath.foes > 1 ? 's' : ''}, ${formatAmount(round.breath.damage)} dégâts.`
+      : ''
     return {
       title: `Manche ${i + 1}`,
       text:
-        `${side} ${formatAmount(round.dealt)} dégâts${flank}${dealt}. ` +
+        `${side} ${formatAmount(round.dealt)} dégâts${flank}${dealt}.${breath} ` +
         `${strikers} infligent ${formatAmount(round.taken)} dégâts${taken}.${healing}${encircled}${dragonFell}`,
     }
   })

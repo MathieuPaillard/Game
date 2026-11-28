@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { QUESTS, RAID_CASTLE_LEVEL, RAID_FIRST_SECONDS, START_LEVELS } from './config.ts'
+import { DRAGON_NATURES, QUESTS, RAID_CASTLE_LEVEL, RAID_FIRST_SECONDS, START_LEVELS } from './config.ts'
 import { advance, bandPosition, emptyArmy, emptyTechs, newGame, startMarch } from './rules.ts'
 import { restoreState } from './save.ts'
 
@@ -62,6 +62,18 @@ describe('restoreState', () => {
     expect(restored.trainings[0].unit).toBe('arcanist')
     // Une partie d'aujourd'hui garde ses Druides : ce sont des soigneurs.
     expect(restoreState(JSON.parse(JSON.stringify(elves)))!.troops.druid).toBe(12)
+  })
+
+  it('un dragon né avant les natures en reçoit une, toujours la même ; un œuf n’en a pas encore', () => {
+    const game = newGame('humans', T0)
+    const grown = { stage: 'grown', hatchAt: null, xp: 0, restUntil: null }
+    const nature = restoreState({ ...game, dragon: grown })!.dragon!.nature
+    expect(DRAGON_NATURES.map((n) => n.id)).toContain(nature)
+    expect(restoreState({ ...game, dragon: grown })!.dragon!.nature).toBe(nature)
+    // Une nature inconnue est remplacée ; une nature connue est gardée.
+    expect(restoreState({ ...game, dragon: { ...grown, nature: 'plasma' } })!.dragon!.nature).toBe(nature)
+    expect(restoreState({ ...game, dragon: { ...grown, nature: 'frost' } })!.dragon!.nature).toBe('frost')
+    expect(restoreState({ ...game, dragon: { ...grown, stage: 'egg' } })!.dragon!.nature).toBeNull()
   })
 
   it('reprend les blessés et leurs soins, mais pas des soins abîmés', () => {

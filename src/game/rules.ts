@@ -39,6 +39,10 @@ import {
   CAMPS,
   COST_GROWTH,
   DRAGON_ATTACK,
+  DRAGON_BREATH_EVERY,
+  DRAGON_BREATH_POWER,
+  DRAGON_BREATH_TARGETS,
+  DRAGON_NATURES,
   DRAGON_BASE_XP,
   DRAGON_FAMILY,
   DRAGON_GROWTH,
@@ -117,6 +121,8 @@ import {
   type BuildingId,
   type CampDef,
   type CampId,
+  type DragonNature,
+  type DragonNatureDef,
   type Family,
   type HeroDef,
   type HeroId,
@@ -294,6 +300,8 @@ export interface Dragon {
   xp: number
   /** Blessé, il se repose dans son aire jusqu'à cette heure ; null quand il est en forme. */
   restUntil: number | null
+  /** Sa nature, tirée au sort quand l'œuf éclôt ; null avant. */
+  nature: DragonNature | null
 }
 
 /** Ce qu'a gagné le dragon dans une bataille, et s'il en est sorti blessé. */
@@ -341,6 +349,8 @@ export interface BattleRound {
   attackers?: number
   /** Ta troupe était encerclée : son attaque était réduite. */
   encircled?: true
+  /** Le dragon a craché son cône de flammes : les adversaires touchés, et les dégâts. */
+  breath?: { foes: number; damage: number }
   /** La vie que ses soigneurs ont rendue à ses troupes pendant la manche, et les tombés qu'ils ont relevés. */
   healed?: number
   raised?: Army
@@ -418,6 +428,10 @@ export interface FoeFighter extends FighterBase {
   health: Monsters
   /** Les dégâts reçus de chacun de tes combattants (par nom) : son butin se partage d'après eux. */
   damageBy: Record<string, number>
+  /** La dernière manche où le cône d'un dragon l'a touché (pour l'animation). */
+  burned?: number
+  /** La manche où il frappe moins fort, touché par un cône de Givre à la manche d'avant. */
+  chilled?: number
 }
 
 /** Une bataille en cours : une mêlée, avec une manche toutes les BATTLE_ROUND_SECONDS, jusqu'à ce qu'un camp tombe. */
@@ -1166,7 +1180,7 @@ export function claimQuest(state: GameState, questId: string, now: number): Game
   // Un œuf de dragon : il attend dans la cité qu'on le couve.
   const egg: Dragon | null =
     quest.gift === 'dragonEgg' && current.dragon === null
-      ? { stage: 'egg', hatchAt: null, xp: 0, restUntil: null }
+      ? { stage: 'egg', hatchAt: null, xp: 0, restUntil: null, nature: null }
       : current.dragon
   return {
     ...current,
@@ -1244,7 +1258,7 @@ export function hatchEgg(state: GameState, now: number): GameState {
   return {
     ...current,
     resources: addResources(current.resources, DRAGON_HATCH_COST, -1),
-    dragon: { stage: 'hatching', hatchAt: now + DRAGON_HATCH_SECONDS * SECOND, xp: 0, restUntil: null },
+    dragon: { stage: 'hatching', hatchAt: now + DRAGON_HATCH_SECONDS * SECOND, xp: 0, restUntil: null, nature: null },
   }
 }
 
@@ -1272,11 +1286,29 @@ function dragonAfterBattle(
   return { state: next, gain: { xp, level, levelsGained: level - before, wounded } }
 }
 
-/** Le dragon, tel qu'il entre dans une bataille, avec les bonus de vie de son camp. */
-function battleDragon(state: GameState, healthFactor: number): BattleDragon {
-  const level = dragonLevel(state)
-  const health = dragonHealth(level) * healthFactor
-  return { attack: dragonAttack(level), start: health, health }
+/** L'œuf éclôt : le dragon naît, avec une nature tirée au sort. */
+function hatch(state: GameState): GameState {
+  const { value, seed } = random(state.seed)
+  const nature = DRAGON_NATURES[Math.floor(value * DRAGON_NATURES.length)].id
+  return { ...state, seed, dragon: { stage: 'grown', hatchAt: null, xp: 0, restUntil: null, nature } }
+}
+
+/** La nature du dragon, ou null tant qu'il n'est pas né. */
+export function dragonNature(state: GameState): DragonNatureDef | null {
+  const id = state.dragon?.nature
+  return id ? byId(DRAGON_NATURES, id) : null
+}
+
+/** La vie du dragon tel qu'il est aujourd'hui, avec sa nature (`home` : quand il défend la cité). */
+export function dragonMaxHealth(state: GameState, home = false): number {
+  const nature = dragonNature(state)
+  return dragonHealth(dragonLevel(state)) * (nature?.health ?? 1) * (home ? (nature?.homeHealth ?? 1) : 1)
+}
+
+/** Le dragon, tel qu'il entre dans une bataille, avec sa nature et les bonus de vie de son camp. */
+function battleDragon(state: GameState, healthFactor: number, home = false): BattleDragon {
+  const health = dragonMaxHealth(state, home) * healthFactor
+  return { attack: dragonAttack(dragonLevel(state)), start: health, health }
 }
 
 // --- Les héros : on les recrute, ils gagnent de l'expérience et apprennent des compétences ---
@@ -2229,7 +2261,7 @@ function cityFighter(state: GameState, at: number): AllyFighter {
     starving: isStarving(state),
     ambush: false,
     siege: { guards, guardHealth: guards * WALL_GUARD.health },
-    dragon: dragonAtHome(state, at) ? battleDragon(state, healthFactor) : null,
+    dragon: dragonAtHome(state, at) ? battleDragon(state, healthFactor, true) : null,
     rounds: [],
     met: [],
     loot: {},
@@ -2424,6 +2456,27 @@ function healTroops(ally: AllyFighter, standing: number[], health: number[]): nu
   return Math.min(power, wanted)
 }
 
+/** Le dragon de ce combattant crache-t-il son cône de flammes à cette manche ? Toutes les DRAGON_BREATH_EVERY manches de son combat. */
+function breathes(ally: AllyFighter): boolean {
+  return ally.dragon !== null && ally.dragon.health > 1e-9 && (ally.rounds.length + 1) % DRAGON_BREATH_EVERY === 0
+}
+
+/**
+ * Les adversaires que touche le cône d'un dragon : la cible de son armée, puis les plus proches d'elle
+ * (`others` au plus ; à égale distance, dans l'ordre de leurs noms).
+ */
+function coneTargets(state: GameState, battle: Battle, ally: AllyFighter, at: number, others: number): FoeFighter[] {
+  const target = battle.foes.find((foe) => foe.ref === ally.target)
+  const here = fighterPosition(state, ally.ref, at)
+  const nearest = battle.foes
+    .filter((foe) => foe !== target)
+    .map((foe) => ({ foe, away: distance(here, fighterPosition(state, foe.ref, at)) }))
+    .sort((a, b) => a.away - b.away || (a.foe.ref < b.foe.ref ? -1 : a.foe.ref > b.foe.ref ? 1 : 0))
+    .slice(0, target ? others : others + 1)
+    .map(({ foe }) => foe)
+  return target ? [target, ...nearest] : nearest
+}
+
 /** Les groupes d'un combattant monstre, et la vie qui leur reste. */
 function foeStacks(foe: FoeFighter): { stacks: Stack[]; health: number[] } {
   const ids = Object.keys(foe.enemies) as MonsterId[]
@@ -2469,21 +2522,53 @@ function playRound(state: GameState, battleId: number, at: number): GameState {
   for (const ally of battle.allies) groups.set(ally.ref, allyStacks(state, ally))
   for (const foe of battle.foes) groups.set(foe.ref, foeStacks(foe))
 
+  const round = battle.round + 1
+  const nature = dragonNature(state)
+  // Les dragons qui crachent leur cône de flammes à cette manche : ils ne mordent pas.
+  const breathing = new Set(battle.allies.filter(breathes).map((ally) => ally.ref))
+
   // Les coups, calculés d'après la vie de chacun au début de la manche.
   const hits = new Map<string, number[]>()
   const strikes: { from: string; to: string; damage: number }[] = []
+  const hit = (to: FighterBase, damage: number[]) =>
+    hits.set(to.ref, (hits.get(to.ref) ?? damage.map(() => 0)).map((sum, i) => sum + damage[i]))
   for (const fighter of [...battle.allies, ...battle.foes]) {
     const target = fighterOf(battle, fighter.target)
     if (!target) continue
     const from = groups.get(fighter.ref)!
     const to = groups.get(target.ref)!
-    const factor =
+    let factor =
       (1 + flankBonus(relativeSlot(battle, fighter))) * (encircled(battle, fighter.ref) ? 1 - ENCIRCLED_ATTACK_MALUS : 1)
-    const boosted = from.stacks.map((stack) => ({ ...stack, attack: stack.attack * factor }))
+    // Touché par un cône de Givre à la manche d'avant, un monstre frappe moins fort.
+    if ('foe' in fighter && fighter.chilled === round) factor *= 1 - (nature?.chill ?? 0)
+    // Le dragon qui crache son cône ne mord pas : c'est le dernier groupe de son camp.
+    const bite = breathing.has(fighter.ref) ? from.stacks.length - 1 : -1
+    const boosted = from.stacks.map((stack, i) => ({ ...stack, attack: i === bite ? 0 : stack.attack * factor }))
     const damage = strike(boosted, from.health, to.stacks, to.health, roundCap(target.start))
-    hits.set(target.ref, (hits.get(target.ref) ?? to.stacks.map(() => 0)).map((sum, i) => sum + damage[i]))
+    hit(target, damage)
     strikes.push({ from: fighter.ref, to: target.ref, damage: total(damage) })
   }
+
+  // Le cône de flammes : il touche la cible de l'armée, puis les adversaires les plus proches. Chaque
+  // adversaire touché ne perd qu'une part de sa vie, comme sous les coups d'un assaillant de plus.
+  const breaths = new Map<string, { foes: string[]; damage: number }>()
+  for (const ally of battle.allies) {
+    if (!breathing.has(ally.ref)) continue
+    const from = groups.get(ally.ref)!
+    const last = from.stacks.length - 1
+    const flames: Stack = { ...from.stacks[last], attack: from.stacks[last].attack * DRAGON_BREATH_POWER * (nature?.breath ?? 1) }
+    const burned = coneTargets(state, battle, ally, at, DRAGON_BREATH_TARGETS + (nature?.extraTargets ?? 0))
+    let dealt = 0
+    for (const foe of burned) {
+      const to = groups.get(foe.ref)!
+      const damage = strike([flames], [from.health[last]], to.stacks, to.health, roundCap(foe.start))
+      hit(foe, damage)
+      strikes.push({ from: ally.ref, to: foe.ref, damage: total(damage) })
+      dealt += total(damage)
+    }
+    breaths.set(ally.ref, { foes: burned.map((foe) => foe.ref), damage: dealt })
+  }
+  const burned = new Set([...breaths.values()].flatMap((breath) => breath.foes))
 
   // Les monstres reçoivent leurs coups ; ceux qu'ils perdent sont comptés à ceux des tiens qui les ont frappés.
   const kills = new Map<string, Monsters>()
@@ -2508,7 +2593,10 @@ function playRound(state: GameState, battleId: number, at: number): GameState {
     for (const s of strikers) damageBy[s.from] = (damageBy[s.from] ?? 0) + s.damage
     const health: Monsters = {}
     ids.forEach((id, i) => (health[id] = after[i]))
-    return { ...foe, health, taken: total(damage), damageBy }
+    if (!burned.has(foe.ref)) return { ...foe, health, taken: total(damage), damageBy }
+    // Touché par le cône : il brûle, et un dragon de Givre l'affaiblit pour la manche suivante.
+    const chilled = (nature?.chill ?? 0) > 0 ? round + 1 : foe.chilled
+    return { ...foe, health, taken: total(damage), damageBy, burned: round, chilled }
   })
 
   // Les tiens reçoivent les leurs, et chacun note la manche dans son journal.
@@ -2535,6 +2623,8 @@ function playRound(state: GameState, battleId: number, at: number): GameState {
       lost,
       enemyLost: kills.get(ally.ref) ?? {},
     }
+    const breath = breaths.get(ally.ref)
+    if (breath) played.breath = { foes: breath.foes.length, damage: Math.round(breath.damage) }
     if (Math.round(healed) > 0) played.healed = Math.round(healed)
     if (armySize(raised) > 0) played.raised = raised
     let index = UNIT_IDS.length
@@ -3436,7 +3526,7 @@ function nextEvent(state: GameState): PendingEvent | null {
   if (resetAt !== null) events.push({ at: resetAt, apply: (s) => resetEncampment(s, resetAt) })
   const hatchAt = state.dragon?.stage === 'hatching' ? state.dragon.hatchAt : null
   if (hatchAt !== null) {
-    events.push({ at: hatchAt, apply: (s) => ({ ...s, dragon: { stage: 'grown', hatchAt: null, xp: 0, restUntil: null } }) })
+    events.push({ at: hatchAt, apply: hatch })
   }
   for (const band of state.bands) {
     const arrival = raidArrival(band)

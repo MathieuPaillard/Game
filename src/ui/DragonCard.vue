@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import {
+  DRAGON_BREATH_EVERY,
+  DRAGON_BREATH_TARGETS,
   DRAGON_EGG_ICON,
   DRAGON_HATCH_COST,
   DRAGON_HATCH_SECONDS,
@@ -14,13 +16,15 @@ import {
   checkHatch,
   dragonArmy,
   dragonAttack,
-  dragonHealth,
   dragonLevel,
+  dragonMaxHealth,
+  dragonNature,
   dragonResting,
   dragonXpForLevel,
   type GameState,
 } from '../game/rules'
 import { formatAmount, formatDuration } from './format'
+import { dragonOfNature } from './world'
 
 // Le dragon, sous la fiche de l'Aire du dragon : l'œuf à couver, l'éclosion, puis le dragon lui-même
 // (son niveau, son expérience, ses forces, ce qu'il mange, et où il se trouve).
@@ -50,6 +54,15 @@ const growth = computed(() => {
   const to = dragonXpForLevel(level.value + 1)
   if (current.xp >= to) return { kind: 'held' as const }
   return { kind: 'xp' as const, current: current.xp - from, needed: to - from, ratio: (current.xp - from) / (to - from) }
+})
+
+// Sa nature, et ce que touche son cône de flammes.
+const nature = computed(() => dragonNature(props.state))
+const coneFoes = computed(() => 1 + DRAGON_BREATH_TARGETS + (nature.value?.extraTargets ?? 0))
+// « Dragon de Givre », « Dragon d’Orage ».
+const natureTitle = computed(() => {
+  const title = nature.value ? dragonOfNature(nature.value) : ''
+  return title.charAt(0).toUpperCase() + title.slice(1)
 })
 
 const army = computed(() => dragonArmy(props.state))
@@ -96,8 +109,12 @@ const rest = computed(() => {
         <span class="dragon-icon" aria-hidden="true">{{ DRAGON_ICON }}</span>
         <span>
           <strong>Niveau {{ level }}</strong>
-          <span class="muted"> · attaque {{ formatAmount(dragonAttack(level)) }} · vie {{ formatAmount(dragonHealth(level)) }}</span>
+          <span class="muted"> · attaque {{ formatAmount(dragonAttack(level)) }} · vie {{ formatAmount(dragonMaxHealth(state)) }}</span>
         </span>
+      </p>
+      <p v-if="nature" class="nature">
+        <span aria-hidden="true">{{ nature.icon }}</span> <strong>{{ natureTitle }}</strong> ·
+        {{ nature.description }}
       </p>
       <div v-if="growth?.kind === 'xp'" class="xp">
         <div class="progress" role="progressbar" :aria-valuenow="Math.round(growth.ratio * 100)" aria-valuemin="0" aria-valuemax="100" aria-label="Expérience">
@@ -110,7 +127,11 @@ const rest = computed(() => {
       </p>
       <p v-else class="muted">Il a atteint le niveau maximum.</p>
       <p class="muted">
-        Il crache le feu et se bat comme un mage : les archers le dominent. Il mange
+        Toutes les {{ DRAGON_BREATH_EVERY }} manches, il crache un cône de flammes sur la cible de son armée et les
+        adversaires les plus proches ({{ coneFoes }} au plus).
+      </p>
+      <p class="muted">
+        Il se bat comme un mage : les archers le dominent. Il mange
         {{ formatAmount(DRAGON_UPKEEP_PER_LEVEL * level) }} de nourriture par heure.
       </p>
 
@@ -128,6 +149,10 @@ const rest = computed(() => {
 </template>
 
 <style scoped>
+.nature strong {
+  color: var(--gilt);
+}
+
 .dragon-line {
   display: flex;
   align-items: center;

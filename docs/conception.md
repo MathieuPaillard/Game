@@ -115,6 +115,11 @@ Boucle de jeu : récolter des ressources → construire et améliorer → entra�
 - **[Proposition]** Le dragon gagne de l'expérience au combat, comme un héros (300 pour passer au niveau 2, puis 1,6 fois plus à chaque niveau), mais ne dépasse jamais le niveau de son aire, ni le niveau 10. Il crache le feu : il se bat comme un mage (les archers le dominent), avec 400 d'attaque et 3 000 de vie au niveau 1, et 30 % de plus à chaque niveau. Les bonus d'attaque et de vie de son camp comptent pour lui aussi. Il mange 25 de nourriture par heure et par niveau.
 - **[Proposition]** Le dragon peut accompagner une armée, une seule à la fois et jamais seul : il lui faut une escorte. Resté dans son aire, il défend la cité pendant les sièges. Il ne meurt jamais : blessé, il quitte le combat, regagne son aire et s'y repose 20 minutes. Il ne se bat jamais seul : quand toute son escorte tombe, la bataille est perdue, et il regagne son aire pour s'y reposer de même. À la cité, il défend jusqu'au bout.
 - **[Décidé]** Le dragon fait partie de l'armée, et peut lancer un **cône de flammes** qui frappe plusieurs adversaires à la fois. Selon sa **nature**, d'autres effets donnent des bonus ou des malus.
+- **[Décidé]** Le dragon lance son cône de flammes tout seul, toutes les 3 manches : il touche la cible de son armée et jusqu'à 2 autres adversaires de la mêlée, les plus proches (le 28 novembre 2026).
+- **[Décidé]** La nature du dragon est tirée au sort quand l'œuf éclôt. Quatre natures pour commencer : **Braise** (cône plus fort, moins de vie), **Givre** (son cône affaiblit l'attaque des monstres touchés à la manche suivante, mais il est moins fort), **Orage** (le cône touche un adversaire de plus, chaque coup un peu plus faible) et **Écaille** (plus de vie, et il défend mieux la cité, mais son cône est plus faible) (le 28 novembre 2026).
+- **[Proposition]** Toutes les 3 manches de son combat, au lieu de mordre, le dragon crache son cône : chaque adversaire touché reçoit 150 % de son attaque (avec les bonus de son armée), sans perdre plus d'une part de sa vie par manche, comme sous les coups d'un assaillant de plus. Le cône compte comme les coups de son armée : les monstres tués, et le butin des bandes brûlées. Dans son aire, le dragon crache aussi son cône sur les raids qui assiègent la cité.
+- **[Proposition]** Les chiffres des natures : **Braise** 🔥 cône +30 %, vie −15 % ; **Givre** ❄️ cône −15 %, et les monstres touchés perdent 30 % de leur attaque à la manche suivante ; **Orage** ⚡ un adversaire de plus (4 au lieu de 3), cône −15 % ; **Écaille** 🦎 vie +30 %, et +25 % de plus quand il défend la cité, cône −20 %. Un dragon né avant les natures en reçoit une, toujours la même pour une même partie.
+- **[Proposition]** La fiche du dragon dit sa nature et ce que fait son cône. Sur la carte, une gerbe de feu s'élève sur chaque adversaire touché, et un flocon marque les monstres qu'un dragon de Givre a affaiblis ; le journal du combat raconte chaque cône. Le résumé « Bon retour » dit la nature du dragon qui vient de naître.
 - **[À trancher]** D'autres créatures légendaires : une par race, ou d'autres quêtes pour d'autres créatures ?
 - **[Décidé]** Le jeu ne prédit pas l'issue d'un combat. À la place, on envoie des **éclaireurs** sonder les troupes adverses et les cités ennemies.
 
@@ -214,7 +219,7 @@ La suite, décidée le 27 novembre 2026, dans l'ordre :
 3. Des sorts de plusieurs dizaines de minutes, et des sorts de défense pour les absences. *Fait.*
 4. La limite des réserves : entrepôts et recherches. *Fait* : l'Entrepôt et l'Intendance.
 5. L'hôpital et les soigneurs de chaque race. *Fait* : l'Hôpital, ses lits et ses soins ; Prêtres, Chamans, Druides et Runistes ; les Arcanistes des elfes.
-6. Le dragon dans l'armée : le cône de flammes et les natures de dragon.
+6. Le dragon dans l'armée : le cône de flammes et les natures de dragon. *Fait* : le cône toutes les 3 manches ; Braise, Givre, Orage et Écaille.
 7. La progression sur plusieurs mois : des durées bien plus longues, des niveaux sans limite.
 8. Les éclaireurs et le brouillard de guerre.
 

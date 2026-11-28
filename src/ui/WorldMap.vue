@@ -1,6 +1,16 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { CAMPS, ENCAMPMENT, ENCAMPMENT_GATE, ENCAMPMENT_TRAPS, MOUNTAINS, NODE_KINDS, WATCH_RADIUS, WORLD } from '../game/config'
+import {
+  CAMPS,
+  ENCAMPMENT,
+  ENCAMPMENT_GATE,
+  ENCAMPMENT_TRAPS,
+  MOUNTAINS,
+  NODE_KINDS,
+  WATCH_RADIUS,
+  WORLD,
+  type CampId,
+} from '../game/config'
 import {
   aggroRadius,
   armyBattle,
@@ -287,9 +297,19 @@ const camps = computed(() =>
       icon: until === null ? monstersIcon(camp.defenders) : '⛺',
       back: until === null ? null : until - props.now,
       selected: isSelectedTarget(target) || isOrdered(target),
+      // Le cône du dragon vient de toucher ses défenseurs : la manche où il les a touchés, sinon null.
+      flames: campFlames(camp.id),
     }
   }),
 )
+
+function campFlames(camp: CampId): number | null {
+  for (const battle of props.state.battles) {
+    const foe = battle.foes.find((f) => f.camp === camp)
+    if (foe && battle.round > 0 && foe.burned === battle.round) return battle.round
+  }
+  return null
+}
 
 const nodes = computed(() =>
   props.state.nodes.map((node) => {
@@ -621,6 +641,7 @@ const battles = computed(() =>
       <ellipse class="spot-ring" rx="78" ry="33" cy="32" />
       <text v-if="camp.back === null" class="emoji campfire" font-size="26" x="-58" y="22" aria-hidden="true">🔥</text>
       <text class="emoji camp-icon" font-size="70">{{ camp.icon }}</text>
+      <text v-if="camp.flames !== null" :key="`camp-burned-${camp.flames}`" class="emoji flame-burst" font-size="56">🔥</text>
       <text class="map-label" y="74">{{ camp.name }}</text>
       <text class="map-sublabel" y="98">
         {{ camp.back === null ? `Niveau ${camp.level}` : `Vide · revient dans ${formatClock(camp.back)}` }}
@@ -718,6 +739,11 @@ const battles = computed(() =>
         <text v-if="band.fight.taken > 0" :key="`band-dealt-${band.fight.round}`" class="float-damage foe" y="-70">
           −{{ formatShort(band.fight.taken) }}
         </text>
+        <!-- Le cône de flammes du dragon l'a touchée ; un dragon de Givre l'affaiblit pour la manche suivante -->
+        <text v-if="band.fight.burned" :key="`band-burned-${band.fight.round}`" class="emoji flame-burst" font-size="46">
+          🔥
+        </text>
+        <text v-if="band.fight.chilled" class="emoji" font-size="20" x="30" y="-34">❄️</text>
       </template>
     </g>
 
