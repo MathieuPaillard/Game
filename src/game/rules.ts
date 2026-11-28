@@ -34,6 +34,8 @@ import {
   BAND_LOOT_GROWTH,
   BAND_SPAWN_SECONDS,
   BAND_SPOTS,
+  BAND_TIER_LEVELS,
+  BAND_TIER_SHARE,
   BARRACKS_SPEED_PER_LEVEL,
   BATTLE_ROUND_SECONDS,
   BUILDINGS,
@@ -87,6 +89,8 @@ import {
   RAID_FIRST_SECONDS,
   RAID_GATES,
   RAID_INTERVAL_SECONDS,
+  RAID_LEVEL_EVERY,
+  RAID_LOAD_GROWTH,
   RAID_LOAD_PER_MONSTER,
   RAID_PLUNDER_SHARE,
   RAID_RESPITE_SECONDS,
@@ -3015,6 +3019,20 @@ export function levelAt(point: Point): number {
   return Math.min(MAX_BAND_LEVEL, level)
 }
 
+/**
+ * Le niveau d'une bande tel que le voit le joueur : son niveau, plus BAND_TIER_LEVELS par palier
+ * au-dessus du premier (une bande du palier II de niveau 1 se montre au niveau 5, comme une bande du
+ * palier I de niveau 5, qu'elle vaut à peu près).
+ */
+export function foeLevel(kind: BandKindId, level: number): number {
+  return level + BAND_TIER_LEVELS * (getBandKind(kind).tier - 1)
+}
+
+/** Le palier des monstres que la cité attire : celui de son Château (le palier II du Château 11 au 20…). */
+export function castleTier(state: GameState): number {
+  return rankOfLevel(state.levels.castle)
+}
+
 /** Le rayon de la zone d'aggro d'une bande, en unités de carte : il grandit avec son niveau. */
 export function aggroRadius(level: number): number {
   return BAND_AGGRO_RADIUS + BAND_AGGRO_PER_LEVEL * (level - 1)
@@ -3226,8 +3244,9 @@ function draws(seed: number, count: number): { values: number[]; seed: number } 
 
 /**
  * Une nouvelle bande s'installe sur un repaire libre, tiré au sort. Son niveau dépend de sa distance
- * à la cité (parfois un de plus), et sa sorte est tirée parmi celles de ce niveau. Elle ne s'installe
- * jamais assez près d'une armée pour l'attaquer aussitôt.
+ * à la cité (parfois un de plus), son palier du Château (celui du Château pour la moitié d'entre elles,
+ * BAND_TIER_SHARE, celui d'avant pour les autres), et sa sorte est tirée parmi celles de ce palier et
+ * de ce niveau. Elle ne s'installe jamais assez près d'une armée pour l'attaquer aussitôt.
  */
 function spawnBand(state: GameState, at: number): GameState {
   const free = reachableFromCity(state, BAND_SPOTS).filter((spot) => {
@@ -3237,10 +3256,13 @@ function spawnBand(state: GameState, at: number): GameState {
   })
   let next = state
   if (free.length > 0 && patrolCount(state) < MAX_BANDS) {
-    const { values, seed } = draws(state.seed, 5)
+    // Au-delà du premier palier, un tirage de plus : le palier de la bande (celui du Château, ou celui d'avant).
+    const tier = castleTier(state)
+    const { values, seed } = draws(state.seed, tier > 1 ? 6 : 5)
     const home = free[Math.floor(values[0] * free.length)]
     const level = Math.min(MAX_BAND_LEVEL, levelAt(home) + (values[1] < BAND_LEVEL_UP_CHANCE ? 1 : 0))
-    const kinds = BAND_KINDS.filter((kind) => kind.minLevel <= level)
+    const bandTier = tier > 1 && values[5] >= BAND_TIER_SHARE ? tier - 1 : tier
+    const kinds = BAND_KINDS.filter((kind) => kind.tier === bandTier && kind.minLevel <= level)
     const kind = kinds[Math.floor(values[2] * kinds.length)].id
     const band: Band = {
       id: state.nextId,
@@ -3350,9 +3372,16 @@ export function gateOpen(state: GameState): boolean {
 
 const BESIEGED = 'La cité est assiégée : tes troupes défendent les remparts'
 
-/** Le niveau des raids qui visent la cité : il grandit avec le Château. */
+/**
+ * Le niveau des raids qui visent la cité, dans le palier de son Château : il grandit avec le Château,
+ * d'un niveau par niveau du Château au premier palier, puis d'un tous les RAID_LEVEL_EVERY niveaux.
+ */
 export function raidLevel(state: GameState): number {
-  return Math.min(MAX_BAND_LEVEL, Math.max(1, state.levels.castle - RAID_CASTLE_LEVEL + 1))
+  const castle = state.levels.castle
+  const tier = castleTier(state)
+  const level =
+    tier === 1 ? castle - RAID_CASTLE_LEVEL + 1 : 1 + Math.floor((castle - RANK_STEP * (tier - 1) - 1) / RAID_LEVEL_EVERY)
+  return Math.min(MAX_BAND_LEVEL, Math.max(1, level))
 }
 
 /** Les monstres d'un raid : plus nombreux que ceux d'une bande du même niveau. */
@@ -3403,7 +3432,7 @@ export function raidArrival(band: Band): number | null {
 
 /**
  * Un raid part d'un bord de la carte, tiré au sort, et marche droit sur la cité. Sa sorte est
- * tirée parmi celles de son niveau. Il ne part jamais d'assez près d'une armée pour l'attaquer aussitôt,
+ * tirée parmi celles de son niveau, au palier du Château. Il ne part jamais d'assez près d'une armée pour l'attaquer aussitôt,
  * ni tant que la Brume d'oubli cache la cité.
  */
 function spawnRaid(state: GameState, at: number): GameState {
@@ -3417,7 +3446,8 @@ function spawnRaid(state: GameState, at: number): GameState {
   const gates = far.length > 0 ? far : RAID_GATES
   const { values, seed } = draws(state.seed, 2)
   const gate = gates[Math.floor(values[0] * gates.length)]
-  const kinds = BAND_KINDS.filter((kind) => kind.minLevel <= level)
+  const tier = castleTier(state)
+  const kinds = BAND_KINDS.filter((kind) => kind.tier === tier && kind.minLevel <= level)
   const kind = kinds[Math.floor(values[1] * kinds.length)].id
   const band: Band = {
     id: state.nextId,
@@ -3468,8 +3498,12 @@ export function plunderOf(state: GameState, monsters: Monsters): Partial<Resourc
   const safe = protectedAmount(state)
   const wanted = RESOURCE_IDS.map((id) => Math.max(0, state.resources[id] - safe) * RAID_PLUNDER_SHARE)
   const sum = wanted.reduce((a, b) => a + b, 0)
-  const carriers = Object.values(monsters).reduce((a, b) => a + (b ?? 0), 0)
-  const share = sum === 0 ? 0 : Math.min(1, (carriers * RAID_LOAD_PER_MONSTER) / sum)
+  // Chaque monstre emporte RAID_LOAD_PER_MONSTER, et RAID_LOAD_GROWTH fois plus à chaque palier.
+  const room = (Object.entries(monsters) as [MonsterId, number | undefined][]).reduce(
+    (total, [id, count]) => total + (count ?? 0) * RAID_LOAD_PER_MONSTER * RAID_LOAD_GROWTH ** (getMonster(id).tier - 1),
+    0,
+  )
+  const share = sum === 0 ? 0 : Math.min(1, room / sum)
   const plunder: Partial<Resources> = {}
   RESOURCE_IDS.forEach((id, i) => {
     // Le petit ajout évite qu'un calcul qui tombe juste (24) ne soit arrondi à 23 (23,999999…).

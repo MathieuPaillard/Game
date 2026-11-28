@@ -28,6 +28,7 @@ import {
   dragonLevel,
   gatherRate,
   getBand,
+  foeLevel,
   getBandKind,
   campEmptyUntil,
   getCamp,
@@ -102,7 +103,8 @@ const info = computed(() => {
       key: `band-${band.id}`,
       kind: 'band' as const,
       name: band.raid ? `Raid : ${getBandKind(band.kind).name}` : getBandKind(band.kind).name,
-      level: band.level,
+      // Le niveau que voit le joueur : son palier compris.
+      level: foeLevel(band.kind, band.level),
       monsters: band.monsters,
       loot: band.raid ? raidLoot(band.kind, band.level) : bandLoot(band.kind, band.level),
       weakened: total(band.monsters) < total(full),

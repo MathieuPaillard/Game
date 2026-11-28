@@ -12,7 +12,7 @@ import {
   type BandKindId,
   type MonsterId,
 } from '../game/config'
-import { getBandKind, getCamp, getMonster, getUnit, type BattleReport, type Foe, type Outcome } from '../game/rules'
+import { foeLevel, getBandKind, getCamp, getMonster, getUnit, type BattleReport, type Foe, type Outcome } from '../game/rules'
 import { formatAmount } from './format'
 
 /** L'issue d'une bataille, pour le titre d'un rapport. */
@@ -37,9 +37,9 @@ export function reportTitle(report: BattleReport): string {
   return (report.siege ? SIEGE_OUTCOME_NAMES : OUTCOME_NAMES)[report.outcome]
 }
 
-/** Une sorte de bande et son niveau : « Meute de loups (niv. 2) ». */
+/** Une sorte de bande et son niveau (tel que le voit le joueur, palier compris) : « Meute de loups (niv. 2) ». */
 export function bandLabel(kind: BandKindId, level: number): string {
-  return `${getBandKind(kind).name} (niv. ${level})`
+  return `${getBandKind(kind).name} (niv. ${foeLevel(kind, level)})`
 }
 
 /**

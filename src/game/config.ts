@@ -1445,7 +1445,27 @@ export const WORLD_TICK_SECONDS = 1
 
 // --- Monstres et camps ---
 
-export type MonsterId = 'wolf' | 'goblin' | 'skeleton' | 'shaman' | 'troll' | 'boar' | 'wyvern'
+export type MonsterId =
+  | 'wolf'
+  | 'goblin'
+  | 'skeleton'
+  | 'shaman'
+  | 'troll'
+  | 'boar'
+  | 'wyvern'
+  // Les monstres des paliers suivants : ils n'apparaissent qu'avec le Château (voir BandKindDef.tier).
+  | 'bear'
+  | 'spider'
+  | 'wraith'
+  | 'golem'
+  | 'harpy'
+  | 'lich'
+  | 'mammoth'
+  | 'scorpion'
+  | 'vampire'
+  | 'behemoth'
+  | 'chimera'
+  | 'demon'
 
 export interface MonsterDef {
   id: MonsterId
@@ -1457,18 +1477,36 @@ export interface MonsterDef {
   health: number
   /** L'expérience que gagne le héros d'une armée pour chacun de ces monstres vaincus. */
   xp: number
+  /** Le palier où il apparaît : 1 dès le début, puis un de plus tous les RANK_STEP niveaux du Château. */
+  tier: number
 }
 
 export const MONSTERS: MonsterDef[] = [
-  { id: 'wolf', name: 'Loups', icon: '🐺', family: 'rider', attack: 12, health: 40, xp: 5 },
-  { id: 'goblin', name: 'Gobelins', icon: '👺', family: 'warrior', attack: 8, health: 35, xp: 4 },
-  { id: 'skeleton', name: 'Squelettes archers', icon: '💀', family: 'archer', attack: 11, health: 25, xp: 4 },
-  { id: 'shaman', name: 'Chamans', icon: '🔥', family: 'mage', attack: 18, health: 20, xp: 6 },
-  { id: 'troll', name: 'Trolls', icon: '👹', family: 'warrior', attack: 40, health: 400, xp: 30 },
+  { id: 'wolf', name: 'Loups', icon: '🐺', family: 'rider', attack: 12, health: 40, xp: 5, tier: 1 },
+  { id: 'goblin', name: 'Gobelins', icon: '👺', family: 'warrior', attack: 8, health: 35, xp: 4, tier: 1 },
+  { id: 'skeleton', name: 'Squelettes archers', icon: '💀', family: 'archer', attack: 11, health: 25, xp: 4, tier: 1 },
+  { id: 'shaman', name: 'Chamans', icon: '🔥', family: 'mage', attack: 18, health: 20, xp: 6, tier: 1 },
+  { id: 'troll', name: 'Trolls', icon: '👹', family: 'warrior', attack: 40, health: 400, xp: 30, tier: 1 },
   // Les monstres de la fin de partie : des sangliers énormes, qui chargent comme des cavaliers, et
   // les vouivres, des serpents ailés des vieilles légendes, dont le venin agit comme une magie.
-  { id: 'boar', name: 'Sangliers géants', icon: '🐗', family: 'rider', attack: 20, health: 110, xp: 10 },
-  { id: 'wyvern', name: 'Vouivres', icon: '🐍', family: 'mage', attack: 55, health: 260, xp: 40 },
+  { id: 'boar', name: 'Sangliers géants', icon: '🐗', family: 'rider', attack: 20, health: 110, xp: 10, tier: 1 },
+  { id: 'wyvern', name: 'Vouivres', icon: '🐍', family: 'mage', attack: 55, health: 260, xp: 40, tier: 1 },
+  // Les monstres du palier II (Château 11 à 20) : deux fois plus forts environ, comme les troupes d'un rang de plus.
+  { id: 'bear', name: 'Ours des cavernes', icon: '🐻', family: 'rider', attack: 40, health: 220, xp: 21, tier: 2 },
+  { id: 'spider', name: 'Araignées géantes', icon: '🕷️', family: 'archer', attack: 30, health: 90, xp: 12, tier: 2 },
+  { id: 'wraith', name: 'Spectres', icon: '👻', family: 'mage', attack: 60, health: 80, xp: 16, tier: 2 },
+  // Le palier III (Château 21 à 30).
+  { id: 'golem', name: 'Golems de pierre', icon: '🗿', family: 'warrior', attack: 80, health: 800, xp: 58, tier: 3 },
+  { id: 'harpy', name: 'Harpies', icon: '🦅', family: 'archer', attack: 60, health: 180, xp: 24, tier: 3 },
+  { id: 'lich', name: 'Liches', icon: '☠️', family: 'mage', attack: 120, health: 160, xp: 32, tier: 3 },
+  // Le palier IV (Château 31 à 40).
+  { id: 'mammoth', name: 'Mammouths de guerre', icon: '🦣', family: 'rider', attack: 160, health: 880, xp: 86, tier: 4 },
+  { id: 'scorpion', name: 'Scorpions géants', icon: '🦂', family: 'archer', attack: 120, health: 360, xp: 48, tier: 4 },
+  { id: 'vampire', name: 'Seigneurs vampires', icon: '🧛', family: 'mage', attack: 240, health: 320, xp: 64, tier: 4 },
+  // Le palier V (Château 41 à 50).
+  { id: 'behemoth', name: 'Béhémoths', icon: '🦖', family: 'warrior', attack: 320, health: 3200, xp: 230, tier: 5 },
+  { id: 'chimera', name: 'Chimères', icon: '🦁', family: 'rider', attack: 320, health: 1760, xp: 172, tier: 5 },
+  { id: 'demon', name: 'Démons des abîmes', icon: '😈', family: 'mage', attack: 480, health: 640, xp: 127, tier: 5 },
 ]
 
 export type CampId = 'wolfDen' | 'goblinCamp' | 'hauntedRuins' | 'trollLair' | 'wyvernNest'
@@ -1558,6 +1596,19 @@ export type BandKindId =
   | 'eliteGuard'
   | 'warlord'
   | 'watchtower'
+  // Celles des paliers suivants.
+  | 'bears'
+  | 'spiders'
+  | 'wraiths'
+  | 'golems'
+  | 'harpies'
+  | 'liches'
+  | 'mammoths'
+  | 'scorpions'
+  | 'vampires'
+  | 'behemoths'
+  | 'chimeras'
+  | 'demons'
 
 export interface BandKindDef {
   id: BandKindId
@@ -1571,44 +1622,49 @@ export interface BandKindDef {
   loot: Partial<Resources>
   /** Cette sorte de bande n'apparaît qu'à partir de ce niveau. */
   minLevel: number
+  /**
+   * Son palier : 1 dès le début ; les suivants viennent avec le Château (BAND_TIER_SHARE). Ses monstres
+   * sont calculés pour qu'une bande de niveau 1 vaille à peu près une bande du palier d'avant de niveau 5.
+   */
+  tier: number
 }
 
 export const BAND_KINDS: BandKindDef[] = [
-  { id: 'wolves', name: 'Meute de loups', monsters: { wolf: 5 }, loot: { food: 120, wood: 60 }, minLevel: 1 },
+  { id: 'wolves', name: 'Meute de loups', monsters: { wolf: 5 }, loot: { food: 120, wood: 60 }, minLevel: 1, tier: 1 },
   {
     id: 'goblins',
     name: 'Pillards gobelins',
     monsters: { goblin: 8, shaman: 1 },
     loot: { food: 100, wood: 100, gold: 25 },
-    minLevel: 1,
+    minLevel: 1, tier: 1,
   },
   {
     id: 'skeletons',
     name: 'Patrouille de squelettes',
     monsters: { skeleton: 10, shaman: 2 },
     loot: { stone: 120, gold: 40, mana: 20 },
-    minLevel: 2,
+    minLevel: 2, tier: 1,
   },
   {
     id: 'trolls',
     name: 'Bande de trolls',
     monsters: { troll: 1, goblin: 12 },
     loot: { food: 300, wood: 200, stone: 200, gold: 80, mana: 40 },
-    minLevel: 4,
+    minLevel: 4, tier: 1,
   },
   {
     id: 'boars',
     name: 'Harde de sangliers',
     monsters: { boar: 4 },
     loot: { food: 260, wood: 120 },
-    minLevel: 3,
+    minLevel: 3, tier: 1,
   },
   {
     id: 'wyverns',
     name: 'Vol de vouivres',
     monsters: { wyvern: 1, boar: 3 },
     loot: { stone: 150, gold: 150, mana: 120 },
-    minLevel: 5,
+    minLevel: 5, tier: 1,
   },
   // Le grand campement : ses patrouilles et ses chefs. Ils n'apparaissent que là (d'où leur niveau
   // minimal, qu'aucune bande n'atteint ailleurs), et sont faits pour plusieurs armées à la fois.
@@ -1617,28 +1673,28 @@ export const BAND_KINDS: BandKindDef[] = [
     name: 'Patrouille des Crocs',
     monsters: { troll: 1, boar: 3, wolf: 6 },
     loot: { food: 80, wood: 80, stone: 50, gold: 20 },
-    minLevel: 99,
+    minLevel: 99, tier: 1,
   },
   {
     id: 'keeper',
     name: 'Gardien de la clef',
     monsters: { troll: 3, wyvern: 1, goblin: 10 },
     loot: { gold: 60, mana: 30 },
-    minLevel: 99,
+    minLevel: 99, tier: 1,
   },
   {
     id: 'eliteGuard',
     name: 'Garde d’élite',
     monsters: { troll: 4, boar: 4 },
     loot: { food: 120, wood: 120, stone: 120 },
-    minLevel: 99,
+    minLevel: 99, tier: 1,
   },
   {
     id: 'warlord',
     name: 'Seigneur des Crocs',
     monsters: { troll: 6, wyvern: 3, boar: 6 },
     loot: { food: 300, wood: 300, stone: 300, gold: 150, mana: 80 },
-    minLevel: 99,
+    minLevel: 99, tier: 1,
   },
   {
     // Des archers postés sur une tour, qui voient venir de loin (WATCH_RADIUS).
@@ -1646,7 +1702,93 @@ export const BAND_KINDS: BandKindDef[] = [
     name: 'Tour de guet',
     monsters: { skeleton: 6, goblin: 2 },
     loot: { wood: 100, stone: 100, gold: 20 },
-    minLevel: 99,
+    minLevel: 99, tier: 1,
+  },
+  // Le palier II (Château 11 à 20).
+  { id: 'bears', name: 'Ours en maraude', monsters: { bear: 5 }, loot: { food: 1500, wood: 700 }, minLevel: 1, tier: 2 },
+  {
+    id: 'spiders',
+    name: 'Nuée d’araignées',
+    monsters: { spider: 9 },
+    loot: { wood: 800, stone: 1000, gold: 300 },
+    minLevel: 1,
+    tier: 2,
+  },
+  {
+    id: 'wraiths',
+    name: 'Cortège de spectres',
+    monsters: { wraith: 4, skeleton: 10 },
+    loot: { stone: 900, gold: 400, mana: 300 },
+    minLevel: 2,
+    tier: 2,
+  },
+  // Le palier III (Château 21 à 30).
+  { id: 'golems', name: 'Colonne de golems', monsters: { golem: 8 }, loot: { stone: 6000, gold: 1500 }, minLevel: 1, tier: 3 },
+  {
+    id: 'harpies',
+    name: 'Volée de harpies',
+    monsters: { harpy: 20 },
+    loot: { food: 5000, wood: 4000, gold: 1200 },
+    minLevel: 1,
+    tier: 3,
+  },
+  {
+    id: 'liches',
+    name: 'Conclave des liches',
+    monsters: { lich: 6, wraith: 12 },
+    loot: { stone: 3000, gold: 2000, mana: 2000 },
+    minLevel: 2,
+    tier: 3,
+  },
+  // Le palier IV (Château 31 à 40).
+  {
+    id: 'mammoths',
+    name: 'Troupeau de mammouths',
+    monsters: { mammoth: 24 },
+    loot: { food: 16000, wood: 10000 },
+    minLevel: 1,
+    tier: 4,
+  },
+  {
+    id: 'scorpions',
+    name: 'Essaim de scorpions',
+    monsters: { scorpion: 44 },
+    loot: { stone: 14000, gold: 4000 },
+    minLevel: 1,
+    tier: 4,
+  },
+  {
+    id: 'vampires',
+    name: 'Cour des vampires',
+    monsters: { vampire: 20, harpy: 30 },
+    loot: { stone: 6000, gold: 6000, mana: 6000 },
+    minLevel: 2,
+    tier: 4,
+  },
+  // Le palier V (Château 41 à 50).
+  {
+    id: 'behemoths',
+    name: 'Béhémoths en marche',
+    monsters: { behemoth: 40 },
+    loot: { food: 34000, wood: 30000, stone: 20000 },
+    minLevel: 1,
+    tier: 5,
+  },
+  {
+    id: 'chimeras',
+    name: 'Meute de chimères',
+    monsters: { chimera: 54 },
+    loot: { food: 30000, gold: 12000 },
+    minLevel: 1,
+    tier: 5,
+  },
+  {
+    id: 'demons',
+    name: 'Légion démoniaque',
+    monsters: { demon: 50, scorpion: 60 },
+    loot: { gold: 15000, mana: 15000 },
+    minLevel: 2,
+    tier: 5,
   },
 ]
 
@@ -1702,6 +1844,16 @@ export const TRAP_RADIUS = 30
 export const TRAP_DAMAGE = 2000
 
 export const MAX_BAND_LEVEL = 5
+/**
+ * Au-delà du premier palier du Château, la moitié des nouvelles bandes est de son palier (le palier
+ * II à partir du Château 11, le III à partir du 21…) ; les autres sont du palier d'avant.
+ */
+export const BAND_TIER_SHARE = 0.5
+/**
+ * Un palier vaut quatre niveaux de bande : une bande du palier II de niveau 1 vaut à peu près une
+ * bande du palier I de niveau 5. Le joueur voit donc ce niveau-là (5 pour elle), de 1 à 21.
+ */
+export const BAND_TIER_LEVELS = 4
 export const BAND_GROWTH = 1.45
 export const BAND_LOOT_GROWTH = 1.6
 /** Le niveau d'une bande dépend de sa distance à la cité : niveau 1 jusqu'à 335, puis un de plus tous les 135. */
@@ -1882,6 +2034,11 @@ export const RAID_RESPITE_SECONDS = 2 * 60 * 60
 export const RAID_SPEED = 6
 /** Un raid compte une fois et demie plus de monstres qu'une bande du même niveau, et rapporte autant de plus. */
 export const RAID_SIZE = 1.5
+/**
+ * Les raids sont du palier du Château. Au premier palier, leur niveau monte d'un par niveau du Château
+ * (à partir de RAID_CASTLE_LEVEL) ; aux suivants, d'un tous les RAID_LEVEL_EVERY niveaux du Château.
+ */
+export const RAID_LEVEL_EVERY = 2
 /** D'où partent les raids : des points au bord de la carte. */
 export const RAID_GATES: Point[] = [
   { x: 60, y: 70 },
@@ -1913,8 +2070,10 @@ export const SIEGE_WAIT_SECONDS = 10
 export const RAID_PLUNDER_SHARE = 0.2
 /** … sauf ce que le Château met à l'abri : autant de chaque ressource au niveau 1, puis comme les coûts. */
 export const PROTECTED_BASE = 300
-/** Et chaque monstre encore debout ne peut emporter que cette quantité. */
+/** Et chaque monstre encore debout ne peut emporter que cette quantité… */
 export const RAID_LOAD_PER_MONSTER = 40
+/** … multipliée par autant à chaque palier du monstre : un raid de la fin de partie emporte gros. */
+export const RAID_LOAD_GROWTH = 4
 
 // --- Les gisements de ressources ---
 // Des champs, des scieries, des carrières, des mines et des sources de mana, sur la carte des

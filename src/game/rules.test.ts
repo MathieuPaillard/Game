@@ -11,6 +11,7 @@ import {
   BAND_KINDS,
   BAND_SPAWN_SECONDS,
   BAND_SPOTS,
+  BAND_TIER_LEVELS,
   BATTLE_DAMAGE_SCALE,
   BATTLE_ROUND_SECONDS,
   CIRCLE_LEVEL_STEP,
@@ -40,6 +41,8 @@ import {
   RAID_FIRST_SECONDS,
   RAID_GATES,
   RAID_INTERVAL_SECONDS,
+  RAID_LEVEL_EVERY,
+  RAID_LOAD_GROWTH,
   RAID_LOAD_PER_MONSTER,
   RAID_PLUNDER_SHARE,
   RAID_RESPITE_SECONDS,
@@ -177,8 +180,11 @@ import {
   raidLoot,
   raidMonsters,
   recruitHero,
+  castleTier,
+  foeLevel,
   levelDuration,
   levelScale,
+  plunderOf,
   rankTech,
   researchAcademyLevel,
   researchCost,
@@ -2351,6 +2357,62 @@ describe('les paliers : les rangs des troupes et les cercles de recherches', () 
     expect(ratio('fortification', 2, wallGuards)).toBeCloseTo(1 + 2 * perLevel('fortification'), 1)
     expect(ratio('vaults', 2, protectedAmount)).toBeCloseTo(1 + 2 * perLevel('vaults'), 2)
     expect(maxArmies(withTechs(game, { command: 2, command2: 1 }))).toBe(maxArmies(game) + 3)
+  })
+})
+
+describe('les paliers des monstres', () => {
+  const kindsOf = (tier: number) => BAND_KINDS.filter((kind) => kind.tier === tier && kind.minLevel < 99)
+  const tierOf = (band: Band) => getBandKind(band.kind).tier
+
+  it('chaque palier a ses monstres et ses bandes, dès le niveau 1', () => {
+    for (let tier = 1; tier <= MAX_RANK; tier++) {
+      expect(kindsOf(tier).some((kind) => kind.minLevel === 1), `palier ${tier}`).toBe(true)
+      if (tier > 1) {
+        // Ses bandes comptent des monstres de son palier.
+        for (const kind of kindsOf(tier)) {
+          const ids = Object.keys(kind.monsters) as MonsterId[]
+          expect(ids.some((id) => getMonster(id).tier === tier), kind.id).toBe(true)
+        }
+      }
+    }
+  })
+
+  it('le niveau d’une bande, tel que le voit le joueur, compte son palier', () => {
+    expect(foeLevel('wolves', 3)).toBe(3)
+    expect(foeLevel('bears', 1)).toBe(1 + BAND_TIER_LEVELS)
+    expect(foeLevel('demons', 2)).toBe(2 + 4 * BAND_TIER_LEVELS)
+    // Les bandes du grand campement restent au premier palier.
+    expect(foeLevel('warlord', 7)).toBe(7)
+  })
+
+  it('les raids suivent le palier du Château', () => {
+    expect(castleTier(richGame({ castle: RANK_STEP }))).toBe(1)
+    expect(castleTier(richGame({ castle: RANK_STEP + 1 }))).toBe(2)
+    expect(raidLevel(richGame({ castle: RANK_STEP }))).toBe(MAX_BAND_LEVEL)
+    expect(raidLevel(richGame({ castle: RANK_STEP + 1 }))).toBe(1)
+    expect(raidLevel(richGame({ castle: RANK_STEP + 1 + RAID_LEVEL_EVERY }))).toBe(2)
+    const game: GameState = { ...richGame({ castle: RANK_STEP + 1 }), nextRaidAt: T0 + 1000 }
+    const raid = advance(game, T0 + 1000).bands.find((band) => band.raid)!
+    expect(tierOf(raid)).toBe(2)
+    expect(raid).toMatchObject({ level: 1, monsters: raidMonsters(raid.kind, 1) })
+  })
+
+  it('la moitié des nouvelles bandes suit le palier du Château, les autres restent un palier en dessous', () => {
+    const fill = (castle: number) => {
+      const game: GameState = { ...richGame({ castle }), nextBandAt: T0 }
+      return advance(game, T0 + MAX_BANDS * BAND_SPAWN_SECONDS * 1000).bands
+    }
+    const bands = fill(2 * RANK_STEP + 5)
+    expect(bands).toHaveLength(MAX_BANDS)
+    expect(new Set(bands.map(tierOf))).toEqual(new Set([2, 3]))
+    // Au premier palier, toutes sont du palier I.
+    expect(fill(RANK_STEP).every((band) => tierOf(band) === 1)).toBe(true)
+  })
+
+  it('un monstre d’un palier plus haut emporte davantage quand il pille la cité', () => {
+    const game = richGame({ castle: 1 })
+    expect(loadSize(plunderOf(game, { wolf: 1 }))).toBeCloseTo(RAID_LOAD_PER_MONSTER, -1)
+    expect(loadSize(plunderOf(game, { bear: 1 }))).toBeCloseTo(RAID_LOAD_PER_MONSTER * RAID_LOAD_GROWTH, -1)
   })
 })
 

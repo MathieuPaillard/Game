@@ -26,6 +26,7 @@ import {
   fighterPosition,
   getArmy,
   getBand,
+  foeLevel,
   getBandKind,
   getHeroDef,
   nodeGatherer,
@@ -336,6 +337,8 @@ const bands = computed(() => {
     const battle = fighting?.battle
     const besieging = siege !== undefined && battle?.id === siege.id
     const name = getBandKind(band.kind).name
+    // Le niveau que voit le joueur : son palier compris (une bande du palier II commence au niveau 5).
+    const level = foeLevel(band.kind, band.level)
     const arrival = raidArrival(band)
     const left = arrival === null ? null : Math.max(0, arrival - props.now)
     // Un raid : son état en quelques mots, sous son nom.
@@ -370,11 +373,11 @@ const bands = computed(() => {
       name: band.raid ? `Raid : ${name}` : name,
       sublabel: band.raid ? raidState : hunting ? 'Te poursuit !' : returning ? 'Regagne sa ronde' : null,
       label: band.raid
-        ? `Raid : ${name}, niveau ${band.level}, ${besieging ? 'assiège la cité' : left === null ? 'au combat' : `arrive à la cité dans ${formatDuration(left)}`}`
+        ? `Raid : ${name}, niveau ${level}, ${besieging ? 'assiège la cité' : left === null ? 'au combat' : `arrive à la cité dans ${formatDuration(left)}`}`
         : band.still
-          ? `${name}, ${chief}, niveau ${band.level}${battle ? ', au combat' : ''}`
-          : `${name}, bande de niveau ${band.level}, ${doing}`,
-      level: band.level,
+          ? `${name}, ${chief}, niveau ${level}${battle ? ', au combat' : ''}`
+          : `${name}, bande de niveau ${level}, ${doing}`,
+      level,
       icon: monstersIcon(band.monsters),
       danger: dangers.value.has(band.id),
       selected: isSelectedTarget(target) || isOrdered(target),
