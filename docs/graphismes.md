@@ -76,6 +76,31 @@ Pour chaque image : le nom du fichier à utiliser, puis ce qu'il faut écrire ap
 | `troupe-chamans.png` | Personnage en pied : un chaman orc couvert de plumes et d'os peints, un bâton à grelots levé, entouré de fumée d'herbes. |
 | `troupe-runistes.png` | Personnage en pied : un nain à la barbe tressée, un burin à la main, gravant une rune qui s'illumine sur un bouclier. |
 
+### Rangs des troupes
+
+Chaque troupe a quatre rangs de plus (II à V), avec leur propre nom. Une image par rang, en ajoutant le numéro du rang au nom du fichier : `troupe-guerriers-2.png` pour les Porte-boucliers, jusqu'à `troupe-guerriers-5.png` pour les Remparts vivants (et de même pour les autres troupes). C'est le même personnage que sa troupe de base, de plus en plus richement équipé : plus de métal, des matières plus rares, puis une lueur au rang V.
+
+| Troupe | Rang II | Rang III | Rang IV | Rang V |
+|---|---|---|---|---|
+| Guerriers | Porte-boucliers : un grand pavois de bois cerclé de fer. | Lances de fer : une lance à pointe noire, une armure de plates légère. | Gardes d'acier : une armure d'acier complète, un heaume à visière. | Remparts vivants : une armure massive gravée, un bouclier-tour qui luit. |
+| Archers | Arcs-longs : un arc plus grand que lui. | Flèches noires : une cape noire, des flèches empennées de noir. | Yeux-de-faucon : un faucon sur l'épaule, un masque de cuir. | Archers de l'aube : un arc doré, une flèche de lumière. |
+| Cavaliers | Coursiers : un cheval léger, une lance à fanion. | Lances d'argent : une armure et une lance argentées. | Cuirassiers : une cuirasse lourde, un cheval bardé de fer. | Cavaliers du tonnerre : un cheval noir aux sabots crépitant d'éclairs. |
+| Mages | Invocateurs : un cercle de runes à leurs pieds. | Sorciers des braises : une robe rouge, une boule de feu. | Mages de guerre : une robe renforcée de plaques, un bâton-lance. | Maîtres des arcanes : une robe étoilée, un livre qui flotte devant eux. |
+| Paladins | Paladins du serment : un tabard blanc frappé d'un soleil. | Lames bénies : une épée lumineuse. | Gardiens sacrés : des ailes dorées sur le heaume. | Champions de lumière : une armure blanche et or, un halo de lumière. |
+| Arbalétriers nains | Arbalètes de forge : une arbalète à deux arcs. | Tireurs runiques : des carreaux gravés de runes bleues. | Balistiers : une petite baliste portée sur le dos. | Foudres de la montagne : une arbalète qui crépite d'éclairs. |
+| Chevaucheurs de loups | Chevaucheurs sauvages : un loup noir, des peintures de guerre. | Hurleurs : un loup qui hurle, une corne de guerre. | Fléaux des plaines : un loup cuirassé de plaques. | Rois-loups : un loup blanc géant, une couronne d'os. |
+| Arcanistes | Tisseurs de lumière : des rubans de lumière entre les mains. | Mages astraux : des constellations autour des mains. | Veilleurs des étoiles : un diadème d'étoiles. | Lumières anciennes : une silhouette baignée de lumière blanche. |
+| Prêtres | Chapelains : un livre de prières ouvert. | Prieurs : une robe épaisse, un encensoir. | Hauts-prêtres : une mitre et une crosse dorée. | Saints guérisseurs : une auréole, des mains lumineuses. |
+| Druides | Druides des sources : de l'eau claire qui coule de leurs mains. | Gardiens des bosquets : des branches dans les cheveux. | Chantres de la sève : un bâton fleuri, des papillons lumineux. | Druides anciens : une peau d'écorce, une couronne de bois de cerf. |
+| Chamans | Diseurs d'os : des osselets à la main. | Voix des ancêtres : des esprits translucides autour d'eux. | Chamans du sang : des peintures rouges, un tambour. | Grands chamans : une immense coiffe de plumes, un totem. |
+| Runistes | Graveurs de runes : un marteau et un burin. | Maîtres des runes : un tablier couvert de runes lumineuses. | Sages des profondeurs : une barbe blanche, une lanterne de cristal. | Anciens des runes : des runes qui flottent autour d'eux. |
+
+Et pour les grandes recherches qui ouvrent ces rangs :
+
+| Fichier | Description |
+|---|---|
+| `recherche-rang.png` | Objet : une médaille dorée ornée d'étoiles, au ruban bleu nuit. |
+
 ### Héros
 
 | Fichier | Description |

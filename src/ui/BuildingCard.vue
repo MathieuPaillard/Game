@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { RESOURCES, RESOURCE_IDS, type BuildingDef } from '../game/config'
+import { MAX_RANK, RANK_STEP, RESOURCES, RESOURCE_IDS, type BuildingDef } from '../game/config'
 import {
   buildingOutput,
   checkUpgrade,
   constructionOf,
   maxLevelOf,
+  rankNumeral,
+  rankOpen,
+  rankTech,
   storageCapacity,
   upgradeCost,
   upgradeDuration,
@@ -41,6 +44,18 @@ const outputNext = computed(() => buildingOutput(props.state, props.building, ta
 // L'Entrepôt : ce que gardent les réserves de chaque ressource, maintenant et au niveau suivant.
 const roomNow = computed(() => storageCapacity(props.state))
 const roomNext = computed(() => storageCapacity(props.state, target.value))
+/**
+ * Le Château : le prochain palier (les niveaux 10, 20, 30 et 40), que seul passe le Château dont la
+ * grande recherche du rang suivant est faite. null quand il n'y en a plus, ou que la recherche est faite.
+ */
+const palier = computed(() => {
+  if (props.building.id !== 'castle') return null
+  const level = RANK_STEP * Math.max(1, Math.ceil(props.state.levels.castle / RANK_STEP))
+  const rank = level / RANK_STEP + 1
+  const tech = rankTech(rank)
+  if (rank > MAX_RANK || !tech || rankOpen(props.state, rank)) return null
+  return { level, rank, tech }
+})
 </script>
 
 <template>
@@ -58,6 +73,11 @@ const roomNext = computed(() => storageCapacity(props.state, target.value))
     <p v-if="building.produces" class="plaque-output">
       {{ RESOURCES[building.produces].icon }} {{ formatAmount(outputNow) }}/h
       <span v-if="!maxed" class="muted">→ {{ formatAmount(outputNext) }}/h au niveau {{ target }}</span>
+    </p>
+    <p v-if="palier" class="palier">
+      <span aria-hidden="true">🎖️</span> Palier : pour dépasser le niveau {{ palier.level }}, le Château attend la grande
+      recherche « {{ palier.tech.name }} », à l’Académie niveau {{ palier.level }} avec la Caserne au même niveau. Elle
+      ouvre le rang {{ rankNumeral(palier.rank) }} de tes troupes.
     </p>
     <p v-if="building.id === 'warehouse'" class="plaque-output">
       Tes réserves gardent <strong>{{ formatAmount(roomNow) }}</strong> de chaque ressource
@@ -106,5 +126,12 @@ const roomNext = computed(() => storageCapacity(props.state, target.value))
 
 .plaque-output .muted {
   font-size: 0.875rem;
+}
+
+.palier {
+  padding: 0.5rem 0.7rem;
+  border-left: 3px solid var(--gilt);
+  background: var(--stone-raised);
+  border-radius: 4px;
 }
 </style>

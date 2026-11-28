@@ -11,6 +11,8 @@ const level = computed(() => props.state.techs[props.tech.id])
 const target = computed(() => level.value + 1)
 const maxed = computed(() => level.value >= props.tech.maxLevel)
 const locked = computed(() => props.state.levels.academy < props.tech.unlockedAtAcademyLevel)
+/** Une grande recherche : elle ouvre un rang de troupes, et un palier du Château. */
+const great = computed(() => props.tech.effect.kind === 'rank')
 
 const running = computed(() => (props.state.research?.tech === props.tech.id ? props.state.research : null))
 const progress = computed(() => {
@@ -40,17 +42,19 @@ const effectNow = computed(() => {
 </script>
 
 <template>
-  <article class="plaque" :class="{ empty: locked, working: running }">
+  <article class="plaque" :class="{ empty: locked, working: running, great }">
     <header class="plaque-head">
       <span class="plaque-icon" aria-hidden="true">{{ tech.icon }}</span>
       <div>
         <h3 class="plaque-name">{{ tech.name }}</h3>
-        <p class="plaque-level">Niveau {{ level }} / {{ tech.maxLevel }}</p>
+        <p class="plaque-level">
+          {{ great ? (level > 0 ? 'Grande recherche · faite' : 'Grande recherche') : `Niveau ${level} / ${tech.maxLevel}` }}
+        </p>
       </div>
     </header>
 
     <p class="muted">{{ tech.description }}.</p>
-    <p v-if="level > 0">Effet actuel : <strong>{{ effectNow }}</strong></p>
+    <p v-if="level > 0 && !great">Effet actuel : <strong>{{ effectNow }}</strong></p>
 
     <div class="plaque-foot">
       <div v-if="running" class="works" role="status">
@@ -60,7 +64,7 @@ const effectNow = computed(() => {
         </p>
       </div>
 
-      <p v-else-if="maxed" class="muted">Niveau maximum atteint</p>
+      <p v-else-if="maxed" class="muted">{{ great ? `✓ ${effectNow}` : 'Niveau maximum atteint' }}</p>
 
       <template v-else>
         <ul class="cost" aria-label="Coût">
@@ -73,9 +77,21 @@ const effectNow = computed(() => {
         </ul>
         <p v-if="reason" class="reason">{{ reason }}</p>
         <button class="btn" type="button" :disabled="!check.ok" @click="emit('research')">
-          Rechercher le niveau {{ target }}
+          {{ great ? 'Lancer la grande recherche' : `Rechercher le niveau ${target}` }}
         </button>
       </template>
     </div>
   </article>
 </template>
+
+<style scoped>
+/* La grande recherche du cercle : elle ouvre un rang, et le palier du Château. */
+.plaque.great {
+  border-color: var(--gilt);
+  border-width: 2px;
+}
+
+.plaque.great.empty {
+  border-style: dashed;
+}
+</style>
